@@ -118,12 +118,8 @@ To save a result yourself use `save_json(r, path)`, and to read it back `load_js
 
 holdout **6,456 structures** (not used in the fit) · reference labels: CSD `bond_type` + tmQMg-L `q_ligand`.
 
-⚠️ **Geometry provenance** — every structure used for fitting and evaluation is a CSD
-experimental structure **relaxed with GFN2-xTB** (`ref_xtb2/xyz`), not the raw crystal
-coordinates and not a DFT geometry. Distance thresholds (`d_int`, `d_bond`) and the EHT
-fragment-charge cutoff were calibrated on that relaxed geometry. Feeding coordinates from a
-different source (raw CSD, a different force field, DFT) is off-distribution — expect
-distance-based calls (T1, T4) to be the first to degrade.
+⚠️ Fit and evaluation both use CSD experimental structures **relaxed with GFN2-xTB**.
+Coordinates from another source (raw CSD, DFT, a force field) are off-distribution.
 
 | Task | Metric | Value | Trivial baseline |
 |---|---|---|---|
@@ -139,79 +135,34 @@ distance-based calls (T1, T4) to be the first to degrade.
 
 ### Valence violations — chemical validity of the output
 
-Rule: `b_int(X) + b_ML(X) > CAP(X)` for a non-metal atom X (Kekulé count · 3c2e- and B-tagged
-atoms excluded).
+`b_int(X) + b_ML(X) > CAP(X)` for a non-metal X (Kekulé count · 3c2e and B excluded).
 
-| Evaluation | Pool | Violating structures | Reference-label baseline (same count) |
+| Evaluation | Pool | Violating structures | Reference-label baseline |
 |---|---|---|---|
-| holdout | 6,456 structures | **164 = 2.54%** | 44 = 0.68% |
-| train CV | 26,075 structures | **707 = 2.71%** | 103 = 0.40% |
+| holdout | 6,456 | **2.54%** | 0.68% |
+| train CV | 26,075 | **2.71%** | 0.40% |
 
-⚠️ The baseline is not 0 — even the CSD reference labels violate on 0.4–0.7% of structures
-(hypervalency, ionic/covalent boundary cases). Read our numbers against that baseline, not
-against zero.
+⚠️ The baseline is not 0 — the CSD reference labels themselves violate on 0.4–0.7%.
 
-Tool comparison (holdout), split into three pools — a tool appears in a pool only where its
-success is guaranteed for every structure in it, so each row is a true same-pool comparison:
+**Against other tools** (holdout; each tool appears only in a pool where it succeeds on every
+structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm succeeded):
 
-```
-HOLDOUT   full holdout, 6,456              ours only — no other tool succeeds on all of it
-TOOL      all 3 external tools succeeded — 4,930   all 4 tools, same 4,930 structures
-X2M_TM    xyz2mol_tm succeeded — 5,479     ours vs xyz2mol_tm only
-```
+| Pool · n | Tool | Viol. atoms (`b_int`) | Viol. structures (`b_int`) | (`b_int`+`b_ML`) |
+|---|---|---|---|---|
+| **HOLDOUT** 6,456 | **xyz2mol-om** | **0.01%** | **0.36%** | 3.55% |
+| **TOOL** 4,930 | **xyz2mol-om** | **0.01%** | **0.43%** | 3.98% |
+| | xyz2mol | 0.25% | 7.48% | — |
+| | xyz2mol_tm | 0.18% | 4.97% | 43.79% |
+| | OpenBabel | 0.06% | 1.52% | 1.66% |
+| **X2M_TM** 5,479 | **xyz2mol-om** | **0.01%** | **0.40%** | 3.83% |
+| | xyz2mol_tm | 0.17% | 4.87% | 43.49% |
 
-**How `b_ML` is read — only as far as each tool's output allows:**
-
-| Tool | What it emits for M–L | How we count it |
-|---|---|---|
-| **xyz2mol-om** | `type` (haptic/dative/bridge) **+** `order` | haptic excluded from the budget — the output says it carries no order |
-| OpenBabel | integer order, no type | its order, as emitted |
-| xyz2mol_tm | connectivity only — no type, no order | dative (=1) each, the only reading available to a consumer |
-| xyz2mol | no M–L at all | — |
-
-Counting a dative bond as +1 is correct under this project's convention (`b_ML(X) ≤ lp(X)` — a
-dative bond really does consume the donor's lone pair). It breaks in exactly one place: haptic
-sites, where η⁵-Cp is one π-system donation rather than five lone-pair donations, so the same
-electrons get counted twice.
-
-| Pool · n | Tool | Viol. atoms (`b_int`) | Viol. structures (`b_int`) | Viol. atoms (`b_int`+`b_ML`) | Viol. structures (`b_int`+`b_ML`) |
-|---|---|---|---|---|---|
-| **HOLDOUT** 6,456 | **xyz2mol-om (this)** | **0.01%** | **0.36%** | **0.09%** | **3.55%** |
-| **TOOL** 4,930 | **xyz2mol-om (this)** | **0.01%** | **0.43%** | **0.10%** | **3.98%** |
-| | xyz2mol | 0.25% | 7.48% | — | — |
-| | xyz2mol_tm | 0.18% | 4.97% | 4.68% | 43.79% |
-| | OpenBabel | 0.06% | 1.52% | 0.07% | 1.66% |
-| **X2M_TM** 5,479 | **xyz2mol-om (this)** | **0.01%** | **0.40%** | **0.10%** | **3.83%** |
-| | xyz2mol_tm | 0.17% | 4.87% | 4.74% | 43.49% |
-
-The `b_int`-only columns are the fair comparison — every tool shown can produce that, on the
-same pool. We are lowest on both, in all three pools.
-
-### Why the `b_int`+`b_ML` column differs so much — three different failure modes
-
-Broken down per atom (1,621-structure holdout sample):
-
-| Tool | M–L emitted | of which at haptic sites | T4 precision | **T4 recall** | Viol. atoms | **of which haptic** |
-|---|---|---|---|---|---|---|
-| **xyz2mol-om** | 13,437 | 3,335 (24.8%) | 0.9885 | **0.9926** | 106 | **0.3%** |
-| xyz2mol_tm | 11,672 | 3,224 (27.6%) | 0.9849 | 0.8427 | **3,704** | **81.3%** |
-| OpenBabel | 9,606 | **836 (8.7%)** | 0.9958 | **0.6575** | 60 | 0.4% |
-
-**xyz2mol_tm's 43.79% is the cost of not typing its M–L bonds**, not a scoring artifact. It
-finds the bonds fine (27.6% of its M–L are at haptic sites, comparable to our 24.8%), but
-without a type a consumer must read them as dative, so every η⁵-Cp makes five carbons
-over-valent at once — **81.3% of its violating atoms are at haptic sites**, versus 0.3% of
-ours. That gap is exactly what emitting `type` buys.
-
-**OpenBabel's 1.66% is not skill — it is missing bonds.** Its T4 recall is **0.6575**: it
-misses a third of the true M–L bonds (its precision, 0.9958, is the highest — it emits only
-what it is sure of). The misses concentrate at haptic sites: only **8.7%** of its M–L bonds
-are there, versus 24.8–27.6% for the other two. It sidesteps the sites where xyz2mol_tm blows
-up by not making those bonds at all — there is nothing there to violate. **A low violation
-rate is not by itself a sign of better output.**
-
-Our haptic exclusion is not a free pass either — the T5 haptic call it rests on scores F1
-0.9683 (HOLDOUT) / 0.9671 (TOOL) / 0.9685 (X2M_TM).
+The `b_int`-only columns are the fair comparison (every tool can produce that) — we are lowest
+in all three pools. ⚠️ **Do not compare the `b_int`+`b_ML` column across tools**: xyz2mol_tm
+emits no M–L order, so it must be read as all-dative and every η⁵-Cp over-valences five
+carbons at once (81% of its violations are at haptic sites); OpenBabel's low figure comes from
+missing a third of the M–L bonds (T4 recall 0.66), not from getting them right. Full breakdown:
+`ognm-bh-workspace/docs/backlog/tm-bond-remaining.md` §5.2-H-2.
 
 ## ⚠️ Limits
 
