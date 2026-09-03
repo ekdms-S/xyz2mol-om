@@ -51,7 +51,7 @@ from .smiles import ligand_smiles, verify_roundtrip
 from .connectivity import load_dint
 from .eht import eht_frag_charges
 from .likelihood import load_scores4
-from .ml_order import load_b_ml_mayer
+from .ml_order import load_b_ml_mayer, ml_order_scores
 from .pipeline import predict_T3_EHT
 
 
@@ -104,23 +104,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
 
     # ③ T5 — haptic 판정은 π 조각을 알아야 하므로 T3 뒤로 미룬다. 예산에는 Single 기준선.
     BML, BML_FB = load_b_ml_mayer()
-    ml_sc = {}
-    for m, x in ml_raw:
-        w = (wbo or {}).get((m, x))
-        ent = BML.get((el[m], el[x]))
-        if ent is None or w is None or ent[0] == "const":
-            ml_sc[(m, x)] = {(ent[1] if (ent and ent[0] == "const") else BML_FB): 0.0}
-        elif ent[0] == "thr":
-            _, t1, t2, kk = ent
-            sm = {0: 0.0}
-            if t1 != float("inf"):
-                sm[1] = kk * (w - t1)
-                if t2 != float("inf"):
-                    sm[2] = sm[1] + kk * (w - t2)
-            ml_sc[(m, x)] = sm
-        else:
-            _, med, scl, lp = ent
-            ml_sc[(m, x)] = {c: -abs(w - med[c]) / scl[c] + lp[c] for c in med}
+    # 🔴 M–L 차수 점수표는 **공유 헬퍼 한 곳**에서만 만든다 (워크스페이스와 동일).
+    ml_sc = ml_order_scores(el, ml_raw, wbo, BML, BML_FB)
     bml = collections.defaultdict(float)
     for _m, x in ml_raw:
         bml[x] += 1.0

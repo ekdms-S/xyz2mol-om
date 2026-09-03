@@ -98,3 +98,36 @@ def predict_T8(m_el, x_el, w, model, fallback=0):
         return 2 if w >= t2 else (1 if w >= t1 else 0)
     _, med, scl, lp = e
     return max(med, key=lambda c: -abs(w - med[c]) / scl[c] + lp[c])
+
+
+def ml_order_scores(el, ml_pairs, wbo, bml_model=None, fb=None):
+    """M–L 차수 **점수표** `{(m, x): {클래스: 점수}}` — ④ 정확 해가 M–L 을 같이 최적화할 때 쓴다.
+
+    🔴 **한 곳에서만 만든다** (2026-09-03). 예전에는 CV 스크립트·도구 대조·CRW·라이브러리가
+    각자 만들었고, 어떤 곳은 아예 안 만들어(`ml_sc=None`) M–L 차수를 T8 argmax 로 **고정**했다.
+    그러면 같은 입력에 다른 답이 나온다.
+
+    `wbo` {(금속, 원자): Mayer w} · `bml_model`/`fb` = `load_b_ml_mayer()` 산출(없으면 직접 읽는다)
+    ⚠️ **haptic 은 호출자가 미리 빼서 넘긴다** — 하프틱에는 차수를 안 매긴다(§3 5a).
+    """
+    if bml_model is None:
+        bml_model, fb = load_b_ml_mayer()
+    out = {}
+    for m, x in ml_pairs:
+        w = (wbo or {}).get((m, x), (wbo or {}).get((x, m)))
+        ent = bml_model.get((el[m], el[x]))
+        if ent is None or w is None or ent[0] == "const":
+            c0 = ent[1] if (ent and ent[0] == "const") else fb
+            out[(m, x)] = {c0: 0.0}
+        elif ent[0] == "thr":
+            _, t1, t2, kk = ent
+            sm = {0: 0.0}
+            if t1 != float("inf"):
+                sm[1] = kk * (w - t1)
+                if t2 != float("inf"):
+                    sm[2] = sm[1] + kk * (w - t2)
+            out[(m, x)] = sm
+        else:
+            _, med, scl, lp = ent
+            out[(m, x)] = {c: -abs(w - med[c]) / scl[c] + lp[c] for c in med}
+    return out

@@ -11,7 +11,7 @@ from .charge import frag_charge, kekulize, q_atom
 from .connectivity import load_dint
 from .eht import eht_frag_charges
 from .likelihood import deg_cell, fit_scores4, load_scores4, scores4_meta
-from .ml_order import load_b_ml_mayer, predict_T8
+from .ml_order import load_b_ml_mayer, ml_order_scores, predict_T8
 from .pipeline import predict_T3_EHT
 from .smiles import ligand_smiles, verify_roundtrip
 
@@ -26,6 +26,7 @@ __all__ = [
     "load_dint",
     "load_b_ml_mayer",
     "predict_T8",
+    "ml_order_scores",
     "eht_frag_charges",
     "q_atom",
     "frag_charge",
