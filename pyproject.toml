@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xyz2mol-om"
+version = "0.1.0"
+description = "전이금속 착물 xyz -> 결합 · 결합차수 · 리간드 전하 · 금속 산화수"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23", "networkx>=3.0", "rdkit>=2023.3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+xyz2mol_om = ["data/*.csv", "data/*.json"]
+
+[tool.ruff]
+line-length = 100
