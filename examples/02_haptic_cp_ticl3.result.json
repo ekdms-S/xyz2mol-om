@@ -1,0 +1,185 @@
+{
+ "complex_smiles": "[H][C]12->[Ti+4]345(<-[Cl-])(<-[Cl-])(<-[Cl-])<-[C]1([H])=[C]->3([H])[C-]->4([H])[C]->5=2[H]",
+ "complex_smiles_ok": true,
+ "complex_smiles_note": "",
+ "complex_atom_order": [
+  11,
+  6,
+  0,
+  1,
+  2,
+  3,
+  7,
+  12,
+  8,
+  13,
+  4,
+  9,
+  5,
+  10
+ ],
+ "metals": [
+  {
+   "index": 0,
+   "element": "Ti",
+   "oxidation": 4,
+   "mm_bonds": {}
+  }
+ ],
+ "ligands": [
+  {
+   "index": 0,
+   "atoms": [
+    1
+   ],
+   "bonds_4class": {},
+   "bonds_kekule": {},
+   "smiles": "[Cl-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    1
+   ],
+   "ml_bonds": {
+    "0,1": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": -1,
+   "residual_charge": null
+  },
+  {
+   "index": 1,
+   "atoms": [
+    2
+   ],
+   "bonds_4class": {},
+   "bonds_kekule": {},
+   "smiles": "[Cl-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    2
+   ],
+   "ml_bonds": {
+    "0,2": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": -1,
+   "residual_charge": null
+  },
+  {
+   "index": 2,
+   "atoms": [
+    3
+   ],
+   "bonds_4class": {},
+   "bonds_kekule": {},
+   "smiles": "[Cl-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    3
+   ],
+   "ml_bonds": {
+    "0,3": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": -1,
+   "residual_charge": null
+  },
+  {
+   "index": 3,
+   "atoms": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+   ],
+   "bonds_4class": {
+    "6,7": "Conj",
+    "4,5": "Conj",
+    "5,6": "Conj",
+    "4,8": "Conj",
+    "7,8": "Conj",
+    "4,9": "Single",
+    "5,10": "Single",
+    "6,11": "Single",
+    "7,12": "Single",
+    "8,13": "Single"
+   },
+   "bonds_kekule": {
+    "4,9": 1,
+    "5,10": 1,
+    "6,11": 1,
+    "7,12": 1,
+    "8,13": 1,
+    "6,7": 1,
+    "5,6": 2,
+    "7,8": 2,
+    "4,5": 1,
+    "4,8": 1
+   },
+   "smiles": "[H][C-:1]1[C:2]([H])=[C:3]([H])[C:4]([H])=[C:5]1[H]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    4,
+    5,
+    6,
+    7,
+    8
+   ],
+   "ml_bonds": {
+    "0,4": {
+     "type": "haptic",
+     "order": null,
+     "bridge": null
+    },
+    "0,5": {
+     "type": "haptic",
+     "order": null,
+     "bridge": null
+    },
+    "0,6": {
+     "type": "haptic",
+     "order": null,
+     "bridge": null
+    },
+    "0,7": {
+     "type": "haptic",
+     "order": null,
+     "bridge": null
+    },
+    "0,8": {
+     "type": "haptic",
+     "order": null,
+     "bridge": null
+    }
+   },
+   "eta": {
+    "0": 5
+   },
+   "charge": -1,
+   "residual_charge": null
+  }
+ ],
+ "total_charge": 0
+}
