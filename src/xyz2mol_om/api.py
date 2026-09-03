@@ -1,24 +1,41 @@
-"""상위 API — `xyz` → 결합 · 차수 · 리간드 전하 · 금속 산화수.
-
-한 함수만 알면 된다:
+"""상위 API — `xyz` → **금속별 / 리간드별** 결합 · 차수 · 전하 · 산화수.
 
     from xyz2mol_om import predict
-    r = predict(elements, coords, total_charge=0, wbo=None)
+    r = predict(elements, coords, total_charge=0, wbo=wbo)
 
-`r` (dict)
-    `bonds`      {(i, j): 1.0 | 2.0 | 3.0}      배위자 **내부** 결합과 차수 (Kekulé 정수)
-    `conj`       {(i, j)}                        비편재(`Conj`)로 판정된 결합
-    `ml_bonds`   {(m, x): 1 | 2 | 3}             M–L 결합과 차수 (하프틱 제외)
-    `haptic`     {(m, x)}                        하프틱 M–L
-    `eta`        {(m, 조각idx): k}               η^k
-    `q_ligand`   {조각 최소원자idx: q}           리간드 조각 전하
-    `os_metal`   {m: OS}                          금속 산화수 (`total_charge` 를 주면)
-    `frag_q`     {조각 최소원자idx: q}           골격으로 표현 안 되는 잔여 조각 전하
+반환 구조 (dict)
 
-⚠️ **`wbo`(Mayer 결합차수)가 없으면 M–L 판정의 거부권과 T8 차수를 쓸 수 없다.**
-   `xtb --sp` 산출물을 `{(금속idx, 원자idx): w}` 로 넘긴다. 없으면 M–L 은 거리로만 잡고
-   차수는 전부 `Single` 로 둔다(설계도 §3 3·5a).
+    r["metals"]  = [ {                      금속 하나
+          "index":        int,              전체 좌표 기준 원자 인덱스
+          "element":      str,
+          "oxidation":    int | None,       산화수 (total_charge 를 줘야 나온다)
+          "mm_bonds":     {(m1, m2): 1|2|3|4},   M–M 결합 차수
+      }, … ]
+
+    r["ligands"] = [ {                      리간드 조각 하나
+          "index":        int,              조각 번호 (0부터)
+          "atoms":        [int, …],         전체 좌표 기준 원자 인덱스
+          "bonds_4class": {(i,j): "Single"|"Double"|"Triple"|"Conj"},
+          "bonds_kekule": {(i,j): 1|2|3},   ⑥ 출력 변환기 산출 (정수)
+          "smiles":       str | None,       Kekulé SMILES. 배위 원자는 원자 맵 `[X:n]`
+          "smiles_ok":    bool,             왕복 검증(차수·전하·H·화학적 타당성) 통과 여부
+          "smiles_note":  str,              실패 사유 (통과면 "")
+          "coordinating": [int, …],         금속에 배위한 원자
+          "ml_bonds":     {(m, x): {"type": "sigma"|"haptic", "order": 1|2|3|None}},
+          "eta":          {m: k},           그 금속에 대한 η^k (haptic 일 때)
+          "charge":       int,              리간드 전하 q_L
+          "residual_charge": int | None,    골격으로 표현 안 되는 잔여 전하 (있으면)
+      }, … ]
+
+    r["total_charge"] = 입력 총전하 (그대로)
+
+⚠️ **`wbo`(Mayer 결합차수)가 없으면** M–L 판정이 거리만 쓰고 차수는 전부 `Single` 이 된다.
+   `{(금속 인덱스, 원자 인덱스): w}` 로 넘긴다 (xtb `--sp` 산출물).
+⚠️ **SMILES 는 우리 차수·전하를 그대로 고정해서 만든다** — RDKit 이 배위 원자에 암묵적 수소를
+   붙이거나 형식전하를 다시 매기지 못하게 잠근다(`smiles.py`). `smiles_ok=False` 면 그 리간드는
+   왕복 검증에 실패한 것이므로 **SMILES 를 쓰지 말고 `bonds_kekule` 을 쓴다.**
 """
+
 
 # ruff: noqa: E501
 from __future__ import annotations
@@ -28,8 +45,9 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .charge import _qfrag, kekulize
+from .charge import _qfrag, kekulize, q_atom
 from .config import METALS, ORD4, RCOV, THETA_HAPTIC
+from .smiles import ligand_smiles, verify_roundtrip
 from .connectivity import load_dint
 from .eht import eht_frag_charges
 from .likelihood import load_scores4
@@ -134,27 +152,92 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
 
     # ⑥ 출력 변환기 — 4클래스 → 정수 S/D/T + 잔여 조각 전하
     orders, frag_q = kekulize(G, el, cls, dict(bml))
-    q_lig = {}
-    for comp in nx.connected_components(G):
-        q_lig[min(comp)] = round(_qfrag(G, el, cls, set(comp)))
+
+    # ⑦ M–M 결합 (T4 가 양 끝 금속이라 한 것) — 차수는 아직 거리 경계 미탑재라 1 로 둔다
+    mets = [i for i, e in enumerate(el) if e in METALS]
+    mm = {}
+    for a in range(len(mets)):
+        for b in range(a + 1, len(mets)):
+            m1, m2 = mets[a], mets[b]
+            d = float(np.linalg.norm(xyz[m1] - xyz[m2]))
+            tb, wv = dbond.get(
+                (el[m1], el[m2]),
+                (c1g * (RCOV.get(el[m1], 1.6) + RCOV.get(el[m2], 1.6)), 0.0),
+            )
+            if d < tb and (wbo or {}).get((m1, m2), (wbo or {}).get((m2, m1), 1.0)) > wv:
+                mm[(m1, m2)] = 1
+
+    # ── 리간드 조각 단위로 묶는다
+    NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
+    hapset = {(min(a, b), max(a, b)) for a, b in hap}
+    coord_of = collections.defaultdict(set)  # 조각 대표 -> 배위 원자
+    ligands = []
+    q_all = {}
+    for li, comp0 in enumerate(nx.connected_components(G)):
+        comp = sorted(comp0)
+        cs = set(comp)
+        key = comp[0]
+        b4 = {e: NAME4[v] for e, v in cls.items() if e[0] in cs}
+        bk = {e: int(o) for e, o in orders.items() if e[0] in cs}
+        qL = round(_qfrag(G, el, cls, cs))
+        q_all[key] = qL
+        coord = sorted({x for _m, x in ml_raw if x in cs})
+        coord_of[key] = coord
+        # 원자별 형식전하 — SMILES 에 그대로 박는다
+        qat = {}
+        for x in comp:
+            bsum = sum(bk.get((min(x, w), max(x, w)), 1) for w in G[x])
+            qat[x] = int(round(q_atom(el[x], float(bsum), G.degree(x),
+                                      tuple(sorted(el[w] for w in G[x])))))
+        smi, _map = ligand_smiles(el, comp, bk, qat, coord)
+        ok, why = False, "SMILES 생성 실패"
+        if smi:
+            ok, why = verify_roundtrip(smi, el, comp, bk, qat)
+        mlb_out = {}
+        eta_out = {}
+        for m, x in ml_raw:
+            if x not in cs:
+                continue
+            e = (min(m, x), max(m, x))
+            is_h = e in hapset
+            mlb_out[(m, x)] = {
+                "type": "haptic" if is_h else "sigma",
+                "order": None if is_h else int(mlout.get((m, x), 0)) + 1,
+            }
+        for (m, fr), k in eta.items():
+            if any(x in cs for x in comp if pifrag.get(x) == fr):
+                eta_out[m] = k
+        ligands.append({
+            "index": li,
+            "atoms": comp,
+            "bonds_4class": b4,
+            "bonds_kekule": bk,
+            "smiles": smi,
+            "smiles_ok": ok,
+            "smiles_note": why,          # 실패 사유 (통과면 "")
+            "coordinating": coord,
+            "ml_bonds": mlb_out,
+            "eta": eta_out,
+            "charge": qL,
+            "residual_charge": frag_q.get(key),
+        })
 
     os_metal = {}
-    mets = [i for i, e in enumerate(el) if e in METALS]
     if total_charge is not None and mets:
-        num = total_charge - sum(q_lig.values())
+        num = total_charge - sum(q_all.values())
         if num % len(mets) == 0:
             os_metal = dict.fromkeys(mets, num // len(mets))
 
     return {
-        "bonds": orders,
-        "conj": conj,
-        # `mlout` 은 클래스 코드(0 S · 1 D · 2 T)다 — 차수로 바꿔 내보낸다. 하프틱은 차수를 안 매긴다.
-        "ml_bonds": {k: v + 1 for k, v in mlout.items() if (min(k), max(k)) not in {(min(a, b), max(a, b)) for a, b in hap}},
-        "haptic": hap,
-        "eta": dict(eta),
-        "q_ligand": q_lig,
-        "frag_q": frag_q,
-        "os_metal": os_metal,
-        "_cls4": cls,
-        "_graph": G,
+        "metals": [
+            {
+                "index": m,
+                "element": el[m],
+                "oxidation": os_metal.get(m),
+                "mm_bonds": {k: v for k, v in mm.items() if m in k},
+            }
+            for m in mets
+        ],
+        "ligands": ligands,
+        "total_charge": total_charge,
     }

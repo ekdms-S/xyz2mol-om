@@ -6,16 +6,41 @@
 ```python
 from xyz2mol_om import predict
 
-r = predict(elements, coords, total_charge=0, wbo=wbo)
-
-r["bonds"]      # {(i, j): 1.0 | 2.0 | 3.0}   배위자 내부 결합 (Kekulé 정수 차수)
-r["conj"]       # {(i, j)}                    비편재(Conj)로 판정된 결합
-r["ml_bonds"]   # {(m, x): 1 | 2 | 3}         M–L 결합 차수 (하프틱 제외)
-r["haptic"]     # {(m, x)}                    하프틱 M–L
-r["eta"]        # {(m, 조각): k}              η^k
-r["q_ligand"]   # {조각: q}                   리간드 조각 전하
-r["os_metal"]   # {m: OS}                     금속 산화수
+r = predict(elements, coords, total_charge=-1, wbo=wbo)
 ```
+
+반환은 **금속별 / 리간드별**로 묶인 dict 다:
+
+```python
+r["metals"]  == [{"index": 0, "element": "Mo", "oxidation": 6, "mm_bonds": {}}]
+
+r["ligands"] == [
+  {"index": 0, "atoms": [1],
+   "bonds_4class": {},                      # {(i,j): "Single"|"Double"|"Triple"|"Conj"}
+   "bonds_kekule": {},                      # {(i,j): 1|2|3}   ⑥ 출력 변환기
+   "smiles": "[N-3:1]", "smiles_ok": True, "smiles_note": "",
+   "coordinating": [1],
+   "ml_bonds": {(0, 1): {"type": "sigma", "order": 3}},   # type ∈ sigma|haptic
+   "eta": {},                               # {금속: k}  (haptic 일 때)
+   "charge": -3,                            # 리간드 전하 q_L
+   "residual_charge": None},                # 골격으로 표현 안 되는 잔여 전하
+  … ]
+```
+
+**실제 출력** — `[Mo(≡N)(OH)Cl₃]⁻` (Mayer 는 xtb `--sp --wbo` 실측):
+
+```
+metal  Mo0   산화수 +6
+ligand [N1]      charge −3   [N-3:1]     M–L Mo0–N1  sigma  order=3    ← ≡N 나이트라이도
+ligand [O2 H3]   charge −1   [H][O-:1]   M–L Mo0–O2  sigma  order=1    ← 하이드록소
+ligand [Cl4]     charge −1   [Cl-:1]     ×3
+```
+
+🔴 **SMILES 는 우리 차수·전하를 그대로 고정해서 만든다** — RDKit 이 배위 원자에 암묵적 수소를
+붙이거나 형식전하를 다시 매기지 못하게 잠그고(`SetNoImplicit`·`SetFormalCharge`·부분 sanitize),
+**왕복 검증**(조성·차수 다중집합·전하 합·H 개수·화학적 타당성)을 통과해야 `smiles_ok=True` 다.
+실측 통과율 **99.4%**(리간드 974 · train 200구조). 실패하면 `smiles_note` 에 사유가 담기니
+**그 리간드는 SMILES 대신 `bonds_kekule` 을 쓴다.**
 
 `elements` = 원소기호 리스트 · `coords` = `(N,3)` 좌표(Å) ·
 `wbo` = `{(금속 인덱스, 원자 인덱스): Mayer 결합차수}` (xtb `--sp` 산출물).
@@ -67,7 +92,8 @@ Mayer 결합차수를 넣을 때만 별도로 돌리면 된다.
 ## 검증
 
 ```bash
-python tests/test_regression_vs_workspace.py     # 원본과 결합 단위 일치 확인
+python tests/test_api_smoke.py                   # 공개 API — 워크스페이스 없이 돈다
+python tests/test_regression_vs_workspace.py     # 원본과 결합 단위 일치 확인 (연구 환경에서만)
 ```
 
 이 저장소는 `ognm-bh-workspace` 의 연구 코드에서 이관한 것이다. 회귀 테스트는 원본이 있는
