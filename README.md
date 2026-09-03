@@ -122,6 +122,79 @@ EHT 가 `q = 0` 을 낼 방법이 아예 없고, 반드시 `±1` 로 튄다 — 
 
 라디칼이 얼마나 들어 있고 어디로 떨어졌는지는 **측정한 적이 없다.**
 
+## 예시 — `examples/`
+
+실물 CSD 구조 5종이다(기하는 `ref_xtb2` = 실험구조의 GFN2-xTB 완화본). 각 예시는
+`<이름>.xyz` 와 `<이름>.wbo.json`(총전하 + xtb GFN2 Mayer 결합차수) **한 쌍**이다.
+
+```bash
+python examples/run_examples.py          # 5종 전부 돌려 요약 출력
+```
+
+| 파일 | 실물 | 무엇을 보여주나 |
+|---|---|---|
+| `01_dative_os_carbonyl` | `fac-[Os(CO)₃Cl₃]⁻` | **σ-dative 만** — 하프틱·다리 없음 · 리간드 내부 `C≡O` |
+| `02_haptic_cp_ticl3` | `CpTiCl₃` | **η⁵ 하프틱** + σ-dative 3개 |
+| `03_bridge_ag2cl4` | `[Ag₂Cl₄]²⁻` | **μ-Cl 다리**(`bridge:dative`) · 금속 2개 |
+| `04_3c2e_gallium_bh4` | `Me₂Ga(BH₄)` | **3c2e 다리 H**(`bridge:3c2e`) · **`B` 가 리간드 원자** |
+| `05_mm_quadruple_re2cl8` | `[Re₂Cl₈]²⁻` | **M–M 결합** · ⚠️ 아래 한계 |
+
+### ① `fac-[Os(CO)₃Cl₃]⁻` — dative 만
+
+```
+금속 Os0  산화수 2
+리간드 Cl1/Cl2/Cl3   전하 -1   M–L  Os0–Cl:sigma 차수 1        SMILES [Cl-:1]
+리간드 CO ×3         전하  0   내부 C–O:Triple · M–L sigma     SMILES [O+]#[C-:1]
+착물 SMILES  [O+]#[C-]->[Os+2](<-[Cl-])(<-[Cl-])(<-[Cl-])(<-[C-]#[O+])<-[C-]#[O+]
+```
+CO 는 중성(`C` −1 · `O` +1 합 0)이고 염화물은 −1 이라 `OS(Os) = −1 − 3·(−1) = +2` — Os(II) 다.
+
+### ② `CpTiCl₃` — η⁵ 하프틱
+
+```
+금속 Ti0  산화수 4
+리간드 Cp   전하 -1   η^k {0: 5}
+   내부 결합  C4-C5:Conj C4-C8:Conj C5-C6:Conj C6-C7:Conj C7-C8:Conj
+   M–L        Ti0–C4/C5/C6/C7/C8 : haptic   (하프틱에는 차수를 안 매긴다)
+   SMILES     [H][C-:1]1[C:2]([H])=[C:3]([H])[C:4]([H])=[C:5]1[H]
+착물 SMILES  [H][C]12->[Ti+4]345(<-[Cl-])(<-[Cl-])(<-[Cl-])<-[C]1([H])=[C]->3([H])[C-]->4([H])[C]->5=2[H]
+```
+고리 5결합이 전부 `Conj`(비편재 · 형식차수 1.5)이고 η⁵ 로 세어진다.
+
+### ③ `[Ag₂Cl₄]²⁻` — μ-Cl 다리
+
+```
+금속 Ag0 · Ag3   각 산화수 1
+리간드 Cl1  M–L  Ag0–Cl1:bridge(dative) 차수 1,  Ag3–Cl1:bridge(dative) 차수 1
+리간드 Cl2  M–L  Ag0–Cl2:sigma 차수 1
+착물 SMILES  [Cl-]->[Ag+]1<-[Cl-]->[Ag+](<-[Cl-])<-[Cl-]->1
+```
+같은 원자가 금속 2개에 결합하면 `type="bridge"` 가 되고 하위 태그 `bridge` 가 `dative` 다.
+
+### ④ `Me₂Ga(BH₄)` — 3c2e 다리 · `B` 는 리간드 원자
+
+```
+금속 Ga0  산화수 3
+리간드 BH₄  전하 -1
+   M–L  Ga0–B1:sigma 차수 1,  Ga0–H2:bridge(3c2e) 차수 1,  Ga0–H3:bridge(3c2e) 차수 1
+   SMILES  [H][B-:1]([H])([H:2])[H:3]
+리간드 CH₃ ×2  전하 -1
+착물 SMILES  [H][C-]([H])([H])->[Ga+3]12(<-[H][B-]->1([H])([H])[H]->2)<-[C-]([H])([H])[H]
+```
+`B` 는 **중심원자가 아니라 리간드 원자**다(2026-09-03 · "무엇으로 판정하나" 참조) — `Ga` 가
+있으므로. `Ga–H···B` 의 다리 H 는 3중심 2전자라 `bridge:3c2e` 로 태깅되고 **원자가 채점에서
+제외**된다.
+
+### ⑤ `[Re₂Cl₈]²⁻` — M–M 결합 · ⚠️ **차수는 아직 안 낸다**
+
+```
+금속 Re0 · Re5   각 산화수 3   M–M {(0, 5): 1}
+리간드 Cl ×8   각 전하 -1   M–L sigma 차수 1
+```
+산화수는 맞다(Re(III) ×2). 🔴 **그러나 M–M 차수가 `1` 이다 — 정답은 사중결합(`Quadruple`)이다.**
+이 라이브러리에는 **T9(M–M 차수)가 아직 이식되지 않았다** — M–M 결합의 *유무*만 내고 차수는
+1 로 둔다(`api.py` ⑦). 연구 코드 쪽에는 금속별 거리 경계로 매기는 T9 가 있다.
+
 ## 성능
 
 CSD 유래 34,087 구조에서 적합/평가했다.
