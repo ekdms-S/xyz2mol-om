@@ -149,5 +149,8 @@ holdout **6,456 구조**(적합에 안 쓴 분) · 정답지 CSD `bond_type` + t
 
 ## 라이선스 · 출처
 
+**MIT** ([LICENSE](LICENSE)).
+
 적합에 쓴 정답지는 CSD(Cambridge Structural Database) 결합 라벨과 tmQMg-L 리간드 전하다.
-**데이터 자체는 이 저장소에 없다** — 실린 것은 적합 결과(임계값 · 우도 파라미터)뿐이다.
+**원본 데이터는 이 저장소에 없다** — 실린 것은 적합 결과(임계값 · 우도 파라미터)와
+`examples/` 의 CSD 유래 구조 5종뿐이다.

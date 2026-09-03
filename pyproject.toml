@@ -7,6 +7,8 @@ name = "xyz2mol-om"
 version = "0.1.0"
 description = "전이금속 착물 xyz -> 결합 · 결합차수 · 리간드 전하 · 금속 산화수"
 readme = "README.md"
+license = "MIT"
+authors = [{ name = "Daeun Shin", email = "abcd0105@snu.ac.kr" }]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.23", "networkx>=3.0", "rdkit>=2023.3"]
 
