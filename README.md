@@ -56,6 +56,24 @@ r["complex_smiles"] == "[H][O-]->[Mo+6](<-[N-3])(<-[Cl-])(<-[Cl-])<-[Cl-]"
 | 차수 | 착물 SMILES 에서는 뭉갠다 — 실제 값은 `ml_bonds[(m,x)]["order"]` |
 | 검증 | `smiles_ok` = 왕복 검증(차수·전하·H·다중집합) 통과 여부 · 실패 사유는 `smiles_note` |
 
+### 착물 되조립
+
+`complex_smiles` 하나로 착물 전체를 읽을 수 있고, 원자 대응은 `complex_atom_order`
+(SMILES 출력 순서 → 입력 원자 인덱스)에 있다.
+
+리간드 단위 출력으로 직접 조립하려면 `assemble_complex` 를 쓴다:
+
+```python
+from xyz2mol_om import predict, assemble_complex
+
+mol, atom_map = assemble_complex(predict(el, xyz, total_charge=0, wbo=wbo))
+# atom_map : {입력 원자 인덱스 -> mol 원자 인덱스}  (금속 · 배위 원자)
+# ml_dative=False 로 부르면 M–L 을 ml_bonds[...]["order"] 정수 차수로 넣는다
+```
+
+⚠️ **리간드 SMILES 의 원자 맵 `[X:n]` 은 입력 인덱스가 아니다** — 그 리간드 `coordinating` 을
+정렬한 목록의 **n 번째(1-based)** 다. `assemble_complex` 가 그 변환을 한다.
+
 ## 예시 — `examples/`
 
 실물 CSD 구조 5종. 각 예시는 네 벌이다 — `<이름>.xyz`(좌표) · `<이름>.wbo.json`(총전하 +
