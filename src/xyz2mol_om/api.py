@@ -73,6 +73,26 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo):
     return raw
 
 
+MLIKE_EXTRA = {"B", "Al"}  # metal-like = 금속 ∪ {B, Al} (설계도 §3.1 (c))
+
+
+def _drop_agostic(el, G, ml_raw):
+    """`C–H···M` 만 뺀다 — μ-H 와 `B–H···M`(보로하이드라이드)은 진짜 3c2e 라 남긴다.
+
+    판정  뺀다 ⟺ el[X] = H  AND  metal-like 이웃이 1개  AND  내부 이웃에 metal-like 아닌 것이 있다
+    설계도 §3.0 [T4] 의 agostic 규칙. 채점기(`260831_propagation_prior_cv.py`)와 같은 식이다.
+    """
+    nmet = collections.Counter(x for _m, x in ml_raw)
+    out = []
+    for m, x in ml_raw:
+        if el[x] == "H":
+            n_like = nmet[x] + sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
+            if n_like == 1 and any(el[y] not in MLIKE_EXTRA for y in G[x]):
+                continue
+        out.append((m, x))
+    return out
+
+
 def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=None):
     """`xyz` → 결합·차수·전하·산화수. 인자·반환은 모듈 docstring 참조."""
     el = list(elements)
@@ -107,22 +127,47 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     BML, BML_FB = load_b_ml_mayer()
     # 🔴 M–L 차수 점수표는 **공유 헬퍼 한 곳**에서만 만든다 (워크스페이스와 동일).
     ml_sc = ml_order_scores(el, ml_raw, wbo, BML, BML_FB)
+    # 🔴 T3 에 넘길 `b_ML` 예산은 **agostic·haptic 을 뺀** 배위 원자만 센다 (2026-09-03 정합).
+    #   옛 코드는 T4 후보를 **전부** 1.0 으로 물렸다. 그러면 η^k 리간드에서 고리 원자 k 개가
+    #   각각 예산을 물어 `CAP` 여유가 사라지고 ④ 상한 정확 해가 고리를 **전부 `Single`** 로
+    #   내린다 ⇒ π 조각이 없어져 T5 가 η 를 못 만든다.
+    #   실측(train 표본 1,999 구조 · 57,889 결합 · 2026-09-03): 제외가 없으면 §5 채점기와
+    #   **결합 520개(0.90%) · 구조 248개(12.4%)** 가 갈렸고, 그 자리 정답률이
+    #   **배포 16.5% 대 채점기 70.9%** 였다(원본 CSD 기준).
+    #   판정은 채점기(`260831_propagation_prior_cv.py`)와 같은 **2-pass** 다:
+    #     1회차  `b_ML = 0` 으로 T3 → π 후보 원자 = `Double`·`Triple`·`Conj` 에 닿는 원자
+    #     hapA   그 원자 중 ∠(M–X–Y) < THETA_HAPTIC (Y = 결합 중점이 M 에 가장 가까운 내부 이웃)
+    #     2회차  agostic·hapA 를 뺀 예산으로 T3 재실행 — 이것이 출력이다
+    #   ⚠️ hapA 는 **예산용 예비 판정**이다. 최종 하프틱은 ⑤에서 π 조각으로 다시 정한다.
+    coord = {x for _m, x in ml_raw}
+    q_eht = eht_frag_charges(el, xyz, G)
+    cls_pre, _ = predict_T3_EHT(el, xyz, G, sc4, {}, ml_sc, q_eht, coord)
+    unsat_pre = {x for e, v in cls_pre.items() if v in (1, 2, 3) for x in e}
+    ml_pred = _drop_agostic(el, G, ml_raw)
+    hap_pre = set()
+    for m, x in ml_pred:
+        nb = list(G[x])
+        if x not in unsat_pre or not nb:
+            continue
+        y = min(nb, key=lambda q: float(np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m])))
+        v1, v2 = xyz[m] - xyz[x], xyz[y] - xyz[x]
+        cs = float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-12))
+        if np.degrees(np.arccos(max(-1.0, min(1.0, cs)))) < THETA_HAPTIC:
+            hap_pre.add((m, x))
     bml = collections.defaultdict(float)
-    for _m, x in ml_raw:
-        bml[x] += 1.0
+    for m, x in ml_pred:
+        if (m, x) not in hap_pre:
+            bml[x] += 1.0
 
     # ④ T3 — 채택 파이프라인 (규칙 A · R2~R5 · 상한 정확 해 · EHT 조각 전하)
-    q_eht = eht_frag_charges(el, xyz, G)
-    cls, mlout = predict_T3_EHT(
-        el, xyz, G, sc4, dict(bml), ml_sc, q_eht, {x for _m, x in ml_raw}
-    )
+    cls, mlout = predict_T3_EHT(el, xyz, G, sc4, dict(bml), ml_sc, q_eht, coord)
 
     # ⑤ T5·T6 — haptic 과 η^k (π 조각 = Conj ∪ Double ∪ Triple 의 연결 성분)
     conj = {e for e, v in cls.items() if v == 3}
     pi = nx.Graph()
     pi.add_edges_from(e for e, v in cls.items() if v in (1, 2, 3))
     pifrag = {x: i for i, c in enumerate(nx.connected_components(pi)) for x in c}
-    hap, eta = set(), collections.Counter()
+    hap = set()
     hap_by_m = collections.defaultdict(set)  # 금속 -> 그 금속에 haptic 인 원자 (R7 이 쓴다)
     for m, x in ml_raw:
         if x not in pifrag:
@@ -136,7 +181,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         if np.degrees(np.arccos(max(-1.0, min(1.0, cs)))) < THETA_HAPTIC:
             hap.add((m, x))
             hap_by_m[m].add(x)
-            eta[(m, pifrag[x])] += 1
 
     # 🔴 R7 — **하프틱 고리 안의 R2 도너를 π 후보로 되돌린다** (2026-09-03 채택 · 기본 on).
     #   추가(M,X) ⟺ X 가 R2 도너 (O·S·Se deg ≥ 2 · N·P deg ≥ 3.
@@ -178,7 +222,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                     if np.degrees(np.arccos(max(-1.0, min(1.0, cs)))) < THETA_HAPTIC:
                         hap.add((m, x))
                         hap_by_m[m].add(x)
-                        eta[(m, pifrag[y])] += 1
 
     # ⑥ 출력 변환기 — 4클래스 → 정수 S/D/T + 잔여 조각 전하
     orders, frag_q = kekulize(G, el, cls, dict(bml))
@@ -234,9 +277,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 "type": "haptic" if is_h else "sigma",
                 "order": None if is_h else int(mlout.get((m, x), 0)) + 1,
             }
-        for (m, fr), k in eta.items():
-            if any(x in cs for x in comp if pifrag.get(x) == fr):
-                eta_out[m] = k
+        # 🔴 η^k 는 **리간드 단위**로 센다 (2026-09-03 정합). 채점기(`len(comp ∩ hall)`)와
+        #    정답지(`n_haptic_bound`)가 둘 다 리간드 단위다. π 조각별로 세면 R2·R3 로 Kekulé 가
+        #    된 5원 고리가 **조각 2개로 갈려** η 가 쪼개진다 — `ZEGVIQ` 는 M–L 5개가 전부
+        #    haptic 인데도 옛 셈으로 **η2** 가 나왔다(정답 η5 · 실측 2026-09-03).
+        for m in {m0 for m0, x0 in hap if x0 in cs}:
+            eta_out[m] = sum(1 for m0, x0 in hap if m0 == m and x0 in cs)
         ligands.append({
             "index": li,
             "atoms": comp,
