@@ -3,6 +3,21 @@
 **전이금속 착물의 `xyz` 좌표에서 결합 · 결합차수 · 리간드 전하 · 금속 산화수를 낸다.**
 유기금속(organometallic)까지 다루도록 만든 것이라 이름이 `-om` 이다.
 
+## 의존성
+
+| 패키지 | 버전 | 쓰는 곳 |
+|---|---|---|
+| `numpy` | ≥ 1.23 | 좌표·거리 |
+| `networkx` | ≥ 3.0 | 그래프·고리·연결 성분 |
+| `rdkit` | ≥ 2023.3 | SMILES · EHT 조각 전하(`rdEHTTools`) |
+| (선택) `pytest`·`ruff` | — | 테스트·린트 |
+
+Python ≥ 3.10. 검증 환경은 Python 3.13.5 · rdkit 2025.09.6 · numpy 2.1.3 · networkx 3.4.2.
+
+```bash
+conda install -c conda-forge rdkit numpy networkx    # 또는 pip install rdkit numpy networkx
+```
+
 ## 쓰는 법
 
 ```bash
