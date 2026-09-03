@@ -184,3 +184,29 @@ def parse_os(m, nm):
         return None  # 혼합원자가 — 채점 제외
     f = {ROMAN[r] for x, r in PAT.findall(nm) if ok(x)}
     return f.pop() if len(f) == 1 else None
+
+
+# ★★ 클러스터 조각 전하 (2026-09-03) — **2중심 형식으로 못 적는 조각**은 EHT 값을 쓴다.
+#   판정  클러스터다(F) ⟺ F 안에 `b_int(x) > CAP(el[x])` 인 원자가 있다
+#   왜: 카보란 케이지는 Wade 규칙(다중심 골격 결합)이라 2중심 2전자로 표현되지 않는다.
+#       케이지 `B` 는 내부 이웃이 5~6개라 `b_int > CAP(B)=4` 이고, 형식전하식
+#       (`q = v + b − 8` · 초원자가 `q = v − b`)이 원자마다 −2~−3 을 쌓는다.
+#       실측(`GANLUF` · 2026-09-03): 카보란 리간드 형식전하 합 **−27** · EHT **−1**.
+#   ⚠️ EHT 값이 없으면 형식전하 합으로 돌아간다(조용히 틀리는 것보다 낫다).
+#   ⚠️ 이 함수는 워크스페이스 `260830_fit_t10_charge.py` 와 **본문이 같아야 한다.**
+def is_cluster_frag(G, el, cls, comp):
+    """조각이 클러스터(다중심 골격)인가 — 위 판정식."""
+    for x in comp:
+        b = sum(ORD4[cls.get((min(x, w), max(x, w)), 0)] for w in G[x])
+        if b > CAP.get(el[x], 4) + 1e-9:
+            return True
+    return False
+
+
+def frag_charge_or_eht(G, el, cls, comp, q_eht=None):
+    """조각 전하 — 클러스터면 **EHT 조각 전하**, 아니면 형식전하 합(`_qfrag`)."""
+    if is_cluster_frag(G, el, cls, comp):
+        q = (q_eht or {}).get(min(comp))
+        if q is not None:
+            return float(q)
+    return _qfrag(G, el, cls, comp)
