@@ -58,45 +58,23 @@ r["complex_smiles"] == "[H][O-]->[Mo+6](<-[N-3])(<-[Cl-])(<-[Cl-])<-[Cl-]"
 
 ### 착물 되조립
 
-`complex_smiles` 하나로 착물 전체를 읽을 수 있고, 원자 대응은 `complex_atom_order`
-(SMILES 출력 순서 → 입력 원자 인덱스)에 있다.
-
-리간드 단위 출력으로 직접 조립하려면 `assemble_complex` 를 쓴다:
-
 ```python
 from xyz2mol_om import predict, assemble_complex
 
-mol, atom_map = assemble_complex(predict(el, xyz, total_charge=0, wbo=wbo))
-# atom_map : {입력 원자 인덱스 -> mol 원자 인덱스}  (금속 · 배위 원자)
-# ml_dative=False 로 부르면 M–L 을 ml_bonds[...]["order"] 정수 차수로 넣는다
+mol, atom_map = assemble_complex(r)              # atom_map: {입력 인덱스 -> mol 인덱스}
+mol, _ = assemble_complex(r, ml_dative=False)    # M–L 을 정수 차수로 (하프틱은 dative)
 ```
 
-⚠️ **리간드 SMILES 의 원자 맵 `[X:n]` 은 입력 인덱스가 아니다** — 그 리간드 `coordinating` 을
-정렬한 목록의 **n 번째(1-based)** 다. `assemble_complex` 가 그 변환을 한다.
-
-#### 직접 조립할 때 (다른 툴체인에서)
-
-```
-① 금속 원자를 만든다            형식전하 = metals[i]["oxidation"]
-② 리간드 SMILES 를 파싱해 붙인다  각 ligands[j]["smiles"]
-③ 맵 번호를 입력 인덱스로 되돌린다  입력 인덱스 = sorted(ligands[j]["coordinating"])[n-1]
-④ M–L 을 잇는다                 ligands[j]["ml_bonds"] 의 키 (금속 인덱스, 입력 원자 인덱스)
-                               차수는 값의 "order" · 하프틱이면 None ⇒ dative 로
-⑤ M–M 을 잇는다                 metals[i]["mm_bonds"] 의 키 (금속, 금속)
-```
+리간드 단위로 직접 조립할 때 — 금속(형식전하 = `oxidation`) + 리간드 SMILES + `ml_bonds` +
+`mm_bonds` 를 잇는다. 원자 대응은 이 한 줄이다:
 
 ```python
-coord = sorted(lg["coordinating"])
-for at in Chem.MolFromSmiles(lg["smiles"], sanitize=False).GetAtoms():
-    n = at.GetAtomMapNum()
-    if n:
-        input_idx = coord[n - 1]          # ← ③ 이 한 줄이 핵심이다
+input_idx = sorted(lg["coordinating"])[at.GetAtomMapNum() - 1]
 ```
 
-⚠️ 리간드 SMILES 는 **암묵적 수소를 쓰지 않는다**(`xyz` 의 H 가 실제 원자로 들어 있다) —
-파싱할 때 `sanitize=False` 로 읽고 `SANITIZE_KEKULIZE`·`SANITIZE_SETAROMATICITY` 를 뺀 채로
-sanitize 해야 차수·전하가 그대로 유지된다.
-⚠️ 같은 원자가 금속 2개에 붙는 다리 리간드는 `ml_bonds` 에 **키가 두 개**다(`(m1,x)`·`(m2,x)`).
+⚠️ 리간드 SMILES 의 맵 `[X:n]` 은 **입력 인덱스가 아니라** `coordinating` 정렬 목록의 n 번째다.
+⚠️ 암묵적 수소를 안 쓴다 — `sanitize=False` 로 읽고 KEKULIZE·SETAROMATICITY 를 빼고 sanitize 한다.
+⚠️ `complex_smiles` 는 M–L 차수를 뭉갠다(실제 값은 `ml_bonds[…]["order"]`). 원자 대응은 `complex_atom_order`.
 
 ## 예시 — `examples/`
 
