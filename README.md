@@ -151,46 +151,53 @@ atoms excluded).
 (hypervalency, ionic/covalent boundary cases). Read our numbers against that baseline, not
 against zero.
 
-Tool comparison (holdout), split into three pools since tools differ in what they can
-output and in how many structures they succeed on:
+Tool comparison (holdout), split into three pools — **a tool's numbers are only shown in a
+pool where its success is guaranteed for every structure in it**, so that every row is a true
+same-pool comparison:
 
 ```
-TOOL     full holdout, 6,456 structures
-X2M_TM   TOOL restricted to structures where xyz2mol_tm succeeded — 5,479
-ALLOK    TOOL restricted to structures where all 3 external tools succeeded — 4,930
+HOLDOUT   full holdout, 6,456 structures.                  ours only — no other tool succeeds
+                                                             on all of it, so none is shown here.
+TOOL      HOLDOUT restricted to structures where            all 4 tools, evaluated on the same
+          xyz2mol · xyz2mol_tm · OpenBabel ALL succeeded     4,930 structures.
+          — 4,930.
+X2M_TM    HOLDOUT restricted to structures where             ours vs xyz2mol_tm only — xyz2mol's
+          xyz2mol_tm succeeded — 5,479.                     and OpenBabel's success is not
+                                                             guaranteed on this pool, so they are
+                                                             not shown here.
 ```
+
+⚠️ `TOOL` is not "full holdout" — evaluating each tool on the full 6,456 with its own failures
+counted as wrong (as done elsewhere in this repo's design doc, §5.2-H) uses a *different*
+denominator per tool and is not a same-pool comparison. This table only puts tools side by
+side where their shared denominator is real.
 
 Two metric columns for the same reason — a tool that cannot produce M–L order would otherwise
 look artificially good on the full metric:
 
 | Pool · n | Tool | Violating atoms (`b_int` only) | Violating structures (`b_int` only) | Violating atoms (`b_int`+`b_ML`) | Violating structures (`b_int`+`b_ML`) |
 |---|---|---|---|---|---|
-| **TOOL** 6,456 | **xyz2mol-om (this)** | **0.01%** | **0.36%** | **0.09%** | **3.55%** |
-| | xyz2mol | 0.24% | 7.37% | — | — |
-| | xyz2mol_tm | 0.14% | 4.14% | 3.98% | 36.91% |
-| | OpenBabel | 0.06% | 1.47% | 0.07% | 1.73% |
-| **X2M_TM** 5,479 | **xyz2mol-om (this)** | **0.01%** | **0.40%** | **0.10%** | **3.83%** |
-| | xyz2mol | 0.23% | 7.01% | — | — |
-| | xyz2mol_tm | 0.17% | 4.87% | 4.74% | 43.49% |
-| | OpenBabel | 0.06% | 1.41% | 0.06% | 1.53% |
-| **ALLOK** 4,930 | **xyz2mol-om (this)** | **0.01%** | **0.43%** | **0.10%** | **3.98%** |
+| **HOLDOUT** 6,456 | **xyz2mol-om (this)** | **0.01%** | **0.36%** | **0.09%** | **3.55%** |
+| **TOOL** 4,930 | **xyz2mol-om (this)** | **0.01%** | **0.43%** | **0.10%** | **3.98%** |
 | | xyz2mol | 0.25% | 7.48% | — | — |
 | | xyz2mol_tm | 0.18% | 4.97% | 4.68% | 43.79% |
 | | OpenBabel | 0.06% | 1.52% | 0.07% | 1.66% |
+| **X2M_TM** 5,479 | **xyz2mol-om (this)** | **0.01%** | **0.40%** | **0.10%** | **3.83%** |
+| | xyz2mol_tm | 0.17% | 4.87% | 4.74% | 43.49% |
 
-The `b_int`-only columns are the fair comparison — every tool can produce that. We are lowest
-on both, in all three pools; narrowing the pool to structures the tools succeed on does not
-change the ranking.
+The `b_int`-only columns are the fair comparison — every tool shown can produce that, on the
+same pool. We are lowest on both, in `TOOL` and `X2M_TM` alike.
 
-`xyz2mol_tm`'s `b_int+b_ML` violation rate gets *worse* as the pool narrows to structures it
-succeeds on (36.91% → 43.49% → 43.79%) — succeeding at producing connectivity is not the same
-as succeeding at getting the order right, and that gap widens rather than narrows on its own
-success cases. The number itself is largely an artifact of not producing M–L *order* at all
-(everything gets counted as `Single`, which throws off the budget at multiply-bonded sites
-like oxo/imido). OpenBabel looks lower than us on `b_int+b_ML`, but its M–L recall is also
-lower (T4 F1 0.78) — bonds it misses cannot violate anything, so a lower violation rate is not
-by itself a sign of better output; its atom-level rate is in fact close to ours (e.g. 0.07% vs
-0.09% on the full pool) while its structure-level rate looks much lower, meaning its errors
+`xyz2mol_tm`'s `b_int+b_ML` rate does not improve when narrowed from `TOOL` (43.79%) to
+`X2M_TM` (43.49%, a superset that additionally requires xyz2mol/OpenBabel to have succeeded
+dropped) — succeeding at producing connectivity is not the same as succeeding at getting the
+order right, and that gap does not shrink on `xyz2mol_tm`'s own success cases. The number
+itself is largely an artifact of not producing M–L *order* at all (everything gets counted as
+`Single`, which throws off the budget at multiply-bonded sites like oxo/imido). OpenBabel
+looks lower than us on `b_int+b_ML` in the `TOOL` pool, but its M–L recall is also lower
+(T4 F1 0.78 there) — bonds it misses cannot violate anything, so a lower violation rate is not
+by itself a sign of better output; its atom-level rate is in fact close to ours (0.07% vs
+0.10%) while its structure-level rate looks much lower (1.66% vs 3.98%), meaning its errors
 cluster onto fewer structures rather than being genuinely rarer.
 
 ## ⚠️ Limits
