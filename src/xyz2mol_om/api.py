@@ -46,7 +46,8 @@ import networkx as nx
 import numpy as np
 
 from .charge import _qfrag, kekulize, q_atom
-from .config import METALS, ORD4, RCOV, THETA_HAPTIC
+from .config import METALS, ORD4, RCOV, R7MIN, R7RING, THETA_HAPTIC
+from .conjugation import lp_donor
 from .smiles import ligand_smiles, verify_roundtrip
 from .connectivity import load_dint
 from .eht import eht_frag_charges
@@ -122,6 +123,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     pi.add_edges_from(e for e, v in cls.items() if v in (1, 2, 3))
     pifrag = {x: i for i, c in enumerate(nx.connected_components(pi)) for x in c}
     hap, eta = set(), collections.Counter()
+    hap_by_m = collections.defaultdict(set)  # 금속 -> 그 금속에 haptic 인 원자 (R7 이 쓴다)
     for m, x in ml_raw:
         if x not in pifrag:
             continue
@@ -133,7 +135,50 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         cs = float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-12))
         if np.degrees(np.arccos(max(-1.0, min(1.0, cs)))) < THETA_HAPTIC:
             hap.add((m, x))
+            hap_by_m[m].add(x)
             eta[(m, pifrag[x])] += 1
+
+    # 🔴 R7 — **하프틱 고리 안의 R2 도너를 π 후보로 되돌린다** (2026-09-03 채택 · 기본 on).
+    #   추가(M,X) ⟺ X 가 R2 도너 (O·S·Se deg ≥ 2 · N·P deg ≥ 3.
+    #                             deg 는 리간드 **내부** 이웃 수 · H 포함 · M–L 제외)
+    #             AND X 가 |r| = 5 인 고리 r 에 속함 (r 은 `nx.cycle_basis`)
+    #             AND r 의 **다른 원자** 중 **같은 금속 M** 에 위 T5 를 통과한 것이 ≥ R7MIN = 2
+    #             AND (M,X) 가 T4 결합이다 (d < d_bond AND w > w_veto ⇒ `ml_raw` 소속)
+    #             AND ∠(M–X–Y) < THETA_HAPTIC = 81.02°
+    #   ⇒ **T3 4클래스(결합차수)는 바꾸지 않는다** — 위 T5 의 "X 가 π 조각에 속한다" 조건만
+    #      면제한다. T3 **뒤** 단계에서만 고치므로 설계도 §3.0 의 DAG 순환이 생기지 않는다.
+    #      새 적합 파라미터 0개 (R7MIN 은 정수 격자).
+    #   왜: R2·R3 가 5원 고리를 Kekulé 로 만들면 이중결합이 최대 2개라 **원자 1개가 π 후보에서
+    #       빠진다**(η⁵ → η⁴). R2 는 원소 규칙이므로 피롤형 N 뿐 아니라 **퓨란 O · 싸이오펜 S ·
+    #       셀레노펜 Se · 포스폴 P** 에도 같은 실패가 난다.
+    #   ⚠️ Y 후보: X 는 정의상 `pifrag` 에 없으므로 위 루프의 "**같은** π 조각 이웃" 을 그대로
+    #      쓸 수 없다. **π 조각에 속한 내부 이웃**(`y in pifrag`)으로 읽는다 — 같은 파일 안에서
+    #      Y 를 조각 이웃으로 고르는 방식을 유지한다. η^k 는 그렇게 고른 Y 의 조각에 더한다.
+    if R7RING:
+        mlset = set(ml_raw)
+        donors = {x for x in G if lp_donor(el[x], G.degree(x))}
+        for r5 in nx.cycle_basis(G) if donors else []:
+            if len(r5) != 5:
+                continue
+            din = [x for x in r5 if x in donors]
+            if not din:
+                continue
+            for m in list(hap_by_m):
+                if len(set(r5) & hap_by_m[m]) < R7MIN:
+                    continue
+                for x in din:
+                    if x in hap_by_m[m] or (m, x) not in mlset:
+                        continue
+                    nb = [y for y in G[x] if y in pifrag]
+                    if not nb:
+                        continue
+                    y = min(nb, key=lambda q: np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m]))
+                    v1, v2 = xyz[m] - xyz[x], xyz[y] - xyz[x]
+                    cs = float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-12))
+                    if np.degrees(np.arccos(max(-1.0, min(1.0, cs)))) < THETA_HAPTIC:
+                        hap.add((m, x))
+                        hap_by_m[m].add(x)
+                        eta[(m, pifrag[y])] += 1
 
     # ⑥ 출력 변환기 — 4클래스 → 정수 S/D/T + 잔여 조각 전하
     orders, frag_q = kekulize(G, el, cls, dict(bml))
