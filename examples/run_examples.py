@@ -55,7 +55,7 @@ def main() -> None:
                   + (f"  η^k {lg['eta']}" if lg.get("eta") else "")
                   + (f"  잔여전하 {lg['residual_charge']}" if lg.get("residual_charge") else ""))
             if heavy:
-                print(f"      내부 결합  " + " ".join(f"{el[a]}{a}-{el[b]}{b}:{v}" for (a, b), v in sorted(heavy.items())))
+                print("      내부 결합  " + " ".join(f"{el[a]}{a}-{el[b]}{b}:{v}" for (a, b), v in sorted(heavy.items())))
             print(f"      M–L        {ml}")
             print(f"      SMILES     {lg['smiles']}   (왕복검증 {'통과' if lg['smiles_ok'] else '실패: ' + lg['smiles_note']})")
         cs = r.get("complex_smiles")
