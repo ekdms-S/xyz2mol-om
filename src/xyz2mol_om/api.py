@@ -41,19 +41,18 @@
 from __future__ import annotations
 
 import collections
+import warnings
 
 import networkx as nx
 import numpy as np
 
 from .charge import _qfrag, kekulize, q_atom
-from .config import METALS, ORD4, RCOV, R7MIN, R7RING, THETA_HAPTIC
-from .conjugation import lp_donor
+from .config import METALS, RCOV
 from .smiles import ligand_smiles, verify_roundtrip
 from .connectivity import load_dint
 from .eht import eht_frag_charges
 from .likelihood import load_scores4
-from .ml_order import load_b_ml_mayer, ml_order_scores
-from .pipeline import predict_T3_EHT
+from .pipeline import predict_T3_T5
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo):
@@ -97,6 +96,17 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     """`xyz` → 결합·차수·전하·산화수. 인자·반환은 모듈 docstring 참조."""
     el = list(elements)
     xyz = np.asarray(coords, dtype=float)
+    if not wbo:
+        # T4 거부권(`w > w_veto`)과 T8(M–L 차수)의 유일한 입력이 Mayer 결합차수다.
+        # 없으면 거리 폴백으로 진행한다 — 성능이 떨어진다(모듈 docstring 참조).
+        warnings.warn(
+            "wbo(Mayer 결합차수)가 없다 — M–L 판정이 거리만 쓴다. "
+            "T4 거부권이 꺼지고 M–L 차수는 거리 폴백(`b_ml_dist.csv`)으로 매긴다: "
+            "refcode 5-fold CV 기준 M–L `Double` F1 0.698 (Mayer 판 0.732). "
+            "xtb GFN2 `--sp --wbo` 로 얻어 `wbo={(금속idx, 원자idx): w}` 로 넘기면 개선된다.",
+            UserWarning,
+            stacklevel=2,
+        )
     sc4 = scores4 if scores4 is not None else load_scores4()
     d_int, d_fb = dint if dint is not None else load_dint()
 
@@ -107,7 +117,19 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     for ii in range(len(idx)):
         for jj in range(ii + 1, len(idx)):
             a, b = idx[ii], idx[jj]
-            if float(np.linalg.norm(xyz[a] - xyz[b])) < d_int.get(tuple(sorted((el[a], el[b]))), d_fb):
+            # 🔴 두 가드가 **먼저** 걸린다 (2026-09-03 정합 · 채점기와 동일):
+            #   ① `H–H` 는 아예 후보가 아니다
+            #   ② `d > 1.8·(r_cov(a)+r_cov(b))` 는 후보가 아니다 — 적합된 컷오프가 **없는**
+            #      원소쌍은 전역 폴백 `d_int = 2.0542 Å` 를 쓰는데, 그것이 너무 길어
+            #      **수소결합 접촉을 공유결합으로 만든다.** 실측(`DEKKEJ` · 2026-09-03):
+            #      `F···H` 1.99 Å 12건이 결합으로 잡혔다(공유 `F–H` 는 0.92 Å · 정답에 없다).
+            #      그 12개가 리간드 조각을 잇는 바람에 `C=O` 4개가 `Single` 로 뒤집혔다.
+            if el[a] == "H" and el[b] == "H":
+                continue
+            d_ab = float(np.linalg.norm(xyz[a] - xyz[b]))
+            if d_ab > 1.8 * (RCOV.get(el[a], 1.0) + RCOV.get(el[b], 1.0)):
+                continue
+            if d_ab < d_int.get(tuple(sorted((el[a], el[b]))), d_fb):
                 G.add_edge(a, b)
 
     # ② T4 — M–L 결합 (거리 + Mayer 거부권)
@@ -123,105 +145,16 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             dbond[(r["M"], r["X"])] = (float(r["d_bond"]), float(r["w_veto"]))
     ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo)
 
-    # ③ T5 — haptic 판정은 π 조각을 알아야 하므로 T3 뒤로 미룬다. 예산에는 Single 기준선.
-    BML, BML_FB = load_b_ml_mayer()
-    # 🔴 M–L 차수 점수표는 **공유 헬퍼 한 곳**에서만 만든다 (워크스페이스와 동일).
-    ml_sc = ml_order_scores(el, ml_raw, wbo, BML, BML_FB)
-    # 🔴 T3 에 넘길 `b_ML` 예산은 **agostic·haptic 을 뺀** 배위 원자만 센다 (2026-09-03 정합).
-    #   옛 코드는 T4 후보를 **전부** 1.0 으로 물렸다. 그러면 η^k 리간드에서 고리 원자 k 개가
-    #   각각 예산을 물어 `CAP` 여유가 사라지고 ④ 상한 정확 해가 고리를 **전부 `Single`** 로
-    #   내린다 ⇒ π 조각이 없어져 T5 가 η 를 못 만든다.
-    #   실측(train 표본 1,999 구조 · 57,889 결합 · 2026-09-03): 제외가 없으면 §5 채점기와
-    #   **결합 520개(0.90%) · 구조 248개(12.4%)** 가 갈렸고, 그 자리 정답률이
-    #   **배포 16.5% 대 채점기 70.9%** 였다(원본 CSD 기준).
-    #   판정은 채점기(`260831_propagation_prior_cv.py`)와 같은 **2-pass** 다:
-    #     1회차  `b_ML = 0` 으로 T3 → π 후보 원자 = `Double`·`Triple`·`Conj` 에 닿는 원자
-    #     hapA   그 원자 중 ∠(M–X–Y) < THETA_HAPTIC (Y = 결합 중점이 M 에 가장 가까운 내부 이웃)
-    #     2회차  agostic·hapA 를 뺀 예산으로 T3 재실행 — 이것이 출력이다
-    #   ⚠️ hapA 는 **예산용 예비 판정**이다. 최종 하프틱은 ⑤에서 π 조각으로 다시 정한다.
-    coord = {x for _m, x in ml_raw}
+    # ③④⑤ T3 · M–L 차수 · T5(하프틱) · R7 — **한 함수**가 전부 낸다 (2026-09-03 통일).
+    #   왜 호출자가 조립하지 않나: 예산에서 haptic·agostic 을 빼는지, M–L 차수 후보를 어떻게
+    #   고르는지, T5 의 Y 후보가 무엇인지를 호출자마다 다르게 조립하다가 채점기와 **네 자리**가
+    #   갈렸다(실측 2026-09-03 · 설계도 §6.5). 이제 `ml_raw` 와 `wbo` 만 넘긴다.
     q_eht = eht_frag_charges(el, xyz, G)
-    cls_pre, _ = predict_T3_EHT(el, xyz, G, sc4, {}, ml_sc, q_eht, coord)
-    unsat_pre = {x for e, v in cls_pre.items() if v in (1, 2, 3) for x in e}
-    ml_pred = _drop_agostic(el, G, ml_raw)
-    hap_pre = set()
-    for m, x in ml_pred:
-        nb = list(G[x])
-        if x not in unsat_pre or not nb:
-            continue
-        y = min(nb, key=lambda q: float(np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m])))
-        v1, v2 = xyz[m] - xyz[x], xyz[y] - xyz[x]
-        cs = float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-12))
-        if np.degrees(np.arccos(max(-1.0, min(1.0, cs)))) < THETA_HAPTIC:
-            hap_pre.add((m, x))
+    cls, mlout, hap, ml_pred = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
     bml = collections.defaultdict(float)
-    for m, x in ml_pred:
-        if (m, x) not in hap_pre:
-            bml[x] += 1.0
-
-    # ④ T3 — 채택 파이프라인 (규칙 A · R2~R5 · 상한 정확 해 · EHT 조각 전하)
-    cls, mlout = predict_T3_EHT(el, xyz, G, sc4, dict(bml), ml_sc, q_eht, coord)
-
-    # ⑤ T5·T6 — haptic 과 η^k (π 조각 = Conj ∪ Double ∪ Triple 의 연결 성분)
-    conj = {e for e, v in cls.items() if v == 3}
-    pi = nx.Graph()
-    pi.add_edges_from(e for e, v in cls.items() if v in (1, 2, 3))
-    pifrag = {x: i for i, c in enumerate(nx.connected_components(pi)) for x in c}
-    hap = set()
-    hap_by_m = collections.defaultdict(set)  # 금속 -> 그 금속에 haptic 인 원자 (R7 이 쓴다)
-    for m, x in ml_raw:
-        if x not in pifrag:
-            continue
-        nb = [y for y in G[x] if y in pifrag and pifrag[y] == pifrag[x]]
-        if not nb:
-            continue
-        y = min(nb, key=lambda q: np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m]))
-        v1, v2 = xyz[m] - xyz[x], xyz[y] - xyz[x]
-        cs = float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-12))
-        if np.degrees(np.arccos(max(-1.0, min(1.0, cs)))) < THETA_HAPTIC:
-            hap.add((m, x))
-            hap_by_m[m].add(x)
-
-    # 🔴 R7 — **하프틱 고리 안의 R2 도너를 π 후보로 되돌린다** (2026-09-03 채택 · 기본 on).
-    #   추가(M,X) ⟺ X 가 R2 도너 (O·S·Se deg ≥ 2 · N·P deg ≥ 3.
-    #                             deg 는 리간드 **내부** 이웃 수 · H 포함 · M–L 제외)
-    #             AND X 가 |r| = 5 인 고리 r 에 속함 (r 은 `nx.cycle_basis`)
-    #             AND r 의 **다른 원자** 중 **같은 금속 M** 에 위 T5 를 통과한 것이 ≥ R7MIN = 2
-    #             AND (M,X) 가 T4 결합이다 (d < d_bond AND w > w_veto ⇒ `ml_raw` 소속)
-    #             AND ∠(M–X–Y) < THETA_HAPTIC = 81.02°
-    #   ⇒ **T3 4클래스(결합차수)는 바꾸지 않는다** — 위 T5 의 "X 가 π 조각에 속한다" 조건만
-    #      면제한다. T3 **뒤** 단계에서만 고치므로 설계도 §3.0 의 DAG 순환이 생기지 않는다.
-    #      새 적합 파라미터 0개 (R7MIN 은 정수 격자).
-    #   왜: R2·R3 가 5원 고리를 Kekulé 로 만들면 이중결합이 최대 2개라 **원자 1개가 π 후보에서
-    #       빠진다**(η⁵ → η⁴). R2 는 원소 규칙이므로 피롤형 N 뿐 아니라 **퓨란 O · 싸이오펜 S ·
-    #       셀레노펜 Se · 포스폴 P** 에도 같은 실패가 난다.
-    #   ⚠️ Y 후보: X 는 정의상 `pifrag` 에 없으므로 위 루프의 "**같은** π 조각 이웃" 을 그대로
-    #      쓸 수 없다. **π 조각에 속한 내부 이웃**(`y in pifrag`)으로 읽는다 — 같은 파일 안에서
-    #      Y 를 조각 이웃으로 고르는 방식을 유지한다. η^k 는 그렇게 고른 Y 의 조각에 더한다.
-    if R7RING:
-        mlset = set(ml_raw)
-        donors = {x for x in G if lp_donor(el[x], G.degree(x))}
-        for r5 in nx.cycle_basis(G) if donors else []:
-            if len(r5) != 5:
-                continue
-            din = [x for x in r5 if x in donors]
-            if not din:
-                continue
-            for m in list(hap_by_m):
-                if len(set(r5) & hap_by_m[m]) < R7MIN:
-                    continue
-                for x in din:
-                    if x in hap_by_m[m] or (m, x) not in mlset:
-                        continue
-                    nb = [y for y in G[x] if y in pifrag]
-                    if not nb:
-                        continue
-                    y = min(nb, key=lambda q: np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m]))
-                    v1, v2 = xyz[m] - xyz[x], xyz[y] - xyz[x]
-                    cs = float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-12))
-                    if np.degrees(np.arccos(max(-1.0, min(1.0, cs)))) < THETA_HAPTIC:
-                        hap.add((m, x))
-                        hap_by_m[m].add(x)
+    for _m, x in ml_pred:
+        if (_m, x) not in hap:
+            bml[x] += 1.0  # 출력 변환기·전하도 **같은 예산**을 쓴다 (하프틱 제외)
 
     # ⑥ 출력 변환기 — 4클래스 → 정수 S/D/T + 잔여 조각 전하
     orders, frag_q = kekulize(G, el, cls, dict(bml))
