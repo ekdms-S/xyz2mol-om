@@ -1,9 +1,9 @@
-"""xyz2mol-om — 전이금속 착물 `xyz` 에서 결합 · 차수 · 전하 · 산화수를 낸다.
+"""xyz2mol-om — bonds · orders · charges · oxidation states from a transition-metal `xyz`.
 
     from xyz2mol_om import predict
     r = predict(elements, coords, total_charge=0, wbo=wbo)
 
-무엇을 쓰는지(판정 규칙·수식)와 성능은 `docs/PIPELINE.md` 에 있다.
+What is used (decision rules and formulas) and the performance figures are in `docs/PIPELINE.md`.
 """
 
 from .api import predict

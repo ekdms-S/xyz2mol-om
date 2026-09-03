@@ -1,7 +1,8 @@
-"""형식전하 — 원자별 `q_atom` · 공액 조각 `frag_charge` · 조각 합 `_qfrag` · 출력 변환기 `kekulize`.
+"""Formal charge — per atom `q_atom` · conjugated fragment `frag_charge` · fragment sum
+`_qfrag` · output converter `kekulize`.
 
-⚠️ **`ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py` 에서 이관한 코드다**
-(2026-09-03). 함수 본문은 **그대로** 옮겼다 — 판정 규칙을 바꾸지 않는다.
+⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
+(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -14,53 +15,60 @@ from .config import (ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN
 
 
 def q_atom(e, b, deg=None, nb=()):
-    """(a) q_i = v + b − 정원 (옥텟 가정 `lp = 4 − b`).
+    """(a) q_i = v + b − quota (octet assumption `lp = 4 − b`).
 
-    ★ (a′) 옥텟이 깨지는 자리만 덮는다 (2026-08-30, §5.0.8 ④ · V2d).
-    `deg` = 리간드 *내부* 이웃 수 · `nb` = 그 이웃들의 원소 튜플.
-    🔴 **이웃 원소 조건이 필수다** — 없이 `(원소, deg, b)` 만으로 걸면 회귀가 난다(실측):
-      · `("N",2,4)` 를 무조건 −1 로 두면 **아자이드 N₃ 중심 N**(이웃 N,N)과
-        **이소시아나이드 N**(이웃 C,C)까지 걸려 리간드 전하가 −2 어긋난다.
-      · `("C",2,2)` 를 무조건 0 으로 두면 **CF₂**(이웃 F,F)·`C7H6`(이웃 C,C)이 틀린다.
+    ★ (a′) covers only the sites where the octet breaks (2026-08-30, [design doc] §5.0.8 ④ · V2d).
+    `deg` = number of ligand-*internal* neighbors · `nb` = tuple of those neighbors' elements.
+    🔴 **The neighbor-element condition is essential** — keying on `(element, deg, b)` alone
+    causes regressions (measured):
+      · forcing `("N",2,4)` to −1 also catches the **central N of azide N₃** (neighbors N,N) and
+        the **isocyanide N** (neighbors C,C), throwing the ligand charge off by −2.
+      · forcing `("C",2,2)` to 0 gets **CF₂** (neighbors F,F) and `C7H6` (neighbors C,C) wrong.
     """
-    # 🔴 `QHV=1` — **초원자가 일반화** (2026-09-03). `lp = 4 − b` 를 `lp = max(0, 4 − b)` 로 둔다
-    #   ⇒ `q = v − b − 2·lp`. `b ≤ 4` 에서는 `v + b − 8` 과 **항등**(현행과 완전히 동일)이고,
-    #   `b > 4` 에서만 `q = v − b` 가 된다. 손예외 `S(=O)₂`(b 6) · `P=O`(b 5) 를 흡수하고,
-    #   **나이트로 `–N(=O)=O`(b 5)** 를 `+2` → `0` 으로 고친다(`ACARAZ` 기전).
-    #   실측(정답 배정 · train 26,075 · 조각 94,117): 초원자가 원자 1,427 · 그 조각의
-    #   EHT 목표 불일치 **50.7% → 28.5%** (626 → 352). `b ≤ 4` 자리는 한 건도 안 바뀐다.
+    # 🔴 `QHV=1` — **hypervalent generalization** (2026-09-03). `lp = 4 − b` becomes
+    #   `lp = max(0, 4 − b)` ⇒ `q = v − b − 2·lp`. For `b ≤ 4` this is **identical** to
+    #   `v + b − 8` (exactly the current behavior); only for `b > 4` does it become `q = v − b`.
+    #   It absorbs the hand-written exceptions `S(=O)₂` (b 6) and `P=O` (b 5), and fixes nitro
+    #   **`–N(=O)=O` (b 5)** from `+2` to `0` (the `ACARAZ` mechanism).
+    #   measured (reference assignment · train 26,075 · 94,117 fragments): 1,427 hypervalent
+    #   atoms · EHT target mismatch for their fragments **50.7% → 28.5%** (626 → 352). Not a
+    #   single `b ≤ 4` site changes.
     if QHV and b > 4.0 + 1e-9:
         return VAL.get(e, 4) - b
     nO, nN = nb.count("O"), nb.count("N")
     if e == "C" and deg == 2 and b == 2.0 and nN + nO >= 1:
-        # 헤테로원자 안정화 카벤 — 6전자. 옥텟식 −2 (2026-09-02 오너 지적으로 `nO` 추가).
-        #   NHC `:C(NR)₂`(이웃 N) 는 처음부터 잡혔지만 **Fischer 카벤 `:C(OR)R`(이웃 O)** 가
-        #   빠져 −2 로 떨어지고 있었다 — 실측 **374건**(전부 M 배위 · `C–O` 이웃).
-        #   ⚠️ Schrock 알킬리덴(`C–H` 465 · `C–C` 397 · `H–H` 111)은 `nN+nO = 0` 이라
-        #      **−2 로 남는다 — 그게 맞다.** 헤테로원자 조건이 둘을 가른다.
-        #   ⚠️ `S` 는 넣지 않았다 — `C–S` 95건이 전부 M 배위가 아니라 카벤 공여자가 아니다.
+        # heteroatom-stabilized carbene — 6 electrons. The octet formula gives −2 (`nO` added
+        #   after the owner's remark, 2026-09-02).
+        #   NHC `:C(NR)₂` (N neighbors) was caught from the start, but the **Fischer carbene
+        #   `:C(OR)R` (O neighbor)** was missed and kept falling to −2 — **374 cases** measured
+        #   (all M-coordinated · `C–O` neighbor).
+        #   ⚠️ Schrock alkylidenes (`C–H` 465 · `C–C` 397 · `H–H` 111) have `nN+nO = 0` and so
+        #      **stay at −2 — which is correct.** The heteroatom condition separates the two.
+        #   ⚠️ `S` was not included — none of the 95 `C–S` cases is M-coordinated, so they are
+        #      not carbene donors.
         return 0
     if e == "S" and deg == 3 and b == 4.0 and nO >= 1:
-        return 0  # 술폭사이드 S=O — 10전자.                      옥텟식 +2
+        return 0  # sulfoxide S=O — 10 electrons.              octet formula +2
     if e == "S" and deg == 4 and b == 6.0 and nO >= 2:
-        return 0  # 술폰·술포네이트 중심 — 12전자.                 옥텟식 +4
+        return 0  # sulfone / sulfonate center — 12 electrons.  octet formula +4
     if e == "P" and deg == 4 and b == 5.0 and nO + nN >= 1:
-        return 0  # 포스핀 옥사이드 P=O · 포스핀이미드 P=N — 10전자. 옥텟식 +2
+        return 0  # phosphine oxide P=O · phosphinimide P=N — 10 electrons.  octet formula +2
     if e == "N" and deg == 2 and b == 4.0 and nO == 2:
-        return -1  # 나이트로(두 N=O) — 10전자.                   옥텟식 +1
+        return -1  # nitro (two N=O) — 10 electrons.            octet formula +1
     return VAL.get(e, 4) + b - FULL.get(e, 8)
 
 def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
-    """공액 조각 하나의 전하 — (b) 규칙.
+    """Charge of one conjugated fragment — rule (b).
 
-    단환 전탄소 **`CmHm`** → Hückel `z = m − (4n+2)`   ← 고리 원자마다 외부 결합이 정확히 1 이어야 한다
-    그 외                  → Kekulé 최대화(최대 매칭) 후 (a) 합
+    monocyclic all-carbon **`CmHm`** → Hückel `z = m − (4n+2)`
+                                       ← every ring atom must have exactly 1 external bond
+    otherwise                        → maximize Kekule (maximum matching), then sum (a)
 
-    🔴 버그 2건 수정 (2026-08-30, §5.0.8 ②):
-      B1  치환된 전탄소 고리에도 Hückel 을 걸어 **페닐 C6H5 가 0** 이었다(정답 −1).
-          `CmHm` 확인을 넣으니 Kekulé 로 내려가 −1 이 된다.
-      B2  `min(HUCKEL, key=|m−h|)` 가 **m=8 에서 6·10 동점 → 앞의 6** 을 골라
-          **COT 가 +2** 였다(정답 −2). 동점이면 **큰 쪽**을 고른다.
+    🔴 2 bugs fixed (2026-08-30, [design doc] §5.0.8 ②):
+      B1  Hückel was also applied to substituted all-carbon rings, making **phenyl C6H5 come out
+          0** (truth −1). Adding the `CmHm` check drops it to Kekule and gives −1.
+      B2  `min(HUCKEL, key=|m−h|)` picked **the earlier 6 on the m=8 tie between 6 and 10**,
+          making **COT +2** (truth −2). On a tie, take **the larger**.
     """
     ring = len(edges) == len(atoms) and all(
         sum(1 for a, b in edges if a == v or b == v) == 2 for v in atoms
@@ -68,15 +76,17 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
     huckel = None
     if ring and all(el[a] == "C" for a in atoms):
         m = len(atoms)
-        if all(orders.get(v, 0.0) == 1.0 for v in atoms):  # ← B1: CmHm 확인
+        if all(orders.get(v, 0.0) == 1.0 for v in atoms):  # ← B1: CmHm check
             d = min(abs(m - h) for h in HUCKEL)
-            huckel = m - max(h for h in HUCKEL if abs(m - h) == d)  # ← B2: 동점이면 큰 쪽
+            huckel = m - max(h for h in HUCKEL if abs(m - h) == d)  # ← B2: on a tie, the larger
             if out is None:
                 return huckel
-            # ⑥ 출력 변환기 — Hückel 분기도 **골격은 매칭으로 낸다**(2026-09-02).
-            #   전하만 Hückel 이 정하고, S/D/T 골격은 아래 매칭이 준다.
-            #   ⚠️ 짝수 고리 다이아니온(η⁴-C₄R₄²⁻·η⁸-COT²⁻)은 골격이 **중성 Kekulé** 라
-            #      원자별 전하를 골격에서 유추할 수 없다 — 조각 전하로 내야 한다.
+            # ⑥ output converter — even on the Hückel branch, **the skeleton comes from the
+            #   matching** (2026-09-02). Hückel fixes only the charge; the S/D/T skeleton comes
+            #   from the matching below.
+            #   ⚠️ For an even-ring dianion (η⁴-C₄R₄²⁻, η⁸-COT²⁻) the skeleton is a **neutral
+            #      Kekule**, so per-atom charges cannot be inferred from it — the charge has to
+            #      be reported at the fragment level.
     G = nx.Graph()
     G.add_nodes_from(atoms)
     G.add_edges_from(edges)
@@ -92,12 +102,13 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
     q = 0
     for v in atoms:
         b = sum(md.get((min(v, w), max(v, w)), 1.0) for w in G[v])
-        b += orders.get(v, 0.0)  # 조각 밖으로 나가는 결합의 차수
+        b += orders.get(v, 0.0)  # order of bonds leaving the fragment
         q += q_atom(el[v], b, None if deg is None else deg.get(v), (nbrs or {}).get(v, ()))
     return q
 
 def _qfrag(G, el, cls, comp):
-    """조각 하나의 전하 — 본문 q 규칙과 같다(공액 조각은 `frag_charge`)."""
+    """Charge of one fragment — the same q rule as in the main text (conjugated fragments go
+    through `frag_charge`)."""
     pc = {e for e, v in cls.items() if v == 3 and e[0] in comp}
     Gc = nx.Graph()
     Gc.add_edges_from(pc)
@@ -125,20 +136,27 @@ def _qfrag(G, el, cls, comp):
     return q
 
 def kekulize(G, el, cls, bml=None):
-    """⑥ **출력 변환기** — 4클래스 예측(`Conj` 포함)을 정수 S/D/T 로 되돌린다 (2026-09-02).
+    """⑥ **output converter** — turn the 4-class prediction (`Conj` included) back into integer
+    S/D/T (2026-09-02).
 
-    반환 `(orders, frag_q)`
-      `orders` {(i,j): 1|2|3}          — 출력용 정수 결합차수 (내부결합 전량)
-      `frag_q` {조각 대표원자(min idx): 전하} — **골격에서 유추할 수 없는 전하**를 담는다
+    Returns `(orders, frag_q)`
+      `orders` {(i,j): 1|2|3}                    — integer bond orders for output (all internal
+                                                   bonds)
+      `frag_q` {fragment representative (min idx): charge}
+                                                 — holds **charge that cannot be inferred from
+                                                   the skeleton**
 
-    **왜 별도 반환이 필요한가.** 홀수 π 계(Cp⁻·알릴⁻)는 매칭이 원자 하나를 남기고 그 자리가
-    그대로 −1 이 되므로 골격만으로 전하가 읽힌다. 그런데 **짝수 고리 다이아니온**
-    (η⁴-C₄R₄²⁻ · η⁸-COT²⁻)은 완전매칭이 되어 **골격이 중성 Kekulé** 인데 실제 전하는 −2 다.
-    −2 는 결합 패턴이 아니라 **전자 2개**라 어떤 S/D/T 배정으로도 표현되지 않는다.
-    ⇒ 그런 조각은 **원자별로 찍지 말고 리간드 전하로** 낸다(Hückel 분기가 그 전하를 준다).
+    **Why a separate return is needed.** In an odd π system (Cp⁻, allyl⁻) the matching leaves one
+    atom over and that site simply becomes −1, so the charge is readable off the skeleton. But an
+    **even-ring dianion** (η⁴-C₄R₄²⁻ · η⁸-COT²⁻) has a perfect matching, so **the skeleton is a
+    neutral Kekule** while the real charge is −2. That −2 is **two electrons**, not a bond
+    pattern, and no S/D/T assignment can express it.
+    ⇒ For such a fragment, **do not stamp it per atom; report it as the ligand charge** (the
+      Hückel branch supplies that charge).
 
-    ⚠️ 전하·원자가 경로(`_qfrag`)와 **같은 매칭**을 쓴다 — 별도 매칭을 돌리면 출력과 전하가
-       어긋난다(`relabel.py` 의 거리우도 가중 매칭을 재활용하면 안 되는 이유).
+    ⚠️ It uses **the same matching** as the charge/valence path (`_qfrag`) — running a separate
+       matching would let the output and the charge diverge (this is why the distance-likelihood
+       weighted matching in `relabel.py` must not be reused here).
     """
     bml = bml or {}
     orders = {}
@@ -165,7 +183,8 @@ def kekulize(G, el, cls, bml=None):
         q = frag_charge(el, list(cm), sub, outer, DEG, NB, out=out)
         for e, o in out.items():
             orders[e] = int(o)
-        # 골격이 주는 전하와 조각 전하가 어긋나면(짝수 고리 다이아니온) 리간드 전하로 낸다
+        # if the skeleton charge and the fragment charge disagree (even-ring dianion), report it
+        # as the ligand charge
         q_skel = 0
         for v in cm:
             b = sum(out.get((min(v, w), max(v, w)), 1.0) for w in Gc[v]) + outer.get(v, 0.0)
@@ -175,26 +194,32 @@ def kekulize(G, el, cls, bml=None):
     return orders, frag_q
 
 def parse_os(m, nm):
-    """금속 `m` 의 산화수를 이름에서 읽는다. 혼합원자가·불명이면 None (채점 제외)."""
+    """Read the oxidation state of metal `m` from the name. Returns None for mixed valence or
+    unknown (excluded from scoring)."""
     nm = (nm or "").lower()
     stems = [NAMEEL.get(m, m.lower())] + ALT.get(m, [])
     ok = lambda x: any(x.startswith(y) or y in x for y in stems)  # noqa: E731
     if [g for g in PATM.findall(nm) if ok(g[0])]:
-        return None  # 혼합원자가 — 채점 제외
+        return None  # mixed valence — excluded from scoring
     f = {ROMAN[r] for x, r in PAT.findall(nm) if ok(x)}
     return f.pop() if len(f) == 1 else None
 
 
-# ★★ 클러스터 조각 전하 (2026-09-03) — **2중심 형식으로 못 적는 조각**은 EHT 값을 쓴다.
-#   판정  클러스터다(F) ⟺ F 안에 `b_int(x) > CAP(el[x])` 인 원자가 있다
-#   왜: 카보란 케이지는 Wade 규칙(다중심 골격 결합)이라 2중심 2전자로 표현되지 않는다.
-#       케이지 `B` 는 내부 이웃이 5~6개라 `b_int > CAP(B)=4` 이고, 형식전하식
-#       (`q = v + b − 8` · 초원자가 `q = v − b`)이 원자마다 −2~−3 을 쌓는다.
-#       실측(`GANLUF` · 2026-09-03): 카보란 리간드 형식전하 합 **−27** · EHT **−1**.
-#   ⚠️ EHT 값이 없으면 형식전하 합으로 돌아간다(조용히 틀리는 것보다 낫다).
-#   ⚠️ 이 함수는 워크스페이스 `260830_fit_t10_charge.py` 와 **본문이 같아야 한다.**
+# ★★ cluster fragment charge (2026-09-03) — **a fragment that cannot be written in 2-center
+#   form** uses the EHT value.
+#   rule  F is a cluster ⟺ F contains an atom with `b_int(x) > CAP(el[x])`
+#   Why: a carborane cage follows Wade's rules (multicenter skeletal bonding) and is not
+#       expressible as 2-center 2-electron. A cage `B` has 5-6 internal neighbors, so
+#       `b_int > CAP(B)=4`, and the formal-charge formula (`q = v + b − 8` · hypervalent
+#       `q = v − b`) piles up −2 to −3 per atom.
+#       measured (`GANLUF` · 2026-09-03): formal-charge sum of the carborane ligand **−27** vs
+#       EHT **−1**.
+#   ⚠️ With no EHT value it falls back to the formal-charge sum (better than being silently
+#      wrong).
+#   ⚠️ The body of this function must **stay identical to** workspace
+#      `260830_fit_t10_charge.py`.
 def is_cluster_frag(G, el, cls, comp):
-    """조각이 클러스터(다중심 골격)인가 — 위 판정식."""
+    """Is the fragment a cluster (multicenter skeleton)? — the rule above."""
     for x in comp:
         b = sum(ORD4[cls.get((min(x, w), max(x, w)), 0)] for w in G[x])
         if b > CAP.get(el[x], 4) + 1e-9:
@@ -203,7 +228,8 @@ def is_cluster_frag(G, el, cls, comp):
 
 
 def frag_charge_or_eht(G, el, cls, comp, q_eht=None):
-    """조각 전하 — 클러스터면 **EHT 조각 전하**, 아니면 형식전하 합(`_qfrag`)."""
+    """Fragment charge — the **EHT fragment charge** for a cluster, otherwise the formal-charge
+    sum (`_qfrag`)."""
     if is_cluster_frag(G, el, cls, comp):
         q = (q_eht or {}).get(min(comp))
         if q is not None:

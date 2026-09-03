@@ -1,7 +1,7 @@
-"""예시 5종의 **Kekulé 2D 그래프**를 PNG 로 그린다 — `python examples/draw_examples.py`.
+"""Draw the **Kekule 2D graph** of the five examples as PNG - `python examples/draw_examples.py`.
 
-착물 SMILES(M–L 은 dative 화살표)를 RDKit 으로 파싱해 그린다. 파싱이 안 되면
-리간드 SMILES 를 격자로 그린다.
+The complex SMILES (M–L as dative arrows) is parsed with RDKit and drawn. If it cannot be
+parsed, the ligand SMILES are drawn as a grid instead.
 """
 
 from __future__ import annotations
@@ -61,10 +61,10 @@ def main() -> None:
                                  ^ Chem.SanitizeFlags.SANITIZE_KEKULIZE
                                  ^ Chem.SanitizeFlags.SANITIZE_SETAROMATICITY)
                 draw(mol, out, legend)
-                print(f"{out.name:30} 착물 SMILES 로 그림")
+                print(f"{out.name:30} drawn from complex SMILES")
                 continue
             except Exception as e:
-                print(f"{out.name:30} 착물 파싱 실패({type(e).__name__}) → 리간드 격자로")
+                print(f"{out.name:30} complex parse failed({type(e).__name__}) -> ligand grid")
         mols, legs = [], []
         for lg in r["ligands"]:
             m = Chem.MolFromSmiles(lg["smiles"] or "", sanitize=False)
@@ -75,7 +75,7 @@ def main() -> None:
         img = Draw.MolsToGridImage(mols, legends=legs, molsPerRow=min(3, max(1, len(mols))),
                                    subImgSize=(260, 220), useSVG=False)
         out.write_bytes(img.data if hasattr(img, "data") else img)
-        print(f"{out.name:30} 리간드 격자로 그림 ({len(mols)}개)")
+        print(f"{out.name:30} drawn as ligand grid ({len(mols)} fragments)")
 
 
 if __name__ == "__main__":

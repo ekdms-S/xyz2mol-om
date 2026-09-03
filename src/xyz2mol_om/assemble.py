@@ -1,14 +1,15 @@
-"""`predict()` 결과 → **RDKit 착물 분자**로 되조립한다.
+"""Reassemble a `predict()` result into an **RDKit complex molecule**.
 
-`complex_smiles` 는 착물을 한 문자열로 주지만 **M–L 차수를 뭉갠다**. 리간드 SMILES + 금속 +
-`ml_bonds` 로 직접 조립하면 차수를 원하는 대로 넣을 수 있고, 원자 대응도 손에 남는다.
+`complex_smiles` gives the complex as one string but **collapses the M-L orders**. Assembling
+directly from ligand SMILES + metals + `ml_bonds` lets you put in the orders you want and keeps
+the atom correspondence in hand.
 
     from xyz2mol_om import predict, assemble_complex
     mol, atom_map = assemble_complex(predict(el, xyz, total_charge=0, wbo=wbo))
-    #   atom_map : {입력 원자 인덱스 -> mol 원자 인덱스}   (배위 원자·금속만)
+    #   atom_map : {input atom index -> mol atom index}   (coordinating atoms and metals only)
 
-⚠️ **리간드 SMILES 의 원자 맵 `[X:n]` 은 입력 인덱스가 아니다** — 그 리간드의
-`coordinating` 을 정렬한 목록의 **n 번째(1-based)** 다. 이 함수가 그 변환을 한다.
+⚠️ **The atom map `[X:n]` in a ligand SMILES is not the input index** — it is the **n-th
+(1-based)** entry of that ligand's sorted `coordinating` list. This function does that mapping.
 """
 
 from __future__ import annotations
@@ -19,8 +20,8 @@ _BT = {1: Chem.BondType.SINGLE, 2: Chem.BondType.DOUBLE, 3: Chem.BondType.TRIPLE
 
 
 def assemble_complex(r: dict, ml_dative: bool = True):
-    """`(mol, {입력 인덱스: mol 인덱스})`. `ml_dative=False` 면 M–L 을 `ml_bonds[…]["order"]`
-    정수 차수로 넣는다(하프틱은 차수가 없으므로 언제나 dative)."""
+    """`(mol, {input index: mol index})`. With `ml_dative=False`, M-L bonds are added with the
+    integer order from `ml_bonds[...]["order"]` (haptic has no order, so it is always dative)."""
     m = Chem.RWMol()
     pos: dict[int, int] = {}
     for met in r["metals"]:
@@ -31,7 +32,7 @@ def assemble_complex(r: dict, ml_dative: bool = True):
     for lg in r["ligands"]:
         sub = Chem.MolFromSmiles(lg["smiles"] or "", sanitize=False)
         if sub is None:
-            raise ValueError(f"리간드 {lg['index']} SMILES 파싱 실패: {lg['smiles']!r}")
+            raise ValueError(f"ligand {lg['index']} SMILES parse failed: {lg['smiles']!r}")
         coord = sorted(lg["coordinating"])
         loc = {}
         for at in sub.GetAtoms():

@@ -1,16 +1,22 @@
-"""🔴 회귀 — **T3 `b_ML` 예산에서 agostic·haptic 을 뺀다** + **η^k 는 리간드 단위로 센다**.
+"""🔴 Regression - **agostic·haptic are excluded from the T3 `b_ML` budget** + **η^k is counted
+per ligand**.
 
-실물 `ZEGVIQ` (CSD · `ref_xtb2` 기하 · Mayer 는 같은 구조의 xtb GFN2 `--sp --wbo` 실측 상수).
-정답: 5원 고리에 이중결합 2개(`C6=C7` · `C22=C23`) · 리간드 `n_haptic_bound` = **5**.
+Real structure `ZEGVIQ` (CSD · `ref_xtb2` geometry · Mayer values are xtb GFN2 `--sp --wbo`
+measurements on the same structure, hard-coded here).
+Ground truth: two double bonds in the 5-membered ring (`C6=C7` · `C22=C23`) · ligand
+`n_haptic_bound` = **5**.
 
-옛 코드가 왜 틀렸나 — T4 후보를 **전부** `b_ML` 1.0 으로 물렸다:
-  Cr 에 고리 원자 5개가 붙어 있으므로 5개가 각각 예산을 물어 `CAP` 여유가 사라지고
-  ④ 상한 정확 해가 고리를 **전부 `Single`** 로 내렸다 ⇒ π 조각이 없어 T5 가 η 를 못 만들었다.
-  실측(train 표본 1,999 구조 · 2026-09-03): 이 제외가 없으면 §5 채점기와 결합 **520개(0.90%)**
-  가 갈리고 그 자리 정답률이 **16.5% 대 70.9%** 였다. 제외를 넣으면 **71개(0.12%)** 로 준다.
+Why the old code was wrong - it charged **every** T4 candidate `b_ML` 1.0:
+  five ring atoms are attached to Cr, so all five drew on the budget, the `CAP` headroom
+  vanished, and the ④ upper-bound exact solution pushed the whole ring to **`Single`** ⇒ with no
+  π fragment left, T5 could not form η.
+  Measured (train sample of 1,999 structures · 2026-09-03): without this exclusion **520 bonds
+  (0.90%)** disagree with the §5 scorer, and accuracy at those sites was **16.5% vs 70.9%**.
+  With the exclusion it drops to **71 bonds (0.12%)**.
 
-그리고 η 를 **π 조각별**로 세면 이 고리는 Kekulé 라 조각이 2개로 갈려 M–L 5개가 전부
-haptic 인데도 **η2** 가 나왔다. 정답지(`n_haptic_bound`)와 채점기는 **리간드 단위**다.
+Also, counting η **per π fragment** splits this Kekule ring into two fragments, so **η2** came
+out even though all five M–L bonds are haptic. The ground truth (`n_haptic_bound`) and the
+scorer are both **per ligand**.
 """
 
 # ruff: noqa: E501
@@ -91,7 +97,8 @@ def _ring_ligand(r):
 
 
 def test_ring_keeps_double_bonds():
-    """고리가 전부 `Single` 로 눌리지 않는다 — CSD 정답과 같은 자리에 이중결합 2개."""
+    """The ring is not flattened to all-`Single` - two double bonds at the same positions as
+    the CSD ground truth."""
     lg = _ring_ligand(predict(EL, XYZ, wbo=WBO))
     b = lg["bonds_4class"]
     assert b[(6, 7)] == "Double", b[(6, 7)]
@@ -101,7 +108,7 @@ def test_ring_keeps_double_bonds():
 
 
 def test_eta_is_per_ligand():
-    """M–L 5개가 전부 haptic 이고 η = 5 다 (π 조각별로 세면 2 가 나온다)."""
+    """All five M–L bonds are haptic and η = 5 (counting per π fragment would give 2)."""
     lg = _ring_ligand(predict(EL, XYZ, wbo=WBO))
     types = [d["type"] for d in lg["ml_bonds"].values()]
     assert types == ["haptic"] * 5, types

@@ -1,55 +1,58 @@
-"""상위 API — `xyz` → **금속별 / 리간드별** 결합 · 차수 · 전하 · 산화수.
+"""Top-level API — `xyz` → bonds · orders · charges · oxidation states, **per metal / per ligand**.
 
     from xyz2mol_om import predict
     r = predict(elements, coords, total_charge=0, wbo=wbo)
 
-반환 구조 (dict)
+Return structure (dict)
 
-    r["metals"]  = [ {                      금속 하나
-          "index":        int,              전체 좌표 기준 원자 인덱스
+    r["metals"]  = [ {                      one metal
+          "index":        int,              atom index in the full coordinate list
           "element":      str,
-          "oxidation":    int | None,       산화수 (total_charge 를 줘야 나온다)
-          "mm_bonds":     {(m1, m2): 1|2|3|4},   M–M 결합 차수
-      }, … ]
+          "oxidation":    int | None,       oxidation state (needs total_charge to be given)
+          "mm_bonds":     {(m1, m2): 1|2|3|4},   M–M bond orders
+      }, ... ]
 
-    r["ligands"] = [ {                      리간드 조각 하나
-          "index":        int,              조각 번호 (0부터)
-          "atoms":        [int, …],         전체 좌표 기준 원자 인덱스
+    r["ligands"] = [ {                      one ligand fragment
+          "index":        int,              fragment number (from 0)
+          "atoms":        [int, ...],       atom indices in the full coordinate list
           "bonds_4class": {(i,j): "Single"|"Double"|"Triple"|"Conj"},
-          "bonds_kekule": {(i,j): 1|2|3},   ⑥ 출력 변환기 산출 (정수)
-          "smiles":       str | None,       Kekulé SMILES. 배위 원자는 원자 맵 `[X:n]`
-          "smiles_ok":    bool,             왕복 검증(차수·전하·H·화학적 타당성) 통과 여부
-          "smiles_note":  str,              실패 사유 (통과면 "")
-          "coordinating": [int, …],         금속에 배위한 원자
+          "bonds_kekule": {(i,j): 1|2|3},   output of the ⑥ converter (integers)
+          "smiles":       str | None,       Kekule SMILES. Coordinating atoms carry atom map `[X:n]`
+          "smiles_ok":    bool,             passed the round-trip check (orders · charges · H ·
+                                            chemical validity)
+          "smiles_note":  str,              failure reason ("" if it passed)
+          "coordinating": [int, ...],       atoms coordinating a metal
           "ml_bonds":     {(m, x): {
-                "type":   "sigma"|"haptic"|"bridge",   우선순위 haptic > bridge > sigma
-                "order":  1|2|3|None,                 haptic 은 None (차수를 안 매긴다)
-                "bridge": None|"3c2e"|"dative",       T7 하위 태그 (설계도 §3.0 5c)
+                "type":   "sigma"|"haptic"|"bridge",   priority haptic > bridge > sigma
+                "order":  1|2|3|None,                 None for haptic (no order is assigned)
+                "bridge": None|"3c2e"|"dative",       T7 sub-tag ([design doc] §3.0 5c)
           }},
-          "eta":          {m: k},           그 금속에 대한 η^k (haptic 일 때)
-          "charge":       int,              리간드 전하 q_L
-          "residual_charge": int | None,    골격으로 표현 안 되는 잔여 전하 (있으면)
-      }, … ]
+          "eta":          {m: k},           η^k toward that metal (when haptic)
+          "charge":       int,              ligand charge q_L
+          "residual_charge": int | None,    residual charge the skeleton cannot express (if any)
+      }, ... ]
 
-    r["complex_smiles"]      = str | None   **착물 전체** SMILES. M–L 은 전부 dative 화살표
-    r["complex_smiles_ok"]   = bool         왕복 검증 통과 여부
-    r["complex_smiles_note"] = str          실패·미생성 사유 (통과면 "")
-    r["complex_atom_order"]  = [int, …]     SMILES 출력 순서대로의 입력 원자 인덱스
-    r["total_charge"]        = 입력 총전하 (그대로)
+    r["complex_smiles"]      = str | None   SMILES of the **whole complex**. Every M–L is a dative
+                                            arrow
+    r["complex_smiles_ok"]   = bool         whether the round-trip check passed
+    r["complex_smiles_note"] = str          reason for failure or non-generation ("" if it passed)
+    r["complex_atom_order"]  = [int, ...]   input atom indices in SMILES output order
+    r["total_charge"]        = the input total charge (unchanged)
 
-🔴 **`complex_smiles` 의 M–L 은 차수를 뭉갠다.** 옥소 `M=O` 든 나이트라이도 `M≡N` 든 화살표
-   하나로 나간다 — 실제 차수는 `ligands[*]["ml_bonds"][(m,x)]["order"]` 에 있다 (오너 결정
-   2026-09-03). dative 로 적는 이유는 RDKit 의 `DATIVE` 가 **도너 쪽 원자가에 안 세이기**
-   때문이다 — 우리 `q_atom` 이 이미 전자쌍 기부를 형식전하로 반영해 놨으므로 보통 결합으로
-   적으면 도너가 이중으로 세어진다.
-🔴 **금속의 형식전하 = 산화수**다. `total_charge` 를 안 주면 산화수가 안 나오므로
-   `complex_smiles` 도 **만들지 않는다**(`complex_smiles_note` 에 사유가 담긴다).
+🔴 **The M–L orders are collapsed in `complex_smiles`.** An oxo `M=O` and a nitrido `M≡N` both go
+   out as a single arrow — the real order is in `ligands[*]["ml_bonds"][(m,x)]["order"]` (owner's
+   decision 2026-09-03). They are written as dative because RDKit's `DATIVE` **is not counted
+   toward the donor's valence** — our `q_atom` already reflects the electron-pair donation as a
+   formal charge, so writing them as normal bonds would count the donor twice.
+🔴 **A metal's formal charge = its oxidation state.** Without `total_charge` there is no oxidation
+   state, so `complex_smiles` is **not built either** (the reason goes in `complex_smiles_note`).
 
-⚠️ **`wbo`(Mayer 결합차수)가 없으면** M–L 판정이 거리만 쓰고 차수는 전부 `Single` 이 된다.
-   `{(금속 인덱스, 원자 인덱스): w}` 로 넘긴다 (xtb `--sp` 산출물).
-⚠️ **SMILES 는 우리 차수·전하를 그대로 고정해서 만든다** — RDKit 이 배위 원자에 암묵적 수소를
-   붙이거나 형식전하를 다시 매기지 못하게 잠근다(`smiles.py`). `smiles_ok=False` 면 그 리간드는
-   왕복 검증에 실패한 것이므로 **SMILES 를 쓰지 말고 `bonds_kekule` 을 쓴다.**
+⚠️ **Without `wbo` (Mayer bond orders)** the M–L decision uses distance only and every order comes
+   out `Single`. Pass it as `{(metal index, atom index): w}` (an xtb `--sp` output).
+⚠️ **The SMILES is built with our orders and charges pinned** — RDKit is locked out of adding
+   implicit hydrogens to coordinating atoms or reassigning formal charges (`smiles.py`). If
+   `smiles_ok=False`, that ligand failed the round-trip check, so **do not use the SMILES; use
+   `bonds_kekule`.**
 """
 
 
@@ -72,10 +75,11 @@ from .pipeline import bridge_tags, predict_T3_T5
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
-    """T4 — M–X 결합 유무. `d < d_bond(M,X)` AND `w > w_veto(M,X)`.
+    """T4 — presence of an M–X bond. `d < d_bond(M,X)` AND `w > w_veto(M,X)`.
 
-    `cen` = 중심원자 인덱스 집합(`config.centers`) — **`B` 는 조건부 중심이라 원소로 못 가른다.**
-    ⚠️ agostic 제외(`C–H···M`)는 설계도 §3 3 의 규칙이다.
+    `cen` = the set of center-atom indices (`config.centers`) — **`B` is a conditional center,
+    so it cannot be told apart by element alone.**
+    ⚠️ Agostic exclusion (`C–H···M`) is the rule in [design doc] §3 3.
     """
     idx = [i for i in range(len(el)) if i not in cen]
     mets = sorted(cen)
@@ -89,14 +93,16 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
     return raw
 
 
-MLIKE_EXTRA = {"B", "Al"}  # metal-like = 금속 ∪ {B, Al} (설계도 §3.1 (c))
+MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} ([design doc] §3.1 (c))
 
 
 def _drop_agostic(el, G, ml_raw):
-    """`C–H···M` 만 뺀다 — μ-H 와 `B–H···M`(보로하이드라이드)은 진짜 3c2e 라 남긴다.
+    """Remove `C–H···M` only — μ-H and `B–H···M` (borohydride) are genuine 3c2e and are kept.
 
-    판정  뺀다 ⟺ el[X] = H  AND  metal-like 이웃이 1개  AND  내부 이웃에 metal-like 아닌 것이 있다
-    설계도 §3.0 [T4] 의 agostic 규칙. 채점기(`260831_propagation_prior_cv.py`)와 같은 식이다.
+    rule  remove ⟺ el[X] = H  AND  exactly 1 metal-like neighbor  AND  some internal neighbor is
+                   not metal-like
+    The agostic rule of [design doc] §3.0 [T4]. Same formula as the scorer
+    (`260831_propagation_prior_cv.py`).
     """
     nmet = collections.Counter(x for _m, x in ml_raw)
     out = []
@@ -111,26 +117,29 @@ def _drop_agostic(el, G, ml_raw):
 
 def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=None,
             complex_atom_map=False):
-    """`xyz` → 결합·차수·전하·산화수. 인자·반환은 모듈 docstring 참조."""
+    """`xyz` → bonds · orders · charges · oxidation states. See the module docstring for the
+    arguments and the return value."""
     el = list(elements)
     xyz = np.asarray(coords, dtype=float)
     if not wbo:
-        # T4 거부권(`w > w_veto`)과 T8(M–L 차수)의 유일한 입력이 Mayer 결합차수다.
-        # 없으면 거리 폴백으로 진행한다 — 성능이 떨어진다(모듈 docstring 참조).
+        # The Mayer bond order is the only input to the T4 veto (`w > w_veto`) and to T8
+        # (M–L orders). Without it we proceed on the distance fallback — performance drops
+        # (see the module docstring).
         warnings.warn(
-            "wbo(Mayer 결합차수)가 없다 — M–L 판정이 거리만 쓴다. "
-            "T4 거부권이 꺼지고 M–L 차수는 거리 폴백(`b_ml_dist.csv`)으로 매긴다: "
-            "refcode 5-fold CV 기준 M–L `Double` F1 0.698 (Mayer 판 0.732). "
-            "xtb GFN2 `--sp --wbo` 로 얻어 `wbo={(금속idx, 원자idx): w}` 로 넘기면 개선된다.",
+            "no wbo (Mayer bond orders) - the M-L decision uses distance only. "
+            "The T4 veto is off and M-L orders come from the distance fallback "
+            "(`b_ml_dist.csv`): M-L `Double` F1 0.698 under refcode 5-fold CV "
+            "(0.732 for the Mayer version). Obtain them with xtb GFN2 `--sp --wbo` and "
+            "pass `wbo={(metal idx, atom idx): w}` to improve this.",
             UserWarning,
             stacklevel=2,
         )
     sc4 = scores4 if scores4 is not None else load_scores4()
     d_int, d_fb = dint if dint is not None else load_dint()
 
-    # ① T1 — 배위자 내부 결합 (거리)
-    #   🔴 중심원자는 원소가 아니라 `centers()` 가 정한다 — `B` 는 전이금속이 있으면
-    #      **리간드 원자**다(카보란·보릴·`BH₄⁻`). 설계도 §3.0 0.
+    # ① T1 — bonds inside a ligand (distance)
+    #   🔴 The center atoms are decided by `centers()`, not by element — with a transition metal
+    #      present, `B` is a **ligand atom** (carborane, boryl, `BH₄⁻`). [design doc] §3.0 0.
     cen = centers(el)
     idx = [i for i in range(len(el)) if i not in cen]
     G = nx.Graph()
@@ -138,13 +147,14 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     for ii in range(len(idx)):
         for jj in range(ii + 1, len(idx)):
             a, b = idx[ii], idx[jj]
-            # 🔴 두 가드가 **먼저** 걸린다 (2026-09-03 정합 · 채점기와 동일):
-            #   ① `H–H` 는 아예 후보가 아니다
-            #   ② `d > 1.8·(r_cov(a)+r_cov(b))` 는 후보가 아니다 — 적합된 컷오프가 **없는**
-            #      원소쌍은 전역 폴백 `d_int = 2.0542 Å` 를 쓰는데, 그것이 너무 길어
-            #      **수소결합 접촉을 공유결합으로 만든다.** 실측(`DEKKEJ` · 2026-09-03):
-            #      `F···H` 1.99 Å 12건이 결합으로 잡혔다(공유 `F–H` 는 0.92 Å · 정답에 없다).
-            #      그 12개가 리간드 조각을 잇는 바람에 `C=O` 4개가 `Single` 로 뒤집혔다.
+            # 🔴 Two guards apply **first** (aligned 2026-09-03 · same as the scorer):
+            #   ① `H–H` is never a candidate
+            #   ② `d > 1.8·(r_cov(a)+r_cov(b))` is not a candidate — an element pair with **no**
+            #      fitted cutoff uses the global fallback `d_int = 2.0542 Å`, which is so long
+            #      that it **turns hydrogen-bond contacts into covalent bonds.** Measured
+            #      (`DEKKEJ` · 2026-09-03): 12 `F···H` contacts at 1.99 Å were taken as bonds
+            #      (a covalent `F–H` is 0.92 Å and is absent from the reference labels). Those 12
+            #      joined ligand fragments together and flipped 4 `C=O` bonds to `Single`.
             if el[a] == "H" and el[b] == "H":
                 continue
             d_ab = float(np.linalg.norm(xyz[a] - xyz[b]))
@@ -153,7 +163,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             if d_ab < d_int.get(tuple(sorted((el[a], el[b]))), d_fb):
                 G.add_edge(a, b)
 
-    # ② T4 — M–L 결합 (거리 + Mayer 거부권)
+    # ② T4 — M–L bonds (distance + Mayer veto)
     import csv as _csv
 
     from .config import DATA
@@ -166,21 +176,25 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             dbond[(r["M"], r["X"])] = (float(r["d_bond"]), float(r["w_veto"]))
     ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo, cen)
 
-    # ③④⑤ T3 · M–L 차수 · T5(하프틱) · R7 — **한 함수**가 전부 낸다 (2026-09-03 통일).
-    #   왜 호출자가 조립하지 않나: 예산에서 haptic·agostic 을 빼는지, M–L 차수 후보를 어떻게
-    #   고르는지, T5 의 Y 후보가 무엇인지를 호출자마다 다르게 조립하다가 채점기와 **네 자리**가
-    #   갈렸다(실측 2026-09-03 · 설계도 §6.5). 이제 `ml_raw` 와 `wbo` 만 넘긴다.
+    # ③④⑤ T3 · M–L orders · T5 (haptic) · R7 — **one function** produces all of it
+    #   (unified 2026-09-03).
+    #   Why the caller does not assemble it: whether haptic and agostic are removed from the
+    #   budget, how the M–L order candidates are chosen, and what T5's Y candidates are were each
+    #   assembled differently per caller, and that diverged from the scorer in **four places**
+    #   (measured 2026-09-03 · [design doc] §6.5). Now only `ml_raw` and `wbo` are passed in.
     q_eht = eht_frag_charges(el, xyz, G)
     cls, mlout, hap, ml_pred = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
     bml = collections.defaultdict(float)
     for _m, x in ml_pred:
         if (_m, x) not in hap:
-            bml[x] += 1.0  # 출력 변환기·전하도 **같은 예산**을 쓴다 (하프틱 제외)
+            bml[x] += 1.0  # the output converter and the charge use the **same budget**
+        #                (haptic excluded)
 
-    # ⑥ 출력 변환기 — 4클래스 → 정수 S/D/T + 잔여 조각 전하
+    # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge
     orders, frag_q = kekulize(G, el, cls, dict(bml))
 
-    # ⑦ M–M 결합 (T4 가 양 끝 금속이라 한 것) — 차수는 아직 거리 경계 미탑재라 1 로 둔다
+    # ⑦ M–M bonds (those T4 called with a metal at both ends) — the order is left at 1 because
+    #   no distance boundary is implemented yet
     mets = sorted(cen)
     mm = {}
     for a in range(len(mets)):
@@ -194,29 +208,31 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             if d < tb and (wbo or {}).get((m1, m2), (wbo or {}).get((m2, m1), 1.0)) > wv:
                 mm[(m1, m2)] = 1
 
-    # ── 리간드 조각 단위로 묶는다
+    # -- group by ligand fragment
     NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
     hapset = {(min(a, b), max(a, b)) for a, b in hap}
-    # T7 (설계도 §3.0 5c) — 다리 태그 `{배위원자: "3c2e" | "dative"}`. ④ 예산에서 3c2e 를 빼는
-    # 판정(`BMLSKIP3C`)과 **같은 함수**를 쓴다 — 출력 태그와 예산 판정이 갈리지 않게 한다.
+    # T7 ([design doc] §3.0 5c) — bridge tags `{coordinating atom: "3c2e" | "dative"}`. It uses
+    # **the same function** as the decision that removes 3c2e from the ④ budget (`BMLSKIP3C`) —
+    # so the output tag and the budget decision cannot diverge.
     btag = bridge_tags(el, G, ml_pred)
-    coord_of = collections.defaultdict(set)  # 조각 대표 -> 배위 원자
+    coord_of = collections.defaultdict(set)  # fragment representative -> coordinating atoms
     ligands = []
     q_all = {}
-    qat_all = {}  # 원자별 형식전하 전량 — complex SMILES 가 쓴다
+    qat_all = {}  # all per-atom formal charges — used by the complex SMILES
     for li, comp0 in enumerate(nx.connected_components(G)):
         comp = sorted(comp0)
         cs = set(comp)
         key = comp[0]
         b4 = {e: NAME4[v] for e, v in cls.items() if e[0] in cs}
         bk = {e: int(o) for e, o in orders.items() if e[0] in cs}
-        # 🔴 클러스터 조각(카보란 등)은 형식전하 합을 못 믿는다 — EHT 조각 전하를 쓴다.
-        #    판정·근거는 `charge.is_cluster_frag` 주석 (2026-09-03).
+        # 🔴 For a cluster fragment (carborane and the like) the formal-charge sum cannot be
+        #    trusted — use the EHT fragment charge. For the rule and its evidence see the
+        #    `charge.is_cluster_frag` comment (2026-09-03).
         qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht))
         q_all[key] = qL
         coord = sorted({x for _m, x in ml_raw if x in cs})
         coord_of[key] = coord
-        # 원자별 형식전하 — SMILES 에 그대로 박는다
+        # per-atom formal charge — stamped into the SMILES as-is
         qat = {}
         for x in comp:
             bsum = sum(bk.get((min(x, w), max(x, w)), 1) for w in G[x])
@@ -224,7 +240,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                                       tuple(sorted(el[w] for w in G[x])))))
         qat_all.update(qat)
         smi, _map = ligand_smiles(el, comp, bk, qat, coord)
-        ok, why = False, "SMILES 생성 실패"
+        ok, why = False, "SMILES generation failed"
         if smi:
             ok, why = verify_roundtrip(smi, el, comp, bk, qat)
         mlb_out = {}
@@ -234,19 +250,21 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 continue
             e = (min(m, x), max(m, x))
             is_h = e in hapset
-            # 🔴 `type` 의 우선순위는 **haptic > bridge > sigma** 다 (2026-09-03 오너 요청).
-            #   한 단어로 답하는 칸이라 겹칠 때 하나를 골라야 한다. 겹쳐도 정보를 잃지 않도록
-            #   `bridge` 칸은 **다리이기만 하면 채운다**(haptic 이어도) — T7 하위 태그가 남는다.
+            # 🔴 The priority of `type` is **haptic > bridge > sigma** (owner request 2026-09-03).
+            #   The field answers in a single word, so one has to be picked when they overlap. So
+            #   that nothing is lost on an overlap, the `bridge` field is **filled whenever the
+            #   atom bridges** (even when haptic) — the T7 sub-tag survives.
             br = btag.get(x)
             mlb_out[(m, x)] = {
                 "type": "haptic" if is_h else ("bridge" if br else "sigma"),
                 "order": None if is_h else int(mlout.get((m, x), 0)) + 1,
-                "bridge": br,  # None | "3c2e" | "dative"  (T7 · 설계도 §3.0 5c)
+                "bridge": br,  # None | "3c2e" | "dative"  (T7 · [design doc] §3.0 5c)
             }
-        # 🔴 η^k 는 **리간드 단위**로 센다 (2026-09-03 정합). 채점기(`len(comp ∩ hall)`)와
-        #    정답지(`n_haptic_bound`)가 둘 다 리간드 단위다. π 조각별로 세면 R2·R3 로 Kekulé 가
-        #    된 5원 고리가 **조각 2개로 갈려** η 가 쪼개진다 — `ZEGVIQ` 는 M–L 5개가 전부
-        #    haptic 인데도 옛 셈으로 **η2** 가 나왔다(정답 η5 · 실측 2026-09-03).
+        # 🔴 η^k is counted **per ligand** (aligned 2026-09-03). Both the scorer
+        #    (`len(comp ∩ hall)`) and the reference labels (`n_haptic_bound`) are per ligand.
+        #    Counting per π fragment splits η, because a 5-ring turned Kekule by R2/R3 **breaks
+        #    into 2 fragments** — `ZEGVIQ` has all 5 M–L bonds haptic yet the old count gave
+        #    **η2** (truth η5 · measured 2026-09-03).
         for m in {m0 for m0, x0 in hap if x0 in cs}:
             eta_out[m] = sum(1 for m0, x0 in hap if m0 == m and x0 in cs)
         ligands.append({
@@ -256,7 +274,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "bonds_kekule": bk,
             "smiles": smi,
             "smiles_ok": ok,
-            "smiles_note": why,          # 실패 사유 (통과면 "")
+            "smiles_note": why,          # failure reason ("" if it passed)
             "coordinating": coord,
             "ml_bonds": mlb_out,
             "eta": eta_out,
@@ -270,16 +288,19 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         if num % len(mets) == 0:
             os_metal = dict.fromkeys(mets, num // len(mets))
 
-    # ── ⑧ complex SMILES — 착물 전체. M–L 은 **전부 dative 화살표**(오너 결정 2026-09-03).
-    #   결합차수는 여기서 뭉개진다 — 실제 M–L 차수는 `ligands[*]["ml_bonds"][(m,x)]["order"]`.
-    #   금속의 형식전하 = **산화수**. `total_charge` 를 안 주면 산화수를 못 구하므로 만들지 않는다
-    #   (0 으로 찍으면 총전하가 안 맞는 SMILES 가 나간다 — 조용히 틀린 것보다 없는 게 낫다).
+    # -- ⑧ complex SMILES — the whole complex. M–L bonds are **all dative arrows** (owner's
+    #   decision 2026-09-03). Bond order is collapsed here — the real M–L order is in
+    #   `ligands[*]["ml_bonds"][(m,x)]["order"]`.
+    #   A metal's formal charge = its **oxidation state**. Without `total_charge` the oxidation
+    #   state cannot be found, so it is not built (stamping 0 would emit a SMILES whose total
+    #   charge is wrong — better absent than silently wrong).
     cx_smi, cx_ok, cx_note, cx_order = None, False, "", []
     if not mets:
-        cx_note = "금속이 없다 — 리간드 SMILES 를 쓴다"
+        cx_note = "no metal - use ligand SMILES"
     elif not os_metal:
         cx_note = (
-            "산화수를 못 구했다 — `total_charge` 를 주지 않았거나 금속 수로 나누어떨어지지 않는다"
+            "oxidation state undetermined - total_charge not given, or not divisible by "
+            "the number of metals"
         )
     else:
         qcx = dict(qat_all)
@@ -288,7 +309,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             el, list(range(len(el))), orders, qcx, ml_pred, mm, with_map=complex_atom_map
         )
         if cx_smi is None:
-            cx_note = "complex SMILES 생성 실패"
+            cx_note = "complex SMILES generation failed"
         else:
             cx_ok, cx_note = verify_complex(
                 cx_smi, el, list(range(len(el))), orders, qcx, ml_pred, mm, total_charge

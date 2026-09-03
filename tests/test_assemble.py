@@ -1,4 +1,4 @@
-"""리간드 SMILES + 금속 + `ml_bonds` 로 재조립하면 `complex_smiles` 와 같은 분자가 나온다."""
+"""Reassembling ligand SMILES + metals + `ml_bonds` yields the same molecule as `complex_smiles`."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def test_assemble_matches_complex_smiles(f):
     r = load_json(f)
     mol, amap = assemble_complex(r)
     assert Chem.MolToSmiles(mol) == _canon(r["complex_smiles"])
-    for met in r["metals"]:               # 금속과 배위 원자는 대응표에 있어야 한다
+    for met in r["metals"]:               # metals and coordinating atoms must be in the map
         assert met["index"] in amap
     for lg in r["ligands"]:
         for x in lg["coordinating"]:

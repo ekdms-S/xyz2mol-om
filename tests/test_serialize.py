@@ -1,4 +1,4 @@
-"""`save_json`/`load_json` 왕복 — 결합 키 `(i, j)` 가 살아 돌아온다."""
+"""`save_json`/`load_json` round-trip - the bond keys `(i, j)` survive."""
 
 from __future__ import annotations
 
@@ -31,4 +31,4 @@ def test_roundtrip_restores_tuple_keys():
 
 
 def test_jsonable_is_json_serializable():
-    json.dumps(to_jsonable(_sample()))  # 예외가 나면 실패다
+    json.dumps(to_jsonable(_sample()))  # fails if this raises

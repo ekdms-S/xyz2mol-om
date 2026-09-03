@@ -1,11 +1,12 @@
-"""예시를 파이프라인에 넣고 결과를 JSON 으로 저장한다 — `python examples/run_examples.py`.
+"""Run the examples through the pipeline and save the results as JSON -
+`python examples/run_examples.py`.
 
-각 예시는 `<이름>.xyz` + `<이름>.wbo.json`(총전하 + xtb GFN2 Mayer 결합차수) 한 쌍이고,
-결과는 `<이름>.result.json` 으로 쓴다(`xyz2mol_om.save_json`).
+Each example is a pair of `<name>.xyz` + `<name>.wbo.json` (total charge + xtb GFN2 Mayer bond
+orders), and the result is written to `<name>.result.json` (`xyz2mol_om.save_json`).
 
-    python examples/run_examples.py            # 5종 전부
-    python examples/run_examples.py 02         # 이름에 "02" 가 든 것만
-    python examples/run_examples.py --no-wbo   # wbo 없이 (거리 폴백 · 성능 소폭 감소)
+    python examples/run_examples.py            # all five
+    python examples/run_examples.py 02         # only names containing "02"
+    python examples/run_examples.py --no-wbo   # without wbo (distance fallback, slightly worse)
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ def main(argv: list[str]) -> None:
         tags = sorted({d["bridge"] or d["type"] for lg in r["ligands"] for d in lg["ml_bonds"].values()})
         print(
             f"{f.name:28} → {out.name:32} "
-            f"금속 {len(r['metals'])} · 리간드 {len(r['ligands'])}"
+            f"metals {len(r['metals'])} · ligands {len(r['ligands'])}"
             f" · M–L {','.join(tags)}" + (f" · η{max(eta)}" if eta else "")
         )
 
