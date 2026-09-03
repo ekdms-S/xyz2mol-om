@@ -118,6 +118,13 @@ To save a result yourself use `save_json(r, path)`, and to read it back `load_js
 
 holdout **6,456 structures** (not used in the fit) · reference labels: CSD `bond_type` + tmQMg-L `q_ligand`.
 
+⚠️ **Geometry provenance** — every structure used for fitting and evaluation is a CSD
+experimental structure **relaxed with GFN2-xTB** (`ref_xtb2/xyz`), not the raw crystal
+coordinates and not a DFT geometry. Distance thresholds (`d_int`, `d_bond`) and the EHT
+fragment-charge cutoff were calibrated on that relaxed geometry. Feeding coordinates from a
+different source (raw CSD, a different force field, DFT) is off-distribution — expect
+distance-based calls (T1, T4) to be the first to degrade.
+
 | Task | Metric | Value | Trivial baseline |
 |---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | all bonded .7306 |
@@ -132,10 +139,34 @@ holdout **6,456 structures** (not used in the fit) · reference labels: CSD `bon
 
 ### Valence violations — chemical validity of the output
 
+Rule: `b_int(X) + b_ML(X) > CAP(X)` for a non-metal atom X (Kekulé count · 3c2e- and B-tagged
+atoms excluded).
+
 | Evaluation | Pool | Violating structures | Reference-label baseline (same count) |
 |---|---|---|---|
 | holdout | 6,456 structures | **164 = 2.54%** | 44 = 0.68% |
 | train CV | 26,075 structures | **707 = 2.71%** | 103 = 0.40% |
+
+⚠️ The baseline is not 0 — even the CSD reference labels violate on 0.4–0.7% of structures
+(hypervalency, ionic/covalent boundary cases). Read our numbers against that baseline, not
+against zero.
+
+Tool comparison (holdout, full 6,456 structures). Two columns because tools differ in what
+they can output — a tool that cannot produce M–L order would otherwise look artificially good:
+
+| Tool | Violating atoms (`b_int` only) | Violating structures (`b_int` only) | Violating atoms (`b_int`+`b_ML`) | Violating structures (`b_int`+`b_ML`) |
+|---|---|---|---|---|
+| **xyz2mol-om (this)** | **0.01%** | **0.36%** | **0.09%** | **3.55%** |
+| xyz2mol | 0.24% | 7.37% | — (no M–L output) | — |
+| xyz2mol_tm | 0.14% | 4.14% | 3.98% | 36.91% |
+| OpenBabel | 0.06% | 1.47% | 0.07% | 1.73% |
+
+The `b_int`-only columns are the fair comparison — every tool can produce that. We are lowest
+on both. In the `b_int+b_ML` columns, `xyz2mol_tm`'s 36.91% is an artifact of not producing
+M–L *order* at all (everything gets counted as `Single`, which throws off the budget at
+multiply-bonded sites like oxo/imido). OpenBabel looks lower than us there, but its M–L recall
+is also lower (T4 F1 0.78) — bonds it misses cannot violate anything, so a lower violation rate
+is not by itself a sign of better output.
 
 ## ⚠️ Limits
 
