@@ -78,8 +78,12 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2):
     if ml_sc:
         for key, sm in ml_sc.items():
             m_, x_ = key
-            mlout[key] = 0
-            if 1 not in sm or r.get(x_, 0) < 1:
+            # 🔴 기준선은 **그 쌍에 존재하는 최저 클래스**다 (2026-09-03 수정).
+            #   옛 판은 0 으로 못박아 T8 상수 `Double`/`Triple` 쌍을 `Single` 로 내보냈고,
+            #   `sm[0]` 을 무조건 읽어 그런 쌍에서 KeyError 로 죽었다.
+            base = min(sm)
+            mlout[key] = base
+            if 1 not in sm or base != 0 or r.get(x_, 0) < 1:
                 continue
             incs = [sm[1] - sm[0]]
             if ml_max >= 2 and 2 in sm:
