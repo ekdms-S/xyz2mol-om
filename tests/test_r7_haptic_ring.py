@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import numpy as np
 
-import xyz2mol_om.api as api
+import xyz2mol_om.pipeline as pipeline
 from xyz2mol_om import predict
 
 # `HOQNOQ` (CSD 유래 · `ref_xtb2` 기하)
@@ -101,12 +101,13 @@ def _thienyl(r):
 
 
 def _run(r7):
-    old = api.R7RING
-    api.R7RING = r7
+    # R7 플래그는 통일 함수가 있는 `pipeline` 에 있다 (2026-09-03 통일 이후)
+    old = pipeline.R7RING
+    pipeline.R7RING = r7
     try:
         return predict(EL, XYZ, total_charge=None, wbo=WBO)
     finally:
-        api.R7RING = old
+        pipeline.R7RING = old
 
 
 def test_r7_recovers_eta5_thiophene():
