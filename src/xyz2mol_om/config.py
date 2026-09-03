@@ -39,6 +39,22 @@ METALS = set(
     "Ti Zr Hf Nb Ta V La Sc Y Ce Cr Mo W Mn Re Fe Ru Os Co Rh Ir Ni Pd Pt "
     "Cu Ag Au Zn Al Ga In Sn Pb Mg B".split()
 )
+# ★★ 중심원자 판정 (2026-09-03) — **`B` 는 조건부다.**
+#   판정  중심이다(i) ⟺ el[i] ∈ METALS \ {B}
+#                     또는 el[i] = B AND 그 구조에 METALS \ {B} 원자가 **하나도 없다**
+#   `B₂H₆`·순수 보란에서는 `B` 가 중심이고, 전이금속 착물 안의 카보란·보릴·`BH₄⁻` 에서는
+#   **리간드 원자**다. 근거(CSD train 정답지 실측 2026-09-03): 내부 결합을 갖는 금속류는
+#   `B` 뿐(30,628 결합 · 구조 1,583) · `Al`·`Zn`·`Sn`·`In`·`Pb`·`Ga`·`Mg` 는 내부 결합 0.
+#   ⚠️ 워크스페이스 `260830_fit_t10_charge.centers` 와 **본문이 같아야 한다.**
+METALS_HARD = METALS - {"B"}
+
+
+def centers(el):
+    """중심원자 **인덱스 집합** (설계도 §3.0 0). 위 판정식 그대로."""
+    hard = {i for i, e in enumerate(el) if e in METALS_HARD}
+    return hard or {i for i, e in enumerate(el) if e in METALS}
+
+
 HUCKEL = [2, 6, 10, 14, 18]
 
 USE_DINT = os.environ.get("USE_DINT", "0") == "1"

@@ -63,7 +63,7 @@ import networkx as nx
 import numpy as np
 
 from .charge import _qfrag, kekulize, q_atom
-from .config import METALS, RCOV
+from .config import RCOV, centers
 from .smiles import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .connectivity import load_dint
 from .eht import eht_frag_charges
@@ -71,13 +71,14 @@ from .likelihood import load_scores4
 from .pipeline import bridge_tags, predict_T3_T5
 
 
-def _ml_candidates(el, xyz, dbond, c1g, wbo):
+def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
     """T4 — M–X 결합 유무. `d < d_bond(M,X)` AND `w > w_veto(M,X)`.
 
+    `cen` = 중심원자 인덱스 집합(`config.centers`) — **`B` 는 조건부 중심이라 원소로 못 가른다.**
     ⚠️ agostic 제외(`C–H···M`)는 설계도 §3 3 의 규칙이다.
     """
-    idx = [i for i, e in enumerate(el) if e not in METALS]
-    mets = [i for i, e in enumerate(el) if e in METALS]
+    idx = [i for i in range(len(el)) if i not in cen]
+    mets = sorted(cen)
     raw = []
     for m in mets:
         for x in idx:
@@ -128,7 +129,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     d_int, d_fb = dint if dint is not None else load_dint()
 
     # ① T1 — 배위자 내부 결합 (거리)
-    idx = [i for i, e in enumerate(el) if e not in METALS]
+    #   🔴 중심원자는 원소가 아니라 `centers()` 가 정한다 — `B` 는 전이금속이 있으면
+    #      **리간드 원자**다(카보란·보릴·`BH₄⁻`). 설계도 §3.0 0.
+    cen = centers(el)
+    idx = [i for i in range(len(el)) if i not in cen]
     G = nx.Graph()
     G.add_nodes_from(idx)
     for ii in range(len(idx)):
@@ -160,7 +164,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             c1g = float(r["d_bond"])
         else:
             dbond[(r["M"], r["X"])] = (float(r["d_bond"]), float(r["w_veto"]))
-    ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo)
+    ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo, cen)
 
     # ③④⑤ T3 · M–L 차수 · T5(하프틱) · R7 — **한 함수**가 전부 낸다 (2026-09-03 통일).
     #   왜 호출자가 조립하지 않나: 예산에서 haptic·agostic 을 빼는지, M–L 차수 후보를 어떻게
@@ -177,7 +181,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     orders, frag_q = kekulize(G, el, cls, dict(bml))
 
     # ⑦ M–M 결합 (T4 가 양 끝 금속이라 한 것) — 차수는 아직 거리 경계 미탑재라 1 로 둔다
-    mets = [i for i, e in enumerate(el) if e in METALS]
+    mets = sorted(cen)
     mm = {}
     for a in range(len(mets)):
         for b in range(a + 1, len(mets)):
