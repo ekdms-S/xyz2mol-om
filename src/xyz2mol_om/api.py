@@ -62,7 +62,7 @@ import warnings
 import networkx as nx
 import numpy as np
 
-from .charge import _qfrag, kekulize, q_atom
+from .charge import frag_charge_or_eht, kekulize, q_atom
 from .config import RCOV, centers
 from .smiles import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .connectivity import load_dint
@@ -210,7 +210,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         key = comp[0]
         b4 = {e: NAME4[v] for e, v in cls.items() if e[0] in cs}
         bk = {e: int(o) for e, o in orders.items() if e[0] in cs}
-        qL = round(_qfrag(G, el, cls, cs))
+        # 🔴 클러스터 조각(카보란 등)은 형식전하 합을 못 믿는다 — EHT 조각 전하를 쓴다.
+        #    판정·근거는 `charge.is_cluster_frag` 주석 (2026-09-03).
+        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht))
         q_all[key] = qL
         coord = sorted({x for _m, x in ml_raw if x in cs})
         coord_of[key] = coord
