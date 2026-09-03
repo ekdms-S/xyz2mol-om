@@ -7,6 +7,7 @@
 """
 
 from .api import predict
+from .assemble import assemble_complex
 from .charge import frag_charge, kekulize, q_atom
 from .connectivity import load_dint
 from .eht import eht_frag_charges
@@ -19,6 +20,7 @@ from .smiles import ligand_smiles, verify_roundtrip
 __version__ = "0.1.0"
 __all__ = [
     "predict",
+    "assemble_complex",
     "predict_T3_EHT",
     "load_scores4",
     "scores4_meta",
