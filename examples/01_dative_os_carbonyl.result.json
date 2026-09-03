@@ -1,0 +1,187 @@
+{
+ "complex_smiles": "[O+]#[C-]->[Os+2](<-[Cl-])(<-[Cl-])(<-[Cl-])(<-[C-]#[O+])<-[C-]#[O+]",
+ "complex_smiles_ok": true,
+ "complex_smiles_note": "",
+ "complex_atom_order": [
+  7,
+  4,
+  0,
+  1,
+  2,
+  3,
+  5,
+  8,
+  6,
+  9
+ ],
+ "metals": [
+  {
+   "index": 0,
+   "element": "Os",
+   "oxidation": 2,
+   "mm_bonds": {}
+  }
+ ],
+ "ligands": [
+  {
+   "index": 0,
+   "atoms": [
+    1
+   ],
+   "bonds_4class": {},
+   "bonds_kekule": {},
+   "smiles": "[Cl-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    1
+   ],
+   "ml_bonds": {
+    "0,1": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": -1,
+   "residual_charge": null
+  },
+  {
+   "index": 1,
+   "atoms": [
+    2
+   ],
+   "bonds_4class": {},
+   "bonds_kekule": {},
+   "smiles": "[Cl-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    2
+   ],
+   "ml_bonds": {
+    "0,2": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": -1,
+   "residual_charge": null
+  },
+  {
+   "index": 2,
+   "atoms": [
+    3
+   ],
+   "bonds_4class": {},
+   "bonds_kekule": {},
+   "smiles": "[Cl-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    3
+   ],
+   "ml_bonds": {
+    "0,3": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": -1,
+   "residual_charge": null
+  },
+  {
+   "index": 3,
+   "atoms": [
+    4,
+    7
+   ],
+   "bonds_4class": {
+    "4,7": "Triple"
+   },
+   "bonds_kekule": {
+    "4,7": 3
+   },
+   "smiles": "[O+]#[C-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    4
+   ],
+   "ml_bonds": {
+    "0,4": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": 0,
+   "residual_charge": null
+  },
+  {
+   "index": 4,
+   "atoms": [
+    5,
+    8
+   ],
+   "bonds_4class": {
+    "5,8": "Triple"
+   },
+   "bonds_kekule": {
+    "5,8": 3
+   },
+   "smiles": "[O+]#[C-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    5
+   ],
+   "ml_bonds": {
+    "0,5": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": 0,
+   "residual_charge": null
+  },
+  {
+   "index": 5,
+   "atoms": [
+    6,
+    9
+   ],
+   "bonds_4class": {
+    "6,9": "Triple"
+   },
+   "bonds_kekule": {
+    "6,9": 3
+   },
+   "smiles": "[O+]#[C-:1]",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "coordinating": [
+    6
+   ],
+   "ml_bonds": {
+    "0,6": {
+     "type": "sigma",
+     "order": 1,
+     "bridge": null
+    }
+   },
+   "eta": {},
+   "charge": 0,
+   "residual_charge": null
+  }
+ ],
+ "total_charge": -1
+}
