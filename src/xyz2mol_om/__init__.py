@@ -13,6 +13,7 @@ from .eht import eht_frag_charges
 from .likelihood import deg_cell, fit_scores4, load_scores4, scores4_meta
 from .ml_order import load_b_ml_mayer, predict_T8
 from .pipeline import predict_T3_EHT
+from .smiles import ligand_smiles, verify_roundtrip
 
 __version__ = "0.1.0"
 __all__ = [
@@ -29,5 +30,7 @@ __all__ = [
     "q_atom",
     "frag_charge",
     "kekulize",
+    "ligand_smiles",
+    "verify_roundtrip",
     "__version__",
 ]
