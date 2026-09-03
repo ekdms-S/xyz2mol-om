@@ -1,7 +1,8 @@
-"""탐색 — 원자가 상한 정확 해(④) · 공액 집합 국소 탐색(③) · R6 교환.
+"""Search — exact solution under the valence cap (④) · local search for the conjugated set (③) ·
+the R6 swap.
 
-⚠️ **`ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py` 에서 이관한 코드다**
-(2026-09-03). 함수 본문은 **그대로** 옮겼다 — 판정 규칙을 바꾸지 않는다.
+⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
+(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -17,7 +18,8 @@ from .charge import _qfrag, frag_charge, q_atom
 
 
 def _kek_val(G, el, cls):
-    """원자별 **Kekulé 셈** 원자가. 공액 결합 `k` 개는 `k+1` 로 센다(그중 하나가 π)."""
+    """Per-atom valence under **Kekule counting**. `k` conjugated bonds count as `k+1`
+    (one of them is the π bond)."""
     nk = collections.Counter()
     bn = collections.defaultdict(float)
     for e, v in cls.items():
@@ -30,11 +32,13 @@ def _kek_val(G, el, cls):
     return {x: bn[x] + (nk[x] + 1 if nk[x] else 0) for x in set(bn) | set(nk)}
 
 def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2):
-    """상한만 강제하는 **정확 해** — 상한을 만족하는 배정 중 우도 최대 (Blossom, 다항시간).
+    """**Exact solution** enforcing the cap only — the maximum-likelihood assignment among those
+    that satisfy the cap (Blossom, polynomial time).
 
-    `ml_sc` 를 주면 **M–L 차수도 같은 최적화 안에서** 정한다(차수를 1단위씩 올리고,
-    단위마다 더미를 하나만 두어 같은 단위가 두 번 쓰이는 것을 막는다 ⇒ `ml_max=2` 면 Triple).
-    반환 `(내부 클래스, M–L 클래스)`.
+    If `ml_sc` is given, **the M–L orders are decided inside the same optimization** (the order
+    is raised one unit at a time, with a single dummy per unit so the same unit cannot be used
+    twice ⇒ `ml_max=2` allows Triple).
+    Returns `(internal classes, M–L classes)`.
     """
     k_of = collections.Counter()
     for e in conj:
@@ -48,7 +52,8 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2):
         use[e[0]] += 1.0
         use[e[1]] += 1.0
     out = {e: 3 for e in conj}
-    for e in nonc:  # ① Triple — 우도 argmax 가 Triple 이고 양쪽 여유가 2 이상인 것만
+    for e in nonc:  # ① Triple — only where the likelihood argmax is Triple and both ends have
+        #                        headroom of at least 2
         s3 = sc.get(e)
         if not s3 or max(s3, key=s3.get) != 2:
             continue
@@ -62,7 +67,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2):
         if v > 0:
             r[x] = min(v, 2)
     H = nx.Graph()
-    for e in nonc:  # ② Double — 여유 안에서 정확 최대 가중 매칭
+    for e in nonc:  # ② Double — exact maximum weight matching within the headroom
         if e in out:
             continue
         s3 = sc.get(e)
@@ -78,9 +83,10 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2):
     if ml_sc:
         for key, sm in ml_sc.items():
             m_, x_ = key
-            # 🔴 기준선은 **그 쌍에 존재하는 최저 클래스**다 (2026-09-03 수정).
-            #   옛 판은 0 으로 못박아 T8 상수 `Double`/`Triple` 쌍을 `Single` 로 내보냈고,
-            #   `sm[0]` 을 무조건 읽어 그런 쌍에서 KeyError 로 죽었다.
+            # 🔴 The baseline is **the lowest class that exists for that pair** (fixed
+            #   2026-09-03). The old version pinned it to 0, which emitted `Single` for pairs
+            #   whose T8 constant is `Double`/`Triple`, and it read `sm[0]` unconditionally and
+            #   died with a KeyError on such pairs.
             base = min(sm)
             mlout[key] = base
             if 1 not in sm or base != 0 or r.get(x_, 0) < 1:
@@ -109,10 +115,11 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2):
     return out, mlout
 
 def _solve_sc(G, el, sc, ringA, coord, bml, lam_hi=10.0, lam_lo=10.0, maxit=50):
-    """우도 위에서 **양쪽 원자가 제약** 국소 탐색 — 배위 원자는 미달을 안 벌한다.
+    """Local search on the likelihood under **two-sided valence constraints** — coordinating atoms
+    are not penalized for being under-valent.
 
-    `D`·`D_satA` 가 쓰는 것과 같은 탐색이다. 여기서는 **공액 집합을 정하는 데만** 쓴다
-    (차수 자체는 뒤의 정확 해가 다시 정한다).
+    This is the same search `D` and `D_satA` use. Here it is used **only to fix the conjugated
+    set** (the orders themselves are decided again by the exact solution that follows).
     """
     cur = {}
     for a, b in G.edges:
@@ -164,9 +171,11 @@ def _solve_sc(G, el, sc, ringA, coord, bml, lam_hi=10.0, lam_lo=10.0, maxit=50):
     return {e: (3 if e in ringA else v) for e, v in cur.items()}
 
 def r6_swap(G, el, xyz, cls, bml=None, maxit=6):
-    """R6 — 같은 중심의 동일 원소 결합에서 **거리 순서와 차수 순서를 맞춘다** (2026-09-03).
+    """R6 — for same-element bonds on one center, **make the bond-order ranking match the
+    distance ranking** (2026-09-03).
 
-    `cls` 를 제자리에서 고친다. 반환 = 교환 횟수. 판정·근거는 `R6SWAP` 주석 참조.
+    Modifies `cls` in place. Returns the number of swaps. For the rule and its evidence see the
+    `R6SWAP` comment.
     """
     if not R6SWAP:
         return 0
@@ -179,7 +188,7 @@ def r6_swap(G, el, xyz, cls, bml=None, maxit=6):
             by = collections.defaultdict(list)
             for y in G[x]:
                 e = (min(x, y), max(x, y))
-                if e not in cls or cls[e] == 3:  # Conj 는 대상 아님
+                if e not in cls or cls[e] == 3:  # Conj is out of scope
                     continue
                 by[el[y]].append((float(np.linalg.norm(xyz[x] - xyz[y])), y, e))
             for _ey, lst in by.items():
@@ -190,9 +199,10 @@ def r6_swap(G, el, xyz, cls, bml=None, maxit=6):
                     for jj in range(ii + 1, len(lst)):
                         (_d1, y1, e1), (_d2, _y2, e2) = lst[ii], lst[jj]
                         if cls[e1] >= cls[e2]:
-                            continue  # 짧은 쪽이 이미 같거나 높다
+                            continue  # the shorter one is already equal or higher
                         dv = ORD[cls[e2]] - ORD[cls[e1]]
-                        # 교환 후 Y1 은 +dv, Y2 는 −dv. Y1 의 상한만 확인하면 된다.
+                        # after the swap Y1 gains +dv and Y2 loses dv, so only Y1's cap needs
+                        # checking.
                         b1 = sum(
                             ORD[cls[(min(y1, w), max(y1, w))]]
                             for w in G[y1]

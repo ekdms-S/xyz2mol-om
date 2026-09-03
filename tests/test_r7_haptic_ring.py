@@ -1,18 +1,19 @@
-"""🔴 회귀 — **R7 이 실제로 발동한다**: η⁵-싸이오펜(thienyl) 고리의 S 가 하프틱에 들어간다.
+"""🔴 Regression - **R7 really fires**: the S of an η⁵-thiophene (thienyl) ring turns haptic.
 
-실물 `HOQNOQ` — CSD `chemical_name` = *"(μ2-Diphenylphosphido)-(μ2-**η5**-thien-2-yl)-
-hexacarbonyl-di-manganese"* ⇒ **정답 η⁵** 이다. 기하는 `ref_xtb2` · Mayer 결합차수는 같은
-구조의 xtb GFN2 `--sp --wbo` 실측값을 **상수로 박아** 두었다 (워크스페이스 없이 돌게 하려고).
+Real structure `HOQNOQ` - CSD `chemical_name` = *"(μ2-Diphenylphosphido)-(μ2-**η5**-thien-2-yl)-
+hexacarbonyl-di-manganese"* ⇒ the **ground truth is η⁵**. Geometry is `ref_xtb2` · Mayer bond
+orders are xtb GFN2 `--sp --wbo` measurements on the same structure, **hard-coded** here (so this
+runs without the workspace).
 
-무엇을 재나 (`docs/PIPELINE.md` 5′):
+What is measured (`docs/PIPELINE.md` 5′):
 
-  R7 off :  하프틱 = {Mn–C 4개}                 η⁴   ← S 가 π 조각에 없어서 떨어진다
-  R7 on  :  하프틱 = {Mn–C 4개, **Mn–S**}       η⁵   ← 정답
+  R7 off :  haptic = {4 Mn–C}                   η⁴   ← S drops out, absent from the π fragment
+  R7 on  :  haptic = {4 Mn–C, **Mn–S**}         η⁵   ← ground truth
 
-왜 S 가 π 조각에서 빠지나: R2 가 `S`(deg 2)의 두 결합에서 `Conj` 를 지우므로 5원 고리에
-`Conj` 가 3개만 남고 **S 만 `Double`·`Triple`·`Conj` 어디에도 안 닿는다.**
+Why S falls out of the π fragment: R2 clears `Conj` from both bonds of `S` (deg 2), so only three
+`Conj` bonds remain in the 5-membered ring and **S alone touches no `Double`·`Triple`·`Conj`.**
 
-🔴 **T3 는 한 비트도 안 바뀐다** — 아래 `bonds_4class` 동일성 검사가 그것을 고정한다.
+🔴 **T3 does not change by a single bit** - the `bonds_4class` identity check below pins it down.
 """
 
 # ruff: noqa: E501
@@ -23,7 +24,7 @@ import numpy as np
 import xyz2mol_om.pipeline as pipeline
 from xyz2mol_om import predict
 
-# `HOQNOQ` (CSD 유래 · `ref_xtb2` 기하)
+# `HOQNOQ` (from CSD · `ref_xtb2` geometry)
 EL = [
     "Mn", "Mn", "P", "S", "C", "C", "H", "C", "H", "C", "H", "C", "C", "H", "C", "H", "C",
     "H", "C", "H", "C", "H", "C", "C", "H", "C", "H", "C", "H", "C", "H", "C", "H", "C",
@@ -78,7 +79,7 @@ XYZ = np.array(
         [   3.5281,    4.0809,    2.0536],
     ]
 )
-# xtb GFN2 `--sp --wbo` 실측 — M–L 쌍만 (`predict` 는 M–L·M–M 에서만 쓴다)
+# xtb GFN2 `--sp --wbo` measured - M–L pairs only (`predict` uses them only for M–L·M–M)
 WBO = {
     (0, 1): 0.0, (0, 2): 0.9164, (0, 3): 0.322, (0, 4): 0.1982, (0, 5): 0.196, (0, 6): 0.0,
     (0, 7): 0.2669, (0, 8): 0.0, (0, 9): 0.3179, (0, 10): 0.0, (0, 11): 0.0, (0, 20): 0.0,
@@ -90,8 +91,8 @@ WBO = {
 }
 WBO.update({(j, i): w for (i, j), w in list(WBO.items())})
 
-MN = 0          # 싸이엔일이 하프틱으로 붙은 망간
-S_IDX = 3       # 고리의 S — R7 이 되돌리는 원자
+MN = 0          # the manganese the thienyl is haptically bound to
+S_IDX = 3       # the ring S - the atom R7 restores
 RING_C = (4, 5, 7, 9)
 
 
@@ -101,7 +102,7 @@ def _thienyl(r):
 
 
 def _run(r7):
-    # R7 플래그는 통일 함수가 있는 `pipeline` 에 있다 (2026-09-03 통일 이후)
+    # the R7 flag lives in `pipeline`, where the unified function is (since the 2026-09-03 merge)
     old = pipeline.R7RING
     pipeline.R7RING = r7
     try:
@@ -111,26 +112,27 @@ def _run(r7):
 
 
 def test_r7_recovers_eta5_thiophene():
-    """R7 on(배포 기본값) 이면 η⁵ · off 면 η⁴ 다."""
+    """R7 on (the shipped default) gives η⁵ · off gives η⁴."""
     on, off = _thienyl(_run(True)), _thienyl(_run(False))
 
     hap_on = sorted(k for k, v in on["ml_bonds"].items() if v["type"] == "haptic")
     hap_off = sorted(k for k, v in off["ml_bonds"].items() if v["type"] == "haptic")
-    assert hap_off == [(MN, c) for c in RING_C], f"R7 off 하프틱이 예상과 다르다 — {hap_off}"
+    assert hap_off == [(MN, c) for c in RING_C], f"R7 off haptic set unexpected - {hap_off}"
     assert hap_on == sorted([(MN, S_IDX)] + [(MN, c) for c in RING_C]), (
-        f"R7 on 인데 Mn–S 가 하프틱이 아니다 — {hap_on}"
+        f"R7 is on but Mn–S is not haptic - {hap_on}"
     )
-    assert off["eta"] == {MN: 4}, f"R7 off η 는 4 — {off['eta']}"
-    assert on["eta"] == {MN: 5}, f"R7 on η 는 5 (CSD 정답 η⁵) — {on['eta']}"
+    assert off["eta"] == {MN: 4}, f"R7 off η must be 4 - {off['eta']}"
+    assert on["eta"] == {MN: 5}, f"R7 on η must be 5 (CSD ground truth η⁵) - {on['eta']}"
 
 
 def test_r7_does_not_touch_bond_orders():
-    """🔴 R7 은 **T5 의 π 조각 소속 조건만** 면제한다 — T3 4클래스는 그대로여야 한다."""
+    """🔴 R7 waives **only T5's π-fragment membership condition** - the T3 4-class assignment
+    must stay identical."""
     on, off = _run(True), _run(False)
     for a, b in zip(on["ligands"], off["ligands"]):
-        assert a["bonds_4class"] == b["bonds_4class"], f"R7 이 T3 를 바꿨다 — 조각 {a['index']}"
-        assert a["bonds_kekule"] == b["bonds_kekule"], f"R7 이 Kekulé 를 바꿨다 — 조각 {a['index']}"
-        assert a["charge"] == b["charge"], f"R7 이 리간드 전하를 바꿨다 — 조각 {a['index']}"
+        assert a["bonds_4class"] == b["bonds_4class"], f"R7 changed T3 - fragment {a['index']}"
+        assert a["bonds_kekule"] == b["bonds_kekule"], f"R7 changed Kekule - fragment {a['index']}"
+        assert a["charge"] == b["charge"], f"R7 changed the ligand charge - fragment {a['index']}"
 
 
 if __name__ == "__main__":

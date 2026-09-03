@@ -1,7 +1,7 @@
-"""★ 채택 파이프라인 — `predict_T3_EHT` (설계도 §3 `1c`).
+"""★ Adopted pipeline — `predict_T3_EHT` ([design doc] §3 `1c`).
 
-⚠️ **`ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py` 에서 이관한 코드다**
-(2026-09-03). 함수 본문은 **그대로** 옮겼다 — 판정 규칙을 바꾸지 않는다.
+⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
+(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -25,21 +25,27 @@ from .ml_order import load_b_ml_mayer, ml_order_scores, ml_order_scores_dist
 
 
 def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None):
-    """★ 채택안 `D_eht` — 설계도 §3 `1c` 전 단계. 반환 `(내부 클래스, M–L 클래스)`.
+    """★ Adopted option `D_eht` — all stages of [design doc] §3 `1c`.
+    Returns `(internal classes, M–L classes)`.
 
-    `bml`   {배위원자: M–L 결합차수 합}  — 용량 예산에 들어간다 (기준선 Single)
-    `ml_sc` {(금속,배위원자): {클래스: 점수}} — 주면 M–L 차수도 같이 최적화한다
-    `q_eht` {조각 최소원자idx: 전하} — 안 주면 `eht_frag_charges` 로 직접 계산한다
-    `rop`   {(i,j): EHT 겹침 밀도} — `USE_ROP=1` 이고 scores4 항목이 5-튜플이면 두 번째 차원
-    `coord` 배위 원자 집합 — 공액 판정 탐색에서 **미달 벌점을 면제**한다(M–L 이 흡수하므로)
+    `bml`   {coordinating atom: sum of M–L bond orders} — enters the capacity budget
+            (baseline Single)
+    `ml_sc` {(metal, coordinating atom): {class: score}} — if given, M–L orders are optimized
+            jointly
+    `q_eht` {min atom idx of fragment: charge} — computed via `eht_frag_charges` if omitted
+    `rop`   {(i,j): EHT overlap density} — the second dimension, when `USE_ROP=1` and the
+            scores4 entry is a 5-tuple
+    `coord` set of coordinating atoms — **waives the under-valence penalty** in the conjugation
+            search (M–L absorbs it)
 
-    ⚠️ `bml` 에 **하프틱 M–L 을 넣으면 안 된다** — 하프틱은 차수를 안 매기고 π 계에 공유되어
-       원자에 귀속되지 않는다(§3 `5a`). 넣으면 Cp 탄소의 예산이 헛되이 소모된다.
+    ⚠️ **Haptic M–L bonds must not go into `bml`** — a haptic bond gets no order and is shared
+       across the π system, so it is not attributed to an atom ([design doc] §3 `5a`). Including
+       it would waste the budget of the Cp carbons.
     """
     bml = bml or {}
     if q_eht is None:
         q_eht = eht_frag_charges(el, xyz, G)
-    # ① 규칙 A — 평면 고리(크기>=5) 중 **π 여유가 남은** 원자에만 걸린다
+    # ① rule A — applies only to atoms of a planar ring (size >= 5) that **still have π headroom**
     sat = {x for x in G.nodes if G.degree(x) >= CAP.get(el[x], 4)}
     ringA = set()
     for r in nx.cycle_basis(G):
@@ -49,7 +55,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
                 for a, b in zip(r, r[1:] + r[:1])
                 if a not in sat and b not in sat
             }
-    # ② 원소쌍별 4클래스 거리 우도
+    # ② per-element-pair 4-class distance likelihood
     sc = {}
     for a, b in G.edges:
         e = (min(a, b), max(a, b))
@@ -59,8 +65,9 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         ent = scores4[k]
         med, scl, lp = ent[0], ent[1], ent[2]
         d = float(np.linalg.norm(xyz[a] - xyz[b]))
-        # 🔴 `LPCOND` — 이 결합의 **끝점 차수 셀** 사전확률로 갈아끼운다 (셀이 없으면 전역 `lp`).
-        #    `LPCOND_NOCONJ` 면 `Conj`(클래스 3)만 전역으로 되돌린다. 판정은 `LPCOND` 주석 참조.
+        # 🔴 `LPCOND` — swap in the prior of this bond's **endpoint degree cell** (global `lp`
+        #    if the cell is absent). With `LPCOND_NOCONJ`, only `Conj` (class 3) reverts to the
+        #    global prior. For the rule see the `LPCOND` comment.
         lp_e = lp
         if LPCOND and len(ent) >= 6 and ent[5]:
             _cell = deg_cell(el, a, b, {x: G.degree(x) for x in (a, b)})
@@ -79,12 +86,13 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             for c in list(sc[e]):
                 if c in rmed:
                     sc[e][c] += ROPW * (-abs(rv - rmed[c]) / rscl[c])
-    # ③ 공액 집합 — 포화 원자에 닿는 결합은 Single 만 허용한 우도 위에서 정한다
+    # ③ conjugated set — decided on a likelihood where bonds touching a saturated atom are
+    #   allowed to be Single only
     sc_sat = {
         e: ({0: v[0]} if (e[0] in sat or e[1] in sat) and 0 in v else dict(v))
         for e, v in sc.items()
     }
-    if R2CONJ:  # ★ R2 — 피롤형 헤테로원자에서 `Conj` 를 금지한다 (위 주석)
+    if R2CONJ:  # ★ R2 — forbid `Conj` at pyrrole-type heteroatoms (see the comment above)
         qf = {}
         if q_eht:
             for comp0 in nx.connected_components(G):
@@ -94,22 +102,23 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     conj = {e for e, v in _solve_sc(G, el, sc_sat, ringA, coord or set(), bml).items() if v == 3}
     if R2CONJ:
         conj -= _bad
-    if R5SOLO and conj:  # R5 — 고립 `Conj`(이웃에 `Conj` 가 없는 결합)는 비편재가 아니다
+    if R5SOLO and conj:  # R5 — an isolated `Conj` (no neighboring `Conj` bond) is not
+        #                       delocalized
         Gj = nx.Graph()
         Gj.add_edges_from(conj)
         conj = {e for e in conj if Gj.degree(e[0]) > 1 or Gj.degree(e[1]) > 1}
-    # ④ 원자가 상한 경성 제약 — 정확 해 (M–L 은 Triple 까지)
+    # ④ hard valence-cap constraint — exact solution (M–L up to Triple)
     cls, mlout = _solve_cap(G, el, sc, conj, bml, ml_sc, ml_max=2)
-    # ⑤ EHT 조각 전하 목표
+    # ⑤ EHT fragment-charge target
     for comp0 in nx.connected_components(G):
         comp = set(comp0)
         tgt = q_eht.get(min(comp))
         if tgt is None:
             continue
         if len(comp) < EHTMINFRAG:
-            continue  # 작은 조각은 EHT 목표를 믿지 않는다 (위 `EHTMINFRAG` 주석)
+            continue  # do not trust the EHT target on small fragments (see `EHTMINFRAG` above)
         if EHTSKIP and "".join(sorted(el[x] for x in comp)) in EHTSKIP:
-            continue  # 이 조성에서는 EHT 목표가 계통적으로 틀린다 (위 `EHTSKIP` 주석)
+            continue  # for this composition the EHT target is systematically wrong (`EHTSKIP`)
         edges = [e for e in cls if e[0] in comp and cls[e] != 3 and e in sc]
         snap = {e: cls[e] for e in edges}
         cost = 0.0
@@ -137,32 +146,40 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             if best is None:
                 break
             cost += -best[0]
-            if EHTCOST >= 0 and cost > EHTCOST:  # 목표를 포기하고 되돌린다
+            if EHTCOST >= 0 and cost > EHTCOST:  # give up the target and revert
                 for e, c in snap.items():
                     cls[e] = c
                 break
             cls[best[1]] = best[2]
     r6_swap(
         G, el, xyz, cls, bml
-    )  # ⑥ R6 — 같은 중심 동일 원소의 거리↔차수 순서 정합 (교환이라 총합 불변)
+    )  # ⑥ R6 — align distance and order ranking for same-element bonds on one center
+    #      (a swap, so the total is unchanged)
     return cls, mlout
 
 
-# ★★ 통일 진입점 (2026-09-03) — **T3 · M–L 차수 · 하프틱(T5) · R7 을 한 함수에서 낸다.**
-#   왜: 같은 판정을 채점기(`260831_propagation_prior_cv.py`)와 배포(`xyz2mol-om`)가 각자
-#   조립하다가 **네 자리**에서 갈렸다(2026-09-03 실측, 결합 0.12~0.90%):
-#     ① ④ 상한 해에 넘기는 `b_ML` 예산에서 haptic 을 뺐나  ② M–L 차수 후보에서 haptic 을 뺐나
-#     ③ agostic(`C–H···M`) 을 뺐나                      ④ T5 의 Y 후보가 조각 이웃인가 전부인가
-#   ⇒ **조립을 호출자에게 맡기지 않는다.** 호출자는 T4 후보(`ml_raw`)와 Mayer(`wbo`)만 준다.
-#   ⚠️ 이 함수는 배포 `xyz2mol-om/src/xyz2mol_om/pipeline.py` 의 같은 이름 함수와 **본문이 같아야
-#      한다.** 한쪽만 고치지 말 것.
-MLIKE_EXTRA = {"B", "Al"}  # metal-like = 금속 ∪ {B, Al} (설계도 §3.1 (c))
+# ★★ unified entry point (2026-09-03) — **T3, M–L order, haptic (T5) and R7 all come out of one
+#   function.**
+#   Why: the scorer (`260831_propagation_prior_cv.py`) and the release (`xyz2mol-om`) each
+#   assembled the same decisions themselves, and they diverged in **four places** (measured
+#   2026-09-03, 0.12-0.90% of bonds):
+#     ① was haptic removed from the `b_ML` budget passed to the ④ cap solution?
+#     ② was haptic removed from the M–L order candidates?
+#     ③ was agostic (`C–H···M`) removed?
+#     ④ are T5's Y candidates the fragment neighbors or all neighbors?
+#   ⇒ **Assembly is not left to the caller.** The caller supplies only the T4 candidates
+#     (`ml_raw`) and Mayer (`wbo`).
+#   ⚠️ The body of this function must **stay identical to** the same-named function in the release
+#      `xyz2mol-om/src/xyz2mol_om/pipeline.py`. Do not change only one side.
+MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} ([design doc] §3.1 (c))
 
 
 def drop_agostic(el, G, ml_raw):
-    """`C–H···M` 만 뺀다 — μ-H 와 `B–H···M`(보로하이드라이드)은 진짜 3c2e 라 남긴다 (설계도 §3.0 [T4]).
+    """Remove `C–H···M` only — μ-H and `B–H···M` (borohydride) are genuine 3c2e and are kept
+    ([design doc] §3.0 [T4]).
 
-    판정  뺀다 ⟺ el[X] = H  AND  metal-like 이웃 1개  AND  내부 이웃에 metal-like 아닌 것이 있다
+    rule  remove ⟺ el[X] = H  AND  exactly 1 metal-like neighbor  AND  some internal neighbor is
+                   not metal-like
     """
     nmet = collections.Counter(x for _m, x in ml_raw)
     out = []
@@ -176,48 +193,53 @@ def drop_agostic(el, G, ml_raw):
 
 
 def is_3c2e(el0, deg, n_center):
-    """T7 3c2e 판정의 **원시 술어** — `bridge_tags` 와 채점기가 같이 쓴다 (규칙을 한 곳에 둔다).
+    """The **raw predicate** of the T7 3c2e decision — shared by `bridge_tags` and the scorer
+    (the rule lives in one place).
 
-    `deg`      = 그 원자의 (내부 결합 수 + M–L 결합 수)
-    `n_center` = (M–L 결합 수) + (내부 이웃 중 원소가 B·Al 인 것의 수)
-    판정  3c2e ⟺ n_center >= 2  AND  el0 ∈ VALENCE_3C  AND  deg > VALENCE_3C[el0]
+    `deg`      = that atom's (number of internal bonds + number of M–L bonds)
+    `n_center` = (number of M–L bonds) + (number of internal neighbors whose element is B or Al)
+    rule  3c2e ⟺ n_center >= 2  AND  el0 ∈ VALENCE_3C  AND  deg > VALENCE_3C[el0]
     """
     v0 = VALENCE_3C.get(el0)
     return n_center >= 2 and v0 is not None and deg > v0
 
 
 def bridge_tags(el, G, ml_pred):
-    """T7 (설계도 §3.0 5c) — 배위 원자별 **다리 태그**. 반환 `{x: "3c2e" | "dative"}`.
+    """T7 ([design doc] §3.0 5c) — the **bridge tag** per coordinating atom.
+    Returns `{x: "3c2e" | "dative"}`.
 
-    다리가 아닌 원자는 **키 자체가 없다.**
+    An atom that is not a bridge **has no key at all.**
 
-    판정식 (채점기 `260831_propagation_prior_cv.py:is_3c2e` 와 같은 식이다)
+    rule (the same formula as the scorer `260831_propagation_prior_cv.py:is_3c2e`)
 
-        n_center(X) = (X 의 M–L 결합 수)  +  (X 의 내부 이웃 중 원소가 B·Al 인 것의 수)
-        deg(X)      = (X 의 내부 결합 수) +  (X 의 M–L 결합 수)
+        n_center(X) = (number of M–L bonds of X) + (number of internal neighbors of X whose
+                                                   element is B or Al)
+        deg(X)      = (number of internal bonds of X) + (number of M–L bonds of X)
 
         bridge(X) ⟺ n_center(X) >= 2
         3c2e(X)   ⟺ bridge(X)  AND  el[X] ∈ {H, C, Si, B}  AND  deg(X) > VALENCE_3C[el[X]]
                                                               (H 1 · C·Si 4 · B 3)
-        dative(X) ⟺ bridge(X)  AND  3c2e(X) 가 거짓
+        dative(X) ⟺ bridge(X)  AND  3c2e(X) is false
 
-    실물 4경우 (`n_center` · `deg` · 태그)
+    4 real cases (`n_center` · `deg` · tag)
 
-        μ-H      M–H–M          n_center 2 · deg 2 (내부 0 + M–L 2)  →  **3c2e**
-        B–H···M  보로하이드라이드  n_center 2 (M 1 + 이웃 B 1) · deg 2  →  **3c2e**
-        μ-Cl     M–Cl–M         n_center 2 · deg 2 · Cl 은 표에 없다   →  **dative** (3c4e)
-        말단 Cl   M–Cl           n_center 1                            →  태그 없음
+        μ-H       M–H–M         n_center 2 · deg 2 (internal 0 + M–L 2)  →  **3c2e**
+        B–H···M   borohydride   n_center 2 (M 1 + neighbor B 1) · deg 2  →  **3c2e**
+        μ-Cl      M–Cl–M        n_center 2 · deg 2 · Cl is not in the table → **dative** (3c4e)
+        terminal Cl  M–Cl       n_center 1                               →  no tag
 
-    ⚠️ `ml_pred` 는 **agostic 을 뺀 뒤 · 하프틱을 포함한** T4 결합이다 — 채점기가 `Pi`(하프틱)
-       M–L 도 금속 수에 세므로 같은 입력을 쓴다.
+    ⚠️ `ml_pred` is the set of T4 bonds **after agostic removal and including haptic** — the scorer
+       also counts `Pi` (haptic) M–L bonds toward the metal count, so the same input is used.
     """
     nmet = collections.Counter(x for _m, x in ml_pred)
     tags = {}
-    # 🔴 후보를 `nmet` 로 좁히지 않는다 — **M–L 결합이 0개인 원자도 다리일 수 있다.**
-    #   지금은 B·Al 이 `METALS` 라 내부 이웃으로 안 나오지만, `B` 를 리간드 원자로 돌리면
-    #   `B–H–B` 의 H 는 M–L 이 0개이고 내부 이웃 B 2개로만 다리가 된다. 그때 이 루프가
-    #   `nmet` 기준이면 **그 H 를 통째로 놓친다.** 판정을 중심원자 정의와 분리해 둔다.
-    #   ⚠️ 지금 동작은 안 바뀐다 — B·Al 이 `METALS` 인 동안 내부 이웃 항이 항상 0 이다.
+    # 🔴 Do not narrow the candidates by `nmet` — **an atom with 0 M–L bonds can also be a
+    #   bridge.** Right now B and Al are in `METALS` so they never appear as internal neighbors,
+    #   but once `B` is treated as a ligand atom, the H of `B–H–B` has 0 M–L bonds and becomes a
+    #   bridge purely through its 2 internal B neighbors. If this loop were keyed on `nmet` it
+    #   would **miss that H entirely.** Keep the rule separate from the center-atom definition.
+    #   ⚠️ Present behavior is unchanged — while B and Al are in `METALS` the internal-neighbor
+    #      term is always 0.
     for x in G.nodes():
         nm = nmet.get(x, 0)
         n_center = nm + sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
@@ -228,37 +250,41 @@ def bridge_tags(el, G, ml_pred):
 
 
 def _angle_ok(xyz, m, x, y, theta):
-    """∠(M–X–Y) < theta ?  Y 는 호출자가 고른다."""
+    """∠(M–X–Y) < theta ?  Y is chosen by the caller."""
     v1, v2 = xyz[m] - xyz[x], xyz[y] - xyz[x]
     cs = float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-12))
     return float(np.degrees(np.arccos(max(-1.0, min(1.0, cs))))) < theta
 
 
 def _closest_mid(xyz, x, m, cand):
-    """X 의 이웃 후보 중 **결합 중점이 M 에 가장 가까운** 것."""
+    """Among X's neighbor candidates, the one **whose bond midpoint is closest to M**."""
     return min(cand, key=lambda q: float(np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m])))
 
 
 def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                   q_eht=None, rop=None):
-    """T4 후보와 Mayer 만 받아 **T3 4클래스 · M–L 차수 · 하프틱**을 끝까지 낸다.
+    """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
+    the haptic set** end to end.
 
-    반환 `(cls, mlout, hap, ml_pred)`
-      `cls`     {(i,j): 0 Single · 1 Double · 2 Triple · 3 Conj}   내부 결합
-      `mlout`   {(m,x): 클래스}                                    M–L 차수 (하프틱 제외)
-      `hap`     {(m,x)}                                            하프틱 M–L
-      `ml_pred` [(m,x)]                                            agostic 을 뺀 T4 결합
+    Returns `(cls, mlout, hap, ml_pred)`
+      `cls`     {(i,j): 0 Single · 1 Double · 2 Triple · 3 Conj}   internal bonds
+      `mlout`   {(m,x): class}                                     M–L orders (haptic excluded)
+      `hap`     {(m,x)}                                            haptic M–L bonds
+      `ml_pred` [(m,x)]                                            T4 bonds with agostic removed
 
-    2-pass 인 이유: 하프틱 M–L 은 **차수를 안 매기고 예산도 안 쓴다**(설계도 §3 5a). 그런데
-    하프틱 여부는 T3(π 조각)를 알아야 정해진다. 그래서 **1회차는 예산 0** 으로 T3 를 풀어
-    π 후보를 얻고, **각도만으로** 하프틱을 예비 판정한 뒤, 그것을 뺀 예산으로 2회차를 푼다.
-    ⚠️ 예비 판정은 예산용이다 — **최종 하프틱은 2회차 결과의 π 조각으로 다시 정한다.**
+    Why 2 passes: a haptic M–L bond **gets no order and spends no budget** ([design doc] §3 5a).
+    But whether a bond is haptic can only be decided once T3 (the π fragments) is known. So the
+    **first pass solves T3 with a budget of 0** to get the π candidates, haptic bonds are decided
+    provisionally **from the angle alone**, and the second pass is solved with those removed from
+    the budget.
+    ⚠️ The provisional decision is for the budget only — **the final haptic set is decided again
+    from the π fragments of the second pass.**
     """
     if bml_model is None:
         bml_model, bml_fb = load_b_ml_mayer()
     coord = {x for _m, x in ml_raw}
     ml_pred = drop_agostic(el, G, ml_raw)
-    # 1회차 — 예산 0 · M–L 최적화 없음
+    # pass 1 — budget 0 · no M–L optimization
     cls0, _ = predict_T3_EHT(el, xyz, G, scores4, {}, None, q_eht, coord, rop)
     unsat0 = {x for e, v in cls0.items() if v in (1, 2, 3) for x in e}
     hap_pre = set()
@@ -267,11 +293,13 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         if x in unsat0 and nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
             hap_pre.add((m, x))
     keep = [p for p in ml_pred if p not in hap_pre]
-    # 🔴 `BMLSKIP3C` — ④ 예산에서 **3c2e 참여 원자를 뺀다** (2026-09-03 채택 · 판정은 `bridge_tags`).
-    #   전자쌍 하나가 중심 3개에 걸친 단위를 2중심 결합 2개로 세면 같은 쌍을 두 번 쓰는 것이라
-    #   제약이 **만족 불가능**해진다(μ-H 는 `CAP(H)=1` 인데 `b_ML=2`). 설계도 §3.0 5c 가 원자가
-    #   채점에서 빼는 것과 같은 이유를 예산에 적용한 것이다. 상세는 `config.BMLSKIP3C`.
-    #   ⚠️ `keep`(= M–L 차수 최적화 후보)에서는 **안 뺀다** — T8 은 그대로 차수를 매긴다.
+    # 🔴 `BMLSKIP3C` — **remove 3c2e-participating atoms from the ④ budget** (adopted 2026-09-03 ·
+    #   the rule is `bridge_tags`). Counting a unit whose single electron pair spans 3 centers as
+    #   2 two-center bonds uses the same pair twice, which makes the constraint **unsatisfiable**
+    #   (μ-H has `CAP(H)=1` but `b_ML=2`). This applies to the budget the same reasoning by which
+    #   [design doc] §3.0 5c excludes them from valence scoring. Details in `config.BMLSKIP3C`.
+    #   ⚠️ They are **not** removed from `keep` (= the M–L order optimization candidates) — T8
+    #      still assigns orders to them.
     skip3c = (
         {x for x, t in bridge_tags(el, G, ml_pred).items() if t == "3c2e"} if BMLSKIP3C else set()
     )
@@ -279,20 +307,22 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     for _m, x in keep:
         if x in skip3c:
             continue
-        bml[x] += 1.0  # M–L 기준선 = Single
-    # 🔴 `wbo` 가 없으면 **거리 폴백**으로 M–L 차수를 매긴다 (2026-09-03).
-    #   Mayer 가 없으면 T8 은 전 결합을 `Single` 로 내보낸다(`Double` F1 **0.0000** · 실측
-    #   300구조 TP 0 / FN 40). 거리 단조 임계 폴백은 같은 풀·refcode 5-fold CV 에서
-    #   `Double` **0.6976** · `Triple` 0.6515 (Mayer 판 .7318 / .7230 · 자명 기준선 0.0000).
-    #   ⚠️ `wbo` 가 **있으면 쓰지 않는다** — 거리가 확실히 진다(`Double` −0.034).
+        bml[x] += 1.0  # M–L baseline = Single
+    # 🔴 With no `wbo`, M–L orders come from the **distance fallback** (2026-09-03).
+    #   Without Mayer, T8 emits `Single` for every bond (`Double` F1 **0.0000** · measured over
+    #   300 structures, TP 0 / FN 40). On the same pool with refcode 5-fold CV, the monotone
+    #   distance-threshold fallback gives `Double` **0.6976** · `Triple` 0.6515 (Mayer version
+    #   .7318 / .7230 · trivial baseline 0.0000).
+    #   ⚠️ It is **not used when `wbo` is available** — distance clearly loses (`Double` −0.034).
     if wbo:
         ml_sc = ml_order_scores(el, keep, wbo, bml_model, bml_fb)
     else:
         ml_sc = ml_order_scores_dist(el, keep, xyz)
-    # 2회차 — 이것이 출력이다
+    # pass 2 — this is the output
     cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop)
-    # T5 — 최종 하프틱. Y 후보는 **같은 π 조각 이웃**이다 (실측 2026-09-03: 조각 이웃 F1 .9810 ·
-    #      내부 이웃 전부 .9803 — 정밀도가 조각 이웃 쪽이 높다).
+    # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**
+    #      (measured 2026-09-03: fragment neighbors F1 .9810 · all internal neighbors .9803 —
+    #      precision is higher for fragment neighbors).
     pi = nx.Graph()
     pi.add_edges_from(e for e, v in cls.items() if v in (1, 2, 3))
     pifrag = {x: i for i, c in enumerate(nx.connected_components(pi)) for x in c}
@@ -304,7 +334,8 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         if nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
             hap.add((m, x))
             hap_by_m[m].add(x)
-    # R7 — 하프틱 고리 안의 R2 도너를 π 후보로 되돌린다 (2026-09-03 채택 · 판정은 설계도 §3.1-R7)
+    # R7 — restore an R2 donor inside a haptic ring as a π candidate (adopted 2026-09-03 ·
+    #      the rule is [design doc] §3.1-R7)
     if R7RING:
         mlset = set(ml_pred)
         donors = {x for x in G if lp_donor(el[x], G.degree(x))}
@@ -324,6 +355,6 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                     if nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
                         hap.add((m, x))
                         hap_by_m[m].add(x)
-    for e in hap:  # 하프틱에는 차수를 안 매긴다
+    for e in hap:  # haptic bonds get no order
         mlout.pop(e, None)
     return cls, mlout, hap, ml_pred

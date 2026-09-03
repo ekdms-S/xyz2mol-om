@@ -1,7 +1,7 @@
-"""T1 — 배위자 내부 결합 유무 (원소쌍별 거리 임계).
+"""T1 — presence of a bond inside a ligand (per-element-pair distance threshold).
 
-⚠️ **`ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py` 에서 이관한 코드다**
-(2026-09-03). 함수 본문은 **그대로** 옮겼다 — 판정 규칙을 바꾸지 않는다.
+⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
+(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501

@@ -1,7 +1,7 @@
-"""`Conj` 후보 규칙 — 규칙 A · R2 · R3 · R4 (R5 는 파이프라인에 있다).
+"""`Conj` candidate rules — rule A · R2 · R3 · R4 (R5 lives in the pipeline).
 
-⚠️ **`ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py` 에서 이관한 코드다**
-(2026-09-03). 함수 본문은 **그대로** 옮겼다 — 판정 규칙을 바꾸지 않는다.
+⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
+(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -18,29 +18,30 @@ def rule_a_ok(n):
     return {"ge5": n >= 5, "eq6": n == 6, "off": False}[RULEA]
 
 def lp_donor(elem, deg):
-    """그 원자의 중성 σ 골격이 이미 찼는가 = π 에 고립쌍으로만 참여하는 자리인가."""
+    """Is the atom's neutral σ skeleton already full = does it join π only via a lone pair?"""
     d = _LP_DEG.get(elem)
     return d is not None and deg >= d
 
 def conj_forbidden(G, el, q_frag=None, xyz=None):
-    """`Conj` 가 될 수 없는 결합 집합. `q_frag` = {원자: 그 조각의 EHT 전하}(피리디늄 면제)."""
+    """Set of bonds that cannot be `Conj`. `q_frag` = {atom: EHT charge of its fragment}
+    (pyridinium exemption)."""
     bad = set()
     donors = set()
     for x in G.nodes():
         if not lp_donor(el[x], G.degree(x)):
             continue
         if el[x] == "N" and q_frag is not None and q_frag.get(x, 0) > 0:
-            continue  # 피리디늄 N⁺ 예외
+            continue  # pyridinium N⁺ exception
         donors.add(x)
         for y in G[x]:
             bad.add((min(x, y), max(x, y)))
-    if R4RING:  # R4 — 4n 전탄소 고리(4·8원) 중 **비평면**인 것은 Kekulé
+    if R4RING:  # R4 — a 4n all-carbon ring (4-/8-membered) that is **non-planar** is Kekule
         for r_ in nx.cycle_basis(G):
             if len(r_) in (4, 8) and all(el[x] == "C" for x in r_):
                 if xyz is None or plane_rms(xyz[np.array(r_)]) > TAU_P:
                     for a, b in zip(r_, r_[1:] + r_[:1]):
                         bad.add((min(a, b), max(a, b)))
-    if R3RING and donors:  # R3 — 그 원자를 낀 5원 고리는 통째로 Kekulé
+    if R3RING and donors:  # R3 — a 5-membered ring containing such an atom is Kekule as a whole
         for r_ in nx.cycle_basis(G):
             if len(r_) != 5:
                 continue

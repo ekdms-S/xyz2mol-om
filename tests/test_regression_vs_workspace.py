@@ -1,14 +1,17 @@
-"""회귀 검증 — 이관본이 **워크스페이스 원본과 같은 답**을 내는지 결합 단위로 대조한다.
+"""Regression check - compares, bond by bond, that the ported code gives **the same answer as the
+workspace original**.
 
-원본 `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py` 의 `predict_T3_EHT` 와
-이관본 `xyz2mol_om.predict_T3_EHT` 에 **같은 입력**(같은 우도·같은 M–L 점수·같은 EHT 전하)을
-넣고 4클래스 배정이 한 결합도 다르지 않은지 본다.
+The original `predict_T3_EHT` in
+`ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py` and the ported
+`xyz2mol_om.predict_T3_EHT` are fed **the same input** (same likelihoods · same M–L scores · same
+EHT charges), and we check that not a single bond gets a different 4-class assignment.
 
-⚠️ 우도는 **패키지에 실린 `scores4.json`**(train 26,075 적합)을 쓴다. 원본은 호출자가 그때그때
-적합해 넘기므로, 같은 산출물을 양쪽에 넣어야 비교가 성립한다.
+⚠️ The likelihoods come from the **`scores4.json` shipped with the package** (fit on 26,075 train
+bonds). The original expects the caller to fit them on the fly, so the same artifact must be fed
+to both sides for the comparison to be valid.
 
-워크스페이스가 없으면 `skip` 한다 — 배포본에서는 이 테스트가 자동으로 건너뛰어진다.
-`N=<개수>` 로 대조 구조 수를 정한다(기본 40).
+The test is skipped when the workspace is absent - in the distributed package it skips
+automatically. `N=<count>` sets the number of structures compared (default 40).
 """
 
 # ruff: noqa: E501
@@ -24,10 +27,10 @@ import networkx as nx
 import numpy as np
 WS = Path("/raid/abcd0105/projects/hynix/snu-t3/ognm-bh-workspace")
 
-try:  # pytest 가 없어도 직접 실행할 수 있게 한다
+try:  # so this can also be run directly, without pytest
     import pytest
 
-    pytestmark = pytest.mark.skipif(not WS.exists(), reason="워크스페이스가 없다 (배포본)")
+    pytestmark = pytest.mark.skipif(not WS.exists(), reason="workspace not present (dist package)")
 except ModuleNotFoundError:  # pragma: no cover
     pytest = None
 
@@ -90,15 +93,15 @@ def test_same_bond_orders():
         q_eht = X.eht_frag_charges(el, xyz, G)
         a_cls, _ = T10.predict_T3_EHT(el, xyz, G, sc4, dict(bml), None, q_eht, set(bml))
         b_cls, _ = X.predict_T3_EHT(el, xyz, G, sc4, dict(bml), None, q_eht, set(bml))
-        assert set(a_cls) == set(b_cls), f"{rc}: 결합 집합이 다르다"
+        assert set(a_cls) == set(b_cls), f"{rc}: bond sets differ"
         for e in a_cls:
             n_bond += 1
             n_diff += a_cls[e] != b_cls[e]
         n_done += 1
 
-    print(f"\n대조 구조 {n_done} · 결합 {n_bond:,} · 불일치 {n_diff}")
-    assert n_done > 0, "대조한 구조가 없다"
-    assert n_diff == 0, f"이관본이 원본과 다르다 — 결합 {n_diff}/{n_bond}"
+    print(f"\nstructures compared {n_done} · bonds {n_bond:,} · mismatches {n_diff}")
+    assert n_done > 0, "no structures were compared"
+    assert n_diff == 0, f"ported code differs from the original - {n_diff}/{n_bond} bonds"
 
 
 if __name__ == "__main__":

@@ -1,341 +1,342 @@
-# 파이프라인 — 무엇을 어떤 순서로, 어떤 수식으로 정하나
+# Pipeline — what is decided in what order, by what formula
 
-`xyz` 하나가 들어와서 결합·차수·전하·산화수가 나오기까지의 **전 판정식**이다.
-시행착오·기각 이력은 여기 없다 → `ognm-bh-workspace/docs/analysis/2026-09-03-t3-tuning-history.md`.
+**Every decision rule** from one `xyz` coming in to bonds, orders, charges, and oxidation states coming out.
+Trial and error and the rejection history are not here → `ognm-bh-workspace/docs/analysis/2026-09-03-t3-tuning-history.md`.
 
-기호. `d(X,Y)` 거리(Å) · `w(M,X)` xtb GFN2 **Mayer** 결합차수 · `q_frag` 조각 전하 ·
-`deg(X)` 배위자 **내부** 이웃 수(H 포함 · M–L 제외) · `b_int(X)` 내부 결합차수 합 ·
-`b_ML(X)` M–L 결합차수 합 · `v` 원자가전자 수.
+Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q_frag` fragment charge ·
+`deg(X)` number of **internal** neighbors within the ligand (H included · M–L excluded) · `b_int(X)` sum of internal bond orders ·
+`b_ML(X)` sum of M–L bond orders · `v` number of valence electrons.
 
-클래스 코드: `0 Single · 1 Double · 2 Triple · 3 Conj`(비편재, 형식차수 1.5).
+Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal order 1.5).
 
 ---
 
-## 순서 (DAG)
+## Order (DAG)
 
 ```
-0.  금속 / 비금속 분리                                 METALS 목록
+0.  metal / non-metal split                             METALS list
 
-━━ 금속과 무관한 구간 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1.  [T1] 내부 결합 있음   ⟺   d(X,Y) < d_int(X,Y)      원소쌍 45개 (data/d_int.csv)
-2.       고리 = SSSR                                    파라미터 없음
-3.  [T3] 4클래스 배정  ①→②→③→④→⑤→⑥                   아래 §T3
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━ metal-independent stage ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1.  [T1] internal bond exists ⟺ d(X,Y) < d_int(X,Y)     45 element pairs (data/d_int.csv)
+2.       rings = SSSR                                   no parameters
+3.  [T3] 4-class assignment ①→②→③→④→⑤→⑥                see §T3 below
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-4.  [T4] M–X 결합 있음   ⟺   d(M,X) < d_bond(M,X)  AND  w(M,X) > w_veto(M,X)
-         X 는 금속 포함 임의 원자 — (M,M) 쌍도 여기서 정한다.  원소쌍 314(M–L)·37(M–M)
-         agostic 제외: `C–H···M` 은 결합으로 세지 않는다
-           ⟺ 그 H 의 metal-like 이웃이 1개이고 내부 이웃에 metal-like 아닌 것이 있다
-           (μ-H·`B–H···M` 은 남긴다 — 진짜 3c2e 다)
+4.  [T4] M–X bond exists  ⟺   d(M,X) < d_bond(M,X)  AND  w(M,X) > w_veto(M,X)
+         X is any atom, metals included — (M,M) pairs are decided here too.  element pairs 314 (M–L) · 37 (M–M)
+         agostic excluded: `C–H···M` is not counted as a bond
+           ⟺ that H has exactly one metal-like neighbor and has an internal neighbor that is not metal-like
+           (μ-H and `B–H···M` are kept — those are real 3c2e)
 
-5.  [T5] 그 결합은 haptic 이다
-           ⟺  ∠(M–X–Y) < θ = 81.02°   AND  X 가 π 조각에 속한다
-           Y = X 의 조각 내 이웃 중 **결합 중점이 M 에 가장 가까운** 것
-           거짓이면 σ-dative (결합 자체는 4에서 확정됐으므로 유지)
-           π 조각 = {Conj ∪ Double ∪ Triple} 결합의 연결 성분
-           ⇒ **X 가 π 조각에 속한다 ⟺ X 가 `Double`·`Triple`·`Conj` 중 하나에 닿는다.**
-             🔴 **조각 크기 조건은 없다** (초판 문서에 있던 "크기 ≥ 2" 는 코드에 없다 —
-             2026-09-03 정정). 고립 이중결합 하나짜리 조각도 π 조각이다.
+5.  [T5] that bond is haptic
+           ⟺  ∠(M–X–Y) < θ = 81.02°   AND  X belongs to a π fragment
+           Y = the neighbor of X within its fragment whose **bond midpoint is closest to M**
+           if false, σ-dative (the bond itself was already settled in 4, so it stays)
+           π fragment = connected component of {Conj ∪ Double ∪ Triple} bonds
+           ⇒ **X belongs to a π fragment ⟺ X touches a `Double`, `Triple`, or `Conj` bond.**
+             🔴 **There is no fragment-size condition** (the "size ≥ 2" in the first edition of this
+             document is not in the code — corrected 2026-09-03). A lone isolated double bond is a π fragment too.
 
-5′. [R7] **하프틱 고리 안의 R2 도너를 π 후보로 되돌린다**   (2026-09-03 채택 · 기본 on)
-         `R7RING=0` 으로 끈다. 적합 파라미터 0개 (`R7MIN` 은 정수 격자).
+5′. [R7] **Return an R2 donor inside a haptic ring to the π candidates**   (adopted 2026-09-03 · on by default)
+         Turn it off with `R7RING=0`. 0 fitted parameters (`R7MIN` is an integer lattice).
 
-           추가(M,X) ⟺ X 가 R2 도너 (O·S·Se: deg ≥ 2 · N·P: deg ≥ 3)
-                     AND X 가 |r| = 5 인 고리 r 에 속함  (r 은 `cycle_basis`)
-                     AND r 의 **다른 원자** 중 **같은 금속 M** 에 5를 통과한 것이 ≥ R7MIN = 2
-                     AND (M,X) 가 T4 결합이다  (d < d_bond AND w > w_veto)
-                     AND ∠(M–X–Y) < θ = 81.02°
+           add(M,X) ⟺ X is an R2 donor (O·S·Se: deg ≥ 2 · N·P: deg ≥ 3)
+                    AND X belongs to a ring r with |r| = 5  (r from `cycle_basis`)
+                    AND at least R7MIN = 2 of the **other atoms** of r passed 5 for the **same metal M**
+                    AND (M,X) is a T4 bond  (d < d_bond AND w > w_veto)
+                    AND ∠(M–X–Y) < θ = 81.02°
 
-         ⇒ **T3 결합차수는 바꾸지 않는다.** 5의 "X 가 π 조각에 속한다" 조건만 면제한다.
-           T3 **뒤** 단계에서만 고치므로 위 DAG 에 순환이 생기지 않는다.
-         왜: R2·R3 가 5원 고리를 Kekulé 로 만들면 이중결합이 최대 2개라 **원자 1개가 π 후보에서
-             빠진다**(η⁵ → η⁴). R2 는 **원소 규칙**이라 피롤형 N 뿐 아니라
-             **퓨란 O · 싸이오펜 S · 셀레노펜 Se · 포스폴 P** 에도 같은 실패가 난다.
-         Y 후보: X 는 정의상 π 조각에 없으므로 5의 "같은 조각 이웃" 을 쓸 수 없다 ⇒
-             **π 조각에 속한 이웃** 중에서 고른다. η^k 는 그 Y 의 조각에 더한다.
+         ⇒ **T3 bond orders are not changed.** Only the "X belongs to a π fragment" condition of 5 is waived.
+           It patches a stage **after** T3 only, so no cycle appears in the DAG above.
+         why: when R2 · R3 make a 5-membered ring Kekulé, there are at most two double bonds, so
+             **one atom drops out of the π candidates** (η⁵ → η⁴). R2 is an **element rule**, so the same
+             failure occurs not only for pyrrole-type N but for **furan O · thiophene S · selenophene Se · phosphole P**.
+         Y candidates: X is by definition not in a π fragment, so the "same-fragment neighbor" of 5 cannot be used ⇒
+             pick among the **neighbors that do belong to a π fragment**. η^k is added to that Y's fragment.
 
-6.  [T6] η^k     k = 그 π 조각에서 5를 통과한 원자 수     파라미터 없음
-         조각마다 따로 센다 (ferrocene 은 η⁵ 둘이지 η¹⁰ 이 아니다)
-         5′로 들어온 원자는 그 Y 의 조각에 센다
+6.  [T6] η^k     k = number of atoms in that π fragment that passed 5     no parameters
+         counted per fragment (ferrocene is two η⁵, not one η¹⁰)
+         an atom entering via 5′ is counted in that Y's fragment
 
-7.  [T8] M–L 차수 (haptic 이 아닌 결합에만)
+7.  [T8] M–L order (non-haptic bonds only)
            Single ⟺ w < t₁(M,X)    Double ⟺ t₁ ≤ w < t₂    Triple ⟺ w ≥ t₂
-           원소쌍 420 × 파라미터 2 (data/b_ml_t8forms.csv) · **거리는 안 쓴다**
-           t₂ = ∞ 는 그 쌍에 Triple 이 없다는 뜻 — 규칙이 아니라 적합 결과다
+           420 element pairs × 2 parameters (data/b_ml_t8forms.csv) · **distance is not used**
+           t₂ = ∞ means that pair has no Triple — a fit result, not a rule
 
-8.  [T10] 리간드 전하 · 산화수                          파라미터 없음 → 아래 §전하
+8.  [T10] ligand charge · oxidation state                no parameters → §Charge below
 ```
 
 ---
 
-## §T3 — 배위자 내부 결합 차수 (여섯 단계)
+## §T3 — internal bond orders within a ligand (six stages)
 
-핵심이 여기다. 나머지 과제는 임계값 하나씩이지만 T3 는 **제약이 여러 겹**이다.
+This is the core. The other tasks are one threshold each, but T3 has **several layers of constraints**.
 
-### ① 규칙 A — 평면 고리를 `Conj` 로 고정
-
-```
-고정(e) ⟺ e 가 고리 r 에 있고
-          |r| ≥ 5
-          AND  평면이탈 rms(r) ≤ τ_plane = 0.05 Å
-          AND  양 끝 원자가 비포화:  deg(X) < CAP(X)
-```
-
-`rms` 는 고리 원자 좌표의 최적 평면까지 거리의 제곱평균.
-
-### ② `Conj` 금지 규칙 — R2 · R3 · R4
-
-`Conj` 가 **될 수 없는** 결합을 먼저 잘라낸다. 셋 다 **적합 파라미터가 0개**이고 화학에서 유도했다.
+### ① Rule A — pin planar rings to `Conj`
 
 ```
-R2  고립쌍 공여형(피롤형) 헤테로원자는 Conj 가 될 수 없다
-    금지(X) ⟺ X ∈ {O, S, Se: deg ≥ 2} ∪ {N, P: deg ≥ 3}   ⇒ X 의 모든 결합에서 Conj 제거
-    예외   ⟺ X = N 이고 그 조각의 EHT 전하 > 0            (피리디늄 N⁺)
-    왜: 퓨란 O · 피롤 N 은 π 계에 자기 고립쌍을 내주므로 π 의 일원이되
-        **형식 결합차수는 1** 이다. 피리딘형(deg 2)은 p 전자를 내놓아 1.5 다.
-        탄소는 언제나 p 전자 공여자라 대상이 아니다.
-
-R3  R2 가 걸린 질소를 낀 5원 고리는 통째로 Kekulé
-    금지(고리 r) ⟺ |r| = 5 AND r 안의 R2 도너가 전부 질소   ⇒ r 의 모든 결합에서 Conj 제거
-    왜: R2 는 헤테로원자에 붙은 결합만 막는다. 피롤·이미다졸의 `C=C` 는 탄소–탄소라
-        안 걸려 Conj 로 샌다.
-
-R4  4n 전탄소 고리(4·8원) 중 비평면인 것은 Kekulé
-    금지(고리 r) ⟺ |r| ∈ {4, 8} AND 전부 탄소 AND 평면이탈 rms > τ_plane
-    왜: COT 는 4n 반방향족이라 욕조형 D2d 중성이다. η⁸-COT²⁻ 는 평면 10π 방향족이므로
-        평면성 조건이 그것을 제외한다.
+pin(e) ⟺ e lies in a ring r and
+         |r| ≥ 5
+         AND  out-of-plane rms(r) ≤ τ_plane = 0.05 Å
+         AND  both end atoms are unsaturated:  deg(X) < CAP(X)
 ```
 
-### ③ 거리 우도 — 나머지 결합의 4클래스 점수
+`rms` is the root mean square distance of the ring atom coordinates to their best-fit plane.
+
+### ② `Conj` prohibition rules — R2 · R3 · R4
+
+Bonds that **cannot** be `Conj` are cut out first. All three have **zero fitted parameters** and are derived from chemistry.
+
+```
+R2  a lone-pair-donating (pyrrole-type) heteroatom cannot be Conj
+    forbid(X) ⟺ X ∈ {O, S, Se: deg ≥ 2} ∪ {N, P: deg ≥ 3}   ⇒ remove Conj from every bond of X
+    exception ⟺ X = N and the EHT charge of its fragment > 0  (pyridinium N⁺)
+    why: furan O and pyrrole N give their own lone pair to the π system, so they are part of π but
+        their **formal bond order is 1**. The pyridine type (deg 2) gives a p electron and is 1.5.
+        Carbon is always a p-electron donor and so is not covered.
+
+R3  a 5-membered ring containing an R2-flagged nitrogen is Kekulé as a whole
+    forbid(ring r) ⟺ |r| = 5 AND every R2 donor in r is nitrogen   ⇒ remove Conj from every bond of r
+    why: R2 blocks only the bonds attached to the heteroatom. The `C=C` of pyrrole or imidazole is
+        carbon–carbon, so it is not caught and leaks into Conj.
+
+R4  non-planar all-carbon 4n rings (4- and 8-membered) are Kekulé
+    forbid(ring r) ⟺ |r| ∈ {4, 8} AND all carbon AND out-of-plane rms > τ_plane
+    why: COT is 4n antiaromatic, so it is a neutral tub-shaped D2d. η⁸-COT²⁻ is a planar 10π aromatic,
+        and the planarity condition excludes it.
+```
+
+### ③ Distance likelihood — the 4-class score of the remaining bonds
 
 ```
 score(e, c) = − |d(e) − med[k, c]| / scl[k, c]  +  lp[k, cell(e), c]
 
-  k       = 원소쌍 (정렬)                     med = 클래스별 거리 중앙값
-  scl     = 1.4826 × MAD                      lp  = ln P(c | 조건)
-  cell(e) = (min(deg(X), 4), min(deg(Y), 4))  ← 원소 정렬 순서에 맞춘 끝점 내부차수쌍
+  k       = element pair (sorted)             med = per-class distance median
+  scl     = 1.4826 × MAD                      lp  = ln P(c | condition)
+  cell(e) = (min(deg(X), 4), min(deg(Y), 4))  ← endpoint internal-degree pair, ordered to match the element order
 ```
 
-🔴 **사전확률 `lp` 는 원소쌍 전역이 아니라 차수 셀로 조건화한다.**
+🔴 **The prior `lp` is conditioned on the degree cell, not globally per element pair.**
 
 ```
-lp[k, cell, c] = ln P(c | 원소쌍 k, 차수쌍 cell)      셀 표본 ≥ 300 일 때
-               = ln P(c | 원소쌍 k)                   그 미만이면 전역으로 폴백
+lp[k, cell, c] = ln P(c | element pair k, degree pair cell)   when the cell has ≥ 300 samples
+               = ln P(c | element pair k)                     below that, fall back to global
 
-예외: c = Conj(3) 는 **항상 전역 값**을 쓴다
+exception: c = Conj(3) **always** uses the global value
 ```
 
-왜 그렇게 하나 (실측):
+Why it is done this way (measured):
 
-| `C–O` 셀 | n | Single | **Double** | Triple | Conj |
+| `C–O` cell | n | Single | **Double** | Triple | Conj |
 |---|---|---|---|---|---|
-| 전역 | 59,722 | .417 | **.111** | .367 | .105 |
-| `deg(C)=3, deg(O)=1` (카보닐) | 18,737 | .344 | **.322** | .000 | .334 |
-| `deg(C)=1, deg(O)=1` (CO 리간드) | 22,298 | .000 | .017 | **.983** | .000 |
-| `deg(C)=4, deg(O)=2` (에터) | 10,087 | **1.000** | .000 | .000 | .000 |
+| global | 59,722 | .417 | **.111** | .367 | .105 |
+| `deg(C)=3, deg(O)=1` (carbonyl) | 18,737 | .344 | **.322** | .000 | .334 |
+| `deg(C)=1, deg(O)=1` (CO ligand) | 22,298 | .000 | .017 | **.983** | .000 |
+| `deg(C)=4, deg(O)=2` (ether) | 10,087 | **1.000** | .000 | .000 | .000 |
 
-전역 사전확률은 카보닐에 `ln(.111/.417) = −1.32` 의 벌점을 준다 — 거리가 `Double` 을
-가리켜도 뒤집힌다. 셀로 조건화하면 `ln(.322/.344) = −0.066` 으로 사라진다.
-`Conj` 를 제외하는 이유: `C–C` `deg 3–3` 셀은 `P(Conj) = .908` 이라 조건화하면
-`Double` → `Conj` 유출이 늘어난다(실측 +505).
+The global prior gives a carbonyl a penalty of `ln(.111/.417) = −1.32` — even when the distance points at
+`Double`, it gets flipped. Conditioning on the cell makes it `ln(.322/.344) = −0.066` and it disappears.
+Why `Conj` is excluded: the `C–C` `deg 3–3` cell has `P(Conj) = .908`, so conditioning increases the
+`Double` → `Conj` leak (measured +505).
 
-적합값은 `data/scores4.json` — 원소쌍 15 · 조건화 셀 54 · train 26,075 구조.
+Fitted values are in `data/scores4.json` — 15 element pairs · 54 conditioned cells · 26,075 train structures.
 
-### ④ 원자가 상한 — 경성 제약의 **정확 해**
+### ④ Valence ceiling — the **exact solution** of a hard constraint
 
 ```
-최대화   Σ_e  score(e, c(e))
-제약     b_int_kek(X) + b_ML(X)  ≤  CAP(X)        모든 비금속 X
+maximize    Σ_e  score(e, c(e))
+subject to  b_int_kek(X) + b_ML(X)  ≤  CAP(X)        for every non-metal X
 
-  b_int_kek : 공액 결합 k 개는 **k + 1** 로 센다 (그중 하나가 π). 1.5 환산이 아니다.
-  b_ML      : T8 출력. **haptic 만 제외.** 3c2e·B 는 안 뺀다.
-              ⛔ 3c2e 제외(`BMLSKIP3C=1`)를 구현해 train 전량 CV 로 재고 **기각**했다
-                 (2026-09-03): `Double` .7157 → **.7137** · `Triple` .9814 → .9806 ·
-                 `Σq_L`·`OS`·`T6` 는 동일 · 원자가 위반 구조 715 → 713(2건).
-                 "μ-H 는 `CAP(H)=1` 인데 `b_ML=2` 라 만족 불가능" 이라는 논거는 맞지만,
-                 **μ-H 는 내부 결합이 0개라 그 제약이 애초에 아무것도 안 묶는다.**
-                 실제로 묶고 있던 것은 3c2e **탄소**이고 거기서 풀면 차수가 틀리게 오른다.
-                 플래그는 남아 있고 기본값은 **0(끔)** 이다.
+  b_int_kek : k conjugated bonds count as **k + 1** (one of them is π). Not a 1.5 conversion.
+  b_ML      : T8 output. **Only haptic is excluded.** 3c2e and B are not subtracted.
+              ⛔ Excluding 3c2e (`BMLSKIP3C=1`) was implemented, remeasured by CV over the whole
+                 train set, and **rejected** (2026-09-03): `Double` .7157 → **.7137** · `Triple` .9814 → .9806 ·
+                 `Σq_L`, `OS`, `T6` identical · structures with a valence violation 715 → 713 (2 structures).
+                 The argument "μ-H has `CAP(H)=1` but `b_ML=2`, so it is unsatisfiable" is correct, but
+                 **μ-H has zero internal bonds, so that constraint binds nothing in the first place.**
+                 What it was actually binding is 3c2e **carbon**, and releasing it raises orders wrongly.
+                 The flag remains and its default is **0 (off)**.
   CAP       : H 1 · B 4 · C 4 · N 5 · O 4 · F 4 · Si 6 · P 6 · S 6 · Cl 7 · Br/Se/As/Te/I 6
 ```
 
-🔴 **하한은 없다.** 이온 절단이므로 리간드가 음이온인 것은 정상이다(`Cl⁻`·`RO⁻`·`Cp⁻`).
-원자가가 모자란 것은 오류가 아니라 **음전하**다.
+🔴 **There is no lower bound.** This is an ionic cut, so an anionic ligand is normal (`Cl⁻`·`RO⁻`·`Cp⁻`).
+A deficient valence is not an error — it is a **negative charge**.
 
-푸는 법: 여유 `r(X) = ⌊CAP(X) − use(X)⌋` 를 용량으로 두고 원자를 그만큼 복제해
-**최대 가중 매칭**(Blossom)을 푼다 — 다항시간 **정확 해**다. `Triple` 은 우도 argmax 가
-`Triple` 이고 양쪽 여유가 2 이상인 결합에 먼저 배정한 뒤 여유를 소모한다.
-M–L 차수도 같은 매칭 안에서 정한다(더미 노드로 금속 쪽 무제약을 표현, `Triple` 까지).
+How it is solved: take the slack `r(X) = ⌊CAP(X) − use(X)⌋` as a capacity, duplicate each atom that many
+times, and solve a **maximum weight matching** (Blossom) — a polynomial-time **exact solution**. `Triple` is
+assigned first to bonds whose likelihood argmax is `Triple` and whose endpoints both have slack ≥ 2, consuming that slack.
+M–L orders are decided inside the same matching (a dummy node expresses the metal side being unconstrained, up to `Triple`).
 
-⚠️ 매칭은 `g(e) = score(e, Double) − score(e, Single) > 0` 인 결합만 후보로 넣는다.
+⚠️ The matching admits as candidates only bonds with `g(e) = score(e, Double) − score(e, Single) > 0`.
 
-### ⑤ EHT 조각 전하 목표
+### ⑤ EHT fragment charge target
 
-확장 Hückel(RDKit `rdEHTTools`)로 리간드 조각의 전하를 **직접** 계산해 탐색 목표로 넣는다.
-
-```
-q_frag(EHT) = Σ v_i  −  2 × #{Hückel 궤도 : E < −10 eV}   (+ HOMO/LUMO 보정)
-
-항등식      q_frag = C0(조성) + 2B,     C0 = Σ v_i − 8n   (H 는 2)
-        ⇒   B* = (q_EHT − C0) / 2      그 조각의 **결합차수 총합이 정수 하나로 확정**된다
-
-배정  ⟺  ④의 상한을 지키며 B = B* 가 되도록
-         모자라면 우도 이득이 큰 결합부터 +1 · 넘치면 손실이 작은 결합부터 −1 (≤12회)
-```
-
-건너뛰는 조각:
+Extended Hückel (RDKit `rdEHTTools`) computes the charge of a ligand fragment **directly**, and it enters the search as a target.
 
 ```
-(a) (q_EHT − q_현재) 가 홀수인 조각
-(b) 🔴 조성이 `NO` · `SS` · `CCHH` 인 조각          ← EHTSKIP
+q_frag(EHT) = Σ v_i  −  2 × #{Hückel orbitals : E < −10 eV}   (+ HOMO/LUMO correction)
+
+identity    q_frag = C0(composition) + 2B,   C0 = Σ v_i − 8n   (2 for H)
+        ⇒   B* = (q_EHT − C0) / 2      the **total bond order of that fragment is fixed to a single integer**
+
+assignment ⟺ make B = B* while respecting the ceiling of ④
+             if short, +1 starting from the bonds with the largest likelihood gain · if over, −1 starting from the smallest loss (≤ 12 rounds)
 ```
 
-(b) 의 근거 (정답 배정 기준 · train 전 조각):
+Fragments that are skipped:
 
-| 조성 | 조각 수 | 목표 오류율 | 오차 |
+```
+(a) fragments where (q_EHT − q_current) is odd
+(b) 🔴 fragments whose composition is `NO`, `SS`, or `CCHH`     ← EHTSKIP
+```
+
+Basis for (b) (against the reference assignment · all train fragments):
+
+| Composition | Fragments | Target error rate | Error |
 |---|---|---|---|
-| `CO` (카보닐 리간드) | 22,298 | **1.7%** | — |
-| **`NO`** (나이트로실) | 493 | **99.8%** | −2 가 489/492 |
-| **`SS`** | 118 | **94.9%** | +2 가 112/112 |
-| **`CCHH`** (η²-아세틸렌) | 142 | **66.9%** | +2 가 91/95 |
+| `CO` (carbonyl ligand) | 22,298 | **1.7%** | — |
+| **`NO`** (nitrosyl) | 493 | **99.8%** | −2 in 489/492 |
+| **`SS`** | 118 | **94.9%** | +2 in 112/112 |
+| **`CCHH`** (η²-acetylene) | 142 | **66.9%** | +2 in 91/95 |
 
-⛔ **크기로 자르면 안 된다** — 2원자 조각 전량을 끄면 `CO` 22,298 까지 꺼져 손해다
+⛔ **Cutting by size is wrong** — turning off every two-atom fragment also turns off the 22,298 `CO` and loses
 (`Double` .6913 → .6861 · `Σq_L` .7932 → .7908).
 
-### ⑥ 출력 변환기 (Kekulé 화)
+### ⑥ Output converter (kekulization)
 
-4클래스를 **정수 S/D/T** 로 되돌린다. 전하 계산과 **같은 최대매칭**을 쓰므로 배정이 일치한다.
+Turns the 4 classes back into integer S/D/T. It uses the **same maximum matching** as the charge calculation, so the assignments agree.
 
 ```
 kekulize(G, el, cls, b_ML) → (orders, frag_q)
   orders  {(i,j): 1.0 | 2.0 | 3.0}
-  frag_q  골격으로 표현 안 되는 잔여 조각 전하
-          (트로필륨 +1 · 짝수 고리 다이아니온 −2 등, 실측 202/26,074 = 0.8%)
+  frag_q  residual fragment charge not expressible by the skeleton
+          (tropylium +1 · even-ring dianion −2 etc., measured 202/26,074 = 0.8%)
 ```
 
 ---
 
-## §전하 — `q_L` 과 `OS(M)` (적합 파라미터 0개)
+## §Charge — `q_L` and `OS(M)` (0 fitted parameters)
 
 ```
-(a) 원자별 형식전하
-        lp(X) = max(0, 4 − b)                     고립쌍 수 (H 는 max(0, 1 − b))
+(a) per-atom formal charge
+        lp(X) = max(0, 4 − b)                     lone pair count (max(0, 1 − b) for H)
         q(X)  = v − b − 2·lp(X)
 
-    ⇒ b ≤ 4 :  q = v + b − 8      (옥텟)          H 는 v + b − 2
-      b > 4 :  q = v − b          (초원자가)
+    ⇒ b ≤ 4 :  q = v + b − 8      (octet)         v + b − 2 for H
+      b > 4 :  q = v − b          (hypervalent)
 
-    초원자가가 필요한 이유: 옛 식 `v + b − 8` 은 `lp = 4 − b < 0`(고립쌍 음수)을 쓴다.
-    나이트로 `–N(=O)=O`(b 5)를 +2, 술폰 S(b 6)를 +4, 과염소산 Cl(b 7)을 +6 으로 셌다.
-    새 식은 전부 **0**. `b ≤ 4` 자리는 한 건도 안 바뀐다.
+    why hypervalency is needed: the old formula `v + b − 8` uses `lp = 4 − b < 0` (a negative lone pair count).
+    It counted nitro `–N(=O)=O` (b 5) as +2, sulfone S (b 6) as +4, and perchlorate Cl (b 7) as +6.
+    The new formula gives **0** for all of them. Not a single `b ≤ 4` site changes.
 
-(a′) 옥텟이 깨지는 나머지 자리 — (원소, deg, b, 이웃원소) 표로 덮는다
-        헤테로 안정화 카벤 `("C", 2, 2, 이웃에 N 또는 O)`  → 0     (옥텟식 −2)
-        술폭사이드     `("S", 3, 4, 이웃에 O)`             → 0     (옥텟식 +2)
-        나이트라이트   `("N", 2, 4, 이웃 O 2개)`           → −1    (옥텟식 +1)
-    ⚠️ 이웃 원소 조건이 필수다 — 없이 `(원소, deg, b)` 로만 걸면 아자이드·이소시아나이드가
-       같이 걸려 리간드 전하가 −2 어긋난다.
+(a′) the remaining sites where the octet breaks — covered by an (element, deg, b, neighbor element) table
+        heteroatom-stabilized carbene `("C", 2, 2, N or O among neighbors)`  → 0     (octet formula −2)
+        sulfoxide      `("S", 3, 4, O among neighbors)`                      → 0     (octet formula +2)
+        nitrite        `("N", 2, 4, two O neighbors)`                        → −1    (octet formula +1)
+    ⚠️ The neighbor-element condition is essential — keyed on `(element, deg, b)` alone, azide and
+       isocyanide get caught too and the ligand charge is off by −2.
 
-(b) 공액 조각 전하
-        단환 전탄소 `CmHm`  →  Hückel:  z = m − (4n+2) 중 |m − h| 최소 (동점이면 큰 h)
-        그 외                →  Kekulé 최대매칭 후 (a) 합
+(b) conjugated fragment charge
+        monocyclic all-carbon `CmHm`  →  Hückel:  z = m − (4n+2) minimizing |m − h| (larger h on a tie)
+        otherwise                     →  sum of (a) after Kekulé maximum matching
 
-(c) 3c2e 참여 원자는 (a) 전에 걸러 3중심 2전자 단위로 센다
-    판정 (T7) n_center(X) = (M–L 결합 수) + (내부 이웃 중 B·Al 개수)   ·  deg(X) = 내부 + M–L
+(c) atoms taking part in a 3c2e are filtered out before (a) and counted as three-center two-electron units
+    decision (T7) n_center(X) = (number of M–L bonds) + (number of B·Al among internal neighbors)   ·  deg(X) = internal + M–L
               bridge ⟺ n_center >= 2
-              3c2e   ⟺ bridge AND el ∈ {H,C,Si,B} AND deg > 정상 원자가 (H 1 · C·Si 4 · B 3)
-              dative ⟺ bridge AND 위가 거짓
-    실물      μ-H → 3c2e  ·  B–H···M → 3c2e  ·  μ-Cl → dative(3c4e)  ·  말단 Cl → 태그 없음
-    출력      `ml_bonds[(m,x)]["bridge"]` = None|"3c2e"|"dative" · `["type"]` 은 haptic > bridge > sigma
-    ⚠️ **결합은 안 없어진다** — M–L 결합 2개가 그대로 남고 T8 이 차수도 매긴다. 빠지는 것은
-       원자가 회계(`b_ML` 예산 · 위반 채점)뿐이다.
+              3c2e   ⟺ bridge AND el ∈ {H,C,Si,B} AND deg > normal valence (H 1 · C·Si 4 · B 3)
+              dative ⟺ bridge AND the above is false
+    real cases  μ-H → 3c2e  ·  B–H···M → 3c2e  ·  μ-Cl → dative (3c4e)  ·  terminal Cl → no tag
+    output      `ml_bonds[(m,x)]["bridge"]` = None|"3c2e"|"dative" · `["type"]` is haptic > bridge > sigma
+    ⚠️ **No bond disappears** — both M–L bonds stay and T8 assigns their orders too. What is dropped
+       is only the valence accounting (`b_ML` budget · violation scoring).
 
-(d) q_L = 리간드 조각 **전 원자**의 형식전하 합    ← 배위 원자만 세지 않는다
-    OS(M) = (q_total − Σ_L q_L) / n_M              ← 금속에 균등 분배
+(d) q_L = sum of the formal charges of **all atoms** of the ligand fragment   ← not only the coordinating atoms
+    OS(M) = (q_total − Σ_L q_L) / n_M              ← distributed evenly over the metals
 ```
 
-⚠️ **`b` 에 M–L 은 넣지 않는다** — 이온 절단이라 M–L 전자쌍 2개를 배위 원자가 통째로 가져간다.
+⚠️ **M–L is not counted in `b`** — it is an ionic cut, so the coordinating atom takes both M–L electron pairs entirely.
 
 ---
 
-## 성능
+## Performance
 
-### holdout (적합에 쓰지 않은 6,456 구조 · **1회만 열었다**)
+### holdout (6,456 structures not used in the fit · **opened only once**)
 
-| 지표 | **holdout 6,456** ⚠️ 옛 코드 | **train CV 26,075** ★ 현재 코드 |
+| Metric | **holdout 6,456** ⚠️ old code | **train CV 26,075** ★ current code |
 |---|---|---|
 | T3 `Single` / **`Double`** / `Triple` / `Conj` | .9900 / **.7258** / .9822 / .9631 | .9884 / **.7047** / .9809 / .9558 |
-| `Σq_L` 구조 단위 정확 일치 | **80.9%** | **82.5%** |
-| `OS(M)` 구조 단위 정확 일치 | **81.3%** | **83.9%** |
+| `Σq_L` exact match per structure | **80.9%** | **82.5%** |
+| `OS(M)` exact match per structure | **81.3%** | **83.9%** |
 | T5 haptic F1 · T6 η^k | .9748 · .9860 | **.9789** · .9812 |
-| 원자가 위반 (구조) | 2.06% | **2.71%** |
+| valence violation (structures) | 2.06% | **2.71%** |
 
-⚠️ **holdout 열은 `R7` 채택과 `B` 리간드 전환 *전* 코드로 잰 값이다.** holdout 은 1회 개봉으로
-소진돼 재측정할 수 없다 ⇒ **현재 코드의 일반화는 train CV 열로만** 말할 수 있다.
-⚠️ **T3 두 열은 채점 풀도 다르다** — `B` 전환으로 `B–X` 결합 30,628 이 새로 채점 대상이 됐다.
-같은 결합 집합으로 비교하면 `Double` .6888 → **.6952** 다.
+⚠️ **The holdout column was measured with the code *before* the `R7` adoption and the `B` ligand switch.**
+The holdout is spent by its single opening and cannot be remeasured ⇒ **generalization of the current code can be
+stated only from the train CV column.**
+⚠️ **The two T3 columns also score different pools** — the `B` switch newly brought 30,628 `B–X` bonds into scoring.
+Compared over the same bond set, `Double` is .6888 → **.6952**.
 
-### 무엇이 남았나
+### What is left
 
-- **`Double` 이 유일한 약한 클래스다.** 나머지는 .98~.99 다.
-- `Σq_L`·`OS` 의 **상한은 83.4% / 85.6%** 다. 결합차수를 CSD 정답으로 통째로 넣어도
-  그 이상은 안 나온다 — 정답지(tmQMg-L)의 `charge` 가 **NBO 유래**라 우리 Lewis 회계와
-  규약이 다르기 때문이다(하프틱 전하 관례 · 이온/공유 경계). **예측 오차가 아니다.**
-- 남은 `Double` 오답은 카보닐 `C–O` · 이민 `C–N` · 티오카보닐 `C–S` · 아조 `N–N` 에 몰려 있고,
-  절반 가까이가 **`Conj` 를 어디까지 잡느냐**의 문제다.
+- **`Double` is the only weak class.** The rest are .98–.99.
+- The **ceiling of `Σq_L` and `OS` is 83.4% / 85.6%**. Even feeding the CSD reference bond orders wholesale
+  does not go beyond that — the `charge` of the reference labels (tmQMg-L) is **NBO-derived**, so its convention
+  differs from our Lewis accounting (haptic charge convention · ionic/covalent boundary). **It is not prediction error.**
+- The remaining `Double` errors cluster in carbonyl `C–O` · imine `C–N` · thiocarbonyl `C–S` · azo `N–N`,
+  and close to half of them are a question of **how far `Conj` is taken**.
 
-### 🔴 원자가 위반율 — 성능표에 안 나오는 축
+### 🔴 Valence violation rate — the axis that is not in the performance table
 
-F1 이 높아도 **출력이 화학적으로 불가능**할 수 있다. 그래서 원자가 상한 위반을 같이 낸다:
+Even with a high F1, the **output can be chemically impossible**. So the valence ceiling violations are reported alongside:
 
 ```
-위반(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X 는 비금속
-  b_int_kek : 공액 결합 k 개는 **k+1** 로 센다 (1.5 환산이 아니다)
-  b_ML      : M–L 결합차수 합 (haptic 제외)
-  ⚠️ 3c2e 태깅 원자와 `B` 는 집계에서 뺀다 — 2중심 형식 밖이다
+violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
+  b_int_kek : k conjugated bonds count as **k+1** (not a 1.5 conversion)
+  b_ML      : sum of M–L bond orders (haptic excluded)
+  ⚠️ 3c2e-tagged atoms and `B` are dropped from the tally — they are outside the two-center formalism
 ```
 
-| 평가 | 구조 | 위반 원자 | **위반 구조** | 정답지 기준선 (같은 셈) |
+| Evaluation | Structures | Violating atoms | **Violating structures** | Reference-label baseline (same count) |
 |---|---|---|---|---|
 | **holdout** | 6,456 | 201 / 385,913 = **0.05%** | **133 = 2.06%** | 28 = **0.43%** |
 | train CV | 26,075 | 1,045 / 1,547,807 = **0.07%** | **715 = 2.74%** | 103 = **0.40%** |
 
-⚠️ **기준선이 0 이 아니다** — CSD 정답 라벨을 그대로 넣어도 구조의 **0.4%** 가 위반이다
-(초원자가 · 이온/공유 경계 · CSD 표기 관례). 우리 값은 **그 대비로** 읽어야 한다:
-holdout 초과분 **1.6%p**.
+⚠️ **The baseline is not 0** — feeding the CSD reference labels as they are, **0.4%** of structures violate
+(hypervalency · ionic/covalent boundary · CSD notation conventions). Our value has to be read **against that**:
+holdout excess **1.6%p**.
 
-**위반 2.74%(train CV) 의 정체** — μ-bridge 74 · 그 외 969 · T3 단독으로도 초과 164.
-🔴 알려진 잔여다: `B`·`Al` 이 중심원자인데 Mayer 캐시는 진짜 전이금속만 담아 `B–X` 가 항상
-결측이고, 그 결측이 전부 M–L 결합이 되어 이웃 `C`·`H` 의 `CAP` 예산을 먹는다
-(실측: M–L 후보의 **6.0% 결측이 전부 `B` 중심**).
-⛔ 3c2e 참여 원자를 예산에서 빼는 판(`BMLSKIP3C=1`)으로 고쳐 보았으나 **기각**했다 —
-위반 구조가 715 → 713(**2건**)밖에 안 줄고 `Double` 이 .7157 → **.7137** 로 내려간다.
+**What the 2.74% (train CV) violations are** — μ-bridge 74 · other 969 · 164 exceed on T3 alone.
+🔴 A known residual: `B` and `Al` are central atoms, but the Mayer cache holds only true transition metals, so `B–X` is
+always missing, and every one of those missing entries becomes an M–L bond that eats the `CAP` budget of the neighboring `C` and `H`
+(measured: **6.0% of M–L candidates are missing, all of them `B`-centered**).
+⛔ A version subtracting 3c2e-participating atoms from the budget (`BMLSKIP3C=1`) was tried and **rejected** —
+violating structures drop only 715 → 713 (**2 structures**) while `Double` falls .7157 → **.7137**.
 
-**⑥ 출력 변환기(Kekulé 화)가 이 지표의 대부분을 이미 해결했다** — `Conj` 를 1.5 로 환산하면
-생기던 **허위** 위반을 없애 위반율을 **4.13% → 0.48%** 로 8.6배 줄인다(그 시점 판).
+**The ⑥ output converter (kekulization) already solved most of this metric** — it removes the **spurious** violations
+that arose from converting `Conj` to 1.5, cutting the violation rate **4.13% → 0.48%**, an 8.6× reduction (the version at that time).
 
-### 자명 기준선 (성능을 읽을 때 반드시 같이 볼 것)
+### Trivial baselines (always read the performance next to these)
 
-| 과제 | 자명 예측 | 자명 성능 |
+| Task | Trivial prediction | Trivial performance |
 |---|---|---|
-| T1 | 전부 결합 | 0.7306 |
-| T3 | 전부 `Single` | S .9097 · D 0 · T 0 |
-| T4 | 전부 결합 | 0.5276 |
-| T5 | 전부 haptic | 0.6766 |
-| T6 | 전부 `k=0` | 0.8704 |
-| T8 | 전부 `Single` | 정확도 .9637 |
+| T1 | all bonded | 0.7306 |
+| T3 | all `Single` | S .9097 · D 0 · T 0 |
+| T4 | all bonded | 0.5276 |
+| T5 | all haptic | 0.6766 |
+| T6 | all `k=0` | 0.8704 |
+| T8 | all `Single` | accuracy .9637 |
 
 ---
 
-## 적합 파라미터 요약
+## Fitted parameter summary
 
-| 파일 | 무엇 | 개수 |
+| File | What | Count |
 |---|---|---|
-| `data/d_int.csv` | T1 원소쌍별 거리 임계 | 45 + 폴백 1 |
-| `data/d_bond.csv` | T4 `d_bond` · `w_veto` | 314(M–L) + 37(M–M) |
-| `data/b_ml_t8forms.csv` | T8 단조 임계 `t₁ ≤ t₂` | 420 쌍 × 2 |
-| `data/b_ml_mayer.csv` | T8 우도형(옛 형태, 폴백) | 420 쌍 |
-| `data/scores4.json` | T3 거리 우도 `med`·`scl`·`lp`·`lp_cell` | 원소쌍 15 · 셀 54 |
+| `data/d_int.csv` | T1 per-element-pair distance threshold | 45 + 1 fallback |
+| `data/d_bond.csv` | T4 `d_bond` · `w_veto` | 314 (M–L) + 37 (M–M) |
+| `data/b_ml_t8forms.csv` | T8 monotone thresholds `t₁ ≤ t₂` | 420 pairs × 2 |
+| `data/b_ml_mayer.csv` | T8 likelihood form (old form, fallback) | 420 pairs |
+| `data/scores4.json` | T3 distance likelihood `med`·`scl`·`lp`·`lp_cell` | 15 element pairs · 54 cells |
 
-규칙(규칙 A · R2 · R3 · R4 · R5 · **R7** · `EHTSKIP` · 초원자가 전하식)은 **적합 파라미터가 0개**다.
-전역 상수는 `τ_plane = 0.05 Å` · `θ_haptic = 81.02°` · EHT cutoff `−10 eV` 셋뿐이다.
+The rules (Rule A · R2 · R3 · R4 · R5 · **R7** · `EHTSKIP` · the hypervalent charge formula) have **0 fitted parameters**.
+The only global constants are the three `τ_plane = 0.05 Å` · `θ_haptic = 81.02°` · EHT cutoff `−10 eV`.

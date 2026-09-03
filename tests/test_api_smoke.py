@@ -1,9 +1,9 @@
-"""공개 API 스모크 — 워크스페이스 없이도 도는 최소 검증 (배포본에서 이것만으로 확인 가능).
+"""Public API smoke test - the minimum check that runs without the workspace.
 
-`[Mo(≡N)(OH)Cl₃]⁻` 하나로 파이프라인 전 단계를 지난다:
-  T1 내부 결합(O–H) · T4 M–L 5개 · T8 `Mo≡N` = Triple · T10 `q_L` 과 `OS(Mo) = +6` ·
-  ⑥ Kekulé 출력 · 리간드 SMILES 왕복 검증.
-Mayer 결합차수는 xtb `--sp --wbo` 산출값을 **상수로 박아** 두었다 (xtb 없이 돌게 하려고).
+A single `[Mo(≡N)(OH)Cl₃]⁻` goes through every pipeline stage:
+  T1 internal bonds (O–H) · T4 five M–L bonds · T8 `Mo≡N` = Triple · T10 `q_L` and `OS(Mo)=+6` ·
+  ⑥ Kekule output · ligand SMILES round-trip check.
+Mayer bond orders are **hard-coded constants** from xtb `--sp --wbo` (so this runs without xtb).
 """
 
 # ruff: noqa: E501
@@ -25,7 +25,7 @@ XYZ = np.array(
         [0.00, -2.35, -0.25],
     ]
 )
-# xtb GFN2 `--sp --wbo` 실측 (2026-09-03)
+# xtb GFN2 `--sp --wbo` measured values (2026-09-03)
 WBO = {(0, 1): 2.891, (0, 2): 1.022, (0, 4): 0.955, (0, 5): 0.967, (0, 6): 0.997, (2, 3): 0.862}
 WBO.update({(j, i): w for (i, j), w in list(WBO.items())})
 
@@ -35,14 +35,14 @@ def test_mo_nitrido():
     assert len(r["metals"]) == 1
     m = r["metals"][0]
     assert m["element"] == "Mo"
-    assert m["oxidation"] == 6, f"OS(Mo) 는 +6 이어야 한다 — 얻은 값 {m['oxidation']}"
+    assert m["oxidation"] == 6, f"OS(Mo) must be +6 - got {m['oxidation']}"
 
     ligs = {tuple(L["atoms"]): L for L in r["ligands"]}
-    assert len(ligs) == 5, f"리간드 5개여야 한다 — {len(ligs)}"
+    assert len(ligs) == 5, f"expected 5 ligands - got {len(ligs)}"
 
     nit = ligs[(1,)]
-    assert nit["charge"] == -3, f"나이트라이도 N 은 −3 — {nit['charge']}"
-    assert nit["ml_bonds"][(0, 1)]["order"] == 3, "Mo≡N 은 Triple 이어야 한다"
+    assert nit["charge"] == -3, f"nitrido N must be −3 - got {nit['charge']}"
+    assert nit["ml_bonds"][(0, 1)]["order"] == 3, "Mo≡N must be Triple"
     assert nit["ml_bonds"][(0, 1)]["type"] == "sigma"
 
     oh = ligs[(2, 3)]
@@ -54,14 +54,15 @@ def test_mo_nitrido():
         assert ligs[(a,)]["charge"] == -1
 
     for L in r["ligands"]:
-        assert L["smiles"], "SMILES 가 나와야 한다"
-        assert L["smiles_ok"], f"SMILES 왕복 검증 실패: {L['smiles']} — {L['smiles_note']}"
+        assert L["smiles"], "SMILES must be produced"
+        assert L["smiles_ok"], f"SMILES round-trip failed: {L['smiles']} - {L['smiles_note']}"
 
 
 def test_no_spurious_hh():
-    """🔴 회귀 — 메틸의 geminal H–H(≈1.77 Å)가 결합으로 잡히면 안 된다.
+    """🔴 Regression - a methyl geminal H–H (≈1.77 Å) must not be picked up as a bond.
 
-    `d_int` 에 `H,H` 항목이 없던 시절 폴백 2.0542 Å 가 걸려 **예측 결합의 22.9%가 허위 H–H** 였다.
+    Back when `d_int` had no `H,H` entry the 2.0542 Å fallback applied and **22.9% of the
+    predicted bonds were spurious H–H**.
     """
     el = ["C", "H", "H", "H", "H"]
     d = 1.09 / np.sqrt(3)
@@ -69,8 +70,8 @@ def test_no_spurious_hh():
     r = predict(el, xyz, total_charge=0)
     (L,) = r["ligands"]
     hh = [(i, j) for (i, j) in L["bonds_kekule"] if el[i] == "H" and el[j] == "H"]
-    assert not hh, f"허위 H–H 결합이 생겼다: {hh}"
-    assert len(L["bonds_kekule"]) == 4, f"CH4 는 결합 4개 — {L['bonds_kekule']}"
+    assert not hh, f"spurious H–H bond appeared: {hh}"
+    assert len(L["bonds_kekule"]) == 4, f"CH4 has 4 bonds - {L['bonds_kekule']}"
 
 
 if __name__ == "__main__":

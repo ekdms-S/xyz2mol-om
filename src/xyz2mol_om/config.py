@@ -1,7 +1,7 @@
-"""판정에 쓰는 상수와 채택 플래그 — **여기 값이 파이프라인의 전부다**.
+"""Constants and adoption flags used in the decisions — **these values are the whole pipeline**.
 
-⚠️ **`ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py` 에서 이관한 코드다**
-(2026-09-03). 함수 본문은 **그대로** 옮겼다 — 판정 규칙을 바꾸지 않는다.
+⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
+(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -34,23 +34,24 @@ VAL = {
     "Te": 6,
     "I": 7,
 }
-FULL = {"H": 2}  # 채움 정원. 기본 8, H 만 2
+FULL = {"H": 2}  # filled-shell quota. 8 by default, 2 only for H
 METALS = set(
     "Ti Zr Hf Nb Ta V La Sc Y Ce Cr Mo W Mn Re Fe Ru Os Co Rh Ir Ni Pd Pt "
     "Cu Ag Au Zn Al Ga In Sn Pb Mg B".split()
 )
-# ★★ 중심원자 판정 (2026-09-03) — **`B` 는 조건부다.**
-#   판정  중심이다(i) ⟺ el[i] ∈ METALS \ {B}
-#                     또는 el[i] = B AND 그 구조에 METALS \ {B} 원자가 **하나도 없다**
-#   `B₂H₆`·순수 보란에서는 `B` 가 중심이고, 전이금속 착물 안의 카보란·보릴·`BH₄⁻` 에서는
-#   **리간드 원자**다. 근거(CSD train 정답지 실측 2026-09-03): 내부 결합을 갖는 금속류는
-#   `B` 뿐(30,628 결합 · 구조 1,583) · `Al`·`Zn`·`Sn`·`In`·`Pb`·`Ga`·`Mg` 는 내부 결합 0.
-#   ⚠️ 워크스페이스 `260830_fit_t10_charge.centers` 와 **본문이 같아야 한다.**
+# ★★ center-atom decision (2026-09-03) — **`B` is conditional.**
+#   rule  i is a center ⟺ el[i] ∈ METALS \ {B}
+#                       OR el[i] = B AND the structure contains **no** METALS \ {B} atom
+#   In `B₂H₆` and pure boranes `B` is a center; inside a transition-metal complex (carborane,
+#   boryl, `BH₄⁻`) it is a **ligand atom**. Evidence (measured on CSD train reference labels,
+#   2026-09-03): the only metal-class element with internal bonds is `B` (30,628 bonds ·
+#   1,583 structures) — `Al`, `Zn`, `Sn`, `In`, `Pb`, `Ga`, `Mg` have 0 internal bonds.
+#   ⚠️ The body must **stay identical to** workspace `260830_fit_t10_charge.centers`.
 METALS_HARD = METALS - {"B"}
 
 
 def centers(el):
-    """중심원자 **인덱스 집합** (설계도 §3.0 0). 위 판정식 그대로."""
+    """The **set of center-atom indices** ([design doc] §3.0 0). Exactly the rule above."""
     hard = {i for i, e in enumerate(el) if e in METALS_HARD}
     return hard or {i for i, e in enumerate(el) if e in METALS}
 
@@ -58,15 +59,17 @@ def centers(el):
 HUCKEL = [2, 6, 10, 14, 18]
 
 USE_DINT = os.environ.get("USE_DINT", "0") == "1"
-# ★ 채택안 D (§5.0.11 ⑭) — 기본 켜짐. USE_D3=0 이면 옛 T2 게이트 경로로 되돌린다.
+# ★ adopted option D ([design doc] §5.0.11 ⑭) — on by default. USE_D3=0 falls back to the old
+#   T2 gate path.
 USE_D3 = os.environ.get("USE_D3", "1") == "1"
-# ★ 채택안 D_eht (오너 확정 2026-09-01) — 기본 켜짐. USE_EHT=0 이면 옛 D 경로.
+# ★ adopted option D_eht (owner confirmed 2026-09-01) — on by default. USE_EHT=0 = old D path.
 USE_EHT = os.environ.get("USE_EHT", "1") == "1"
-EHT_CACHE = os.environ.get("EHT_CACHE", "")  # 조각 전하 캐시 CSV (없으면 매번 직접 계산)
+EHT_CACHE = os.environ.get("EHT_CACHE", "")  # fragment-charge cache CSV (recomputed each time
+#                                             if absent)
 
 T8FORM = os.environ.get("T8FORM", "thr")
 
-TAU_P, TAU_E, LAM, MAX_ITER = 0.05, 0.02, 10.0, 50  # ⑩ CV 확정값
+TAU_P, TAU_E, LAM, MAX_ITER = 0.05, 0.02, 10.0, 50  # ⑩ values fixed by CV
 SP2_EL = {"C", "N", "O", "S", "B", "P", "Se"}
 RCOV = {
     "H": 0.31,
@@ -121,9 +124,9 @@ VTGT = {
     "As": 3,
     "Te": 2,
 }
-LAM_LO = 10.0  # 미달 벌점 (배위 원자에는 안 건다 — M–L 이 흡수)
+LAM_LO = 10.0  # under-valence penalty (not applied to coordinating atoms — M–L absorbs it)
 
-CAP = {  # 고립쌍 용량 — `2·b_int + 2·lp = 8` ⇒ `b_int + b_ML <= 4` (H 는 1)
+CAP = {  # lone-pair capacity — `2·b_int + 2·lp = 8` ⇒ `b_int + b_ML <= 4` (1 for H)
     "H": 1,
     "B": 4,
     "C": 4,
@@ -141,19 +144,21 @@ CAP = {  # 고립쌍 용량 — `2·b_int + 2·lp = 8` ⇒ `b_int + b_ML <= 4` (
     "I": 6,
 }
 
-# ★ `CAPSET` — `CAP` 상한 변형 (2026-09-02 오너 지적, §5.4.1 C-2). 기본은 현행 `octet`.
-#   현재 표는 **원자가 상한이 아니라 옥텟 상한**이다(`2b + 2lp = 8 ⇒ b ≤ 4`) — `lp` 를 0까지
-#   자유롭게 두어 2주기가 전부 4(N 5)가 된다. `CAP(O)=4` 는 O²⁺ 를, `CAP(N)=5` 는 5가 N 을
-#   허용한다. 옥텟과 형식전하를 같이 풀면 옳은 상한은 **`b_max = 8 − v + q`** 다:
+# ★ `CAPSET` — variants of the `CAP` ceiling (owner remark 2026-09-02, [design doc] §5.4.1 C-2).
+#   Default stays at the current `octet`.
+#   The present table is **an octet ceiling, not a valence cap** (`2b + 2lp = 8 ⇒ b ≤ 4`) — with
+#   `lp` free down to 0, every period-2 element lands at 4 (N 5). `CAP(O)=4` allows O²⁺ and
+#   `CAP(N)=5` allows pentavalent N. Solving octet and formal charge together, the correct
+#   ceiling is **`b_max = 8 − v + q`**:
 #       C 4 · N 3(+1 → 4) · O 2(+1 → 3) · F 1(+1 → 2)
-#   `tight` = 양이온까지 허용한 상한 · `mid` = O·N 만 조이고 F 는 둔다.
+#   `tight` = the ceiling with cations allowed · `mid` = tightens only O and N, leaves F alone.
 _CAPSET = os.environ.get("CAPSET", "octet")
 if _CAPSET == "tight":
     CAP = dict(CAP, O=3, N=4, F=2)
 elif _CAPSET == "mid":
     CAP = dict(CAP, O=3, N=4)
 elif _CAPSET != "octet":
-    raise SystemExit(f"CAPSET={_CAPSET!r} 는 octet|mid|tight 중 하나여야 한다")
+    raise SystemExit(f"CAPSET={_CAPSET!r} must be one of octet|mid|tight")
 
 EHT_CUTOFF = -10.0
 _EHT_VE = {
@@ -176,145 +181,189 @@ _EHT_VE = {
 
 RULEA = os.environ.get("RULEA", "ge5")
 if RULEA not in ("ge5", "eq6", "off"):
-    raise SystemExit(f"RULEA={RULEA!r} 는 ge5|eq6|off 중 하나여야 한다")
+    raise SystemExit(f"RULEA={RULEA!r} must be one of ge5|eq6|off")
 
 R2CONJ = os.environ.get("R2CONJ", "1") == "1"
-# 🔴 R3 (2026-09-02, 시험) — R2 는 **헤테로원자에 붙은 결합만** 막는다. 피롤·이미다졸 5원 고리의
-#    `C=C` 는 탄소-탄소라 안 걸려 `Conj` 로 새고, 그게 §8 정답지에서 `Double` 오답 6,171 결합의
-#    정체다(설계도 §8). R3 은 **R2 가 걸린 원자를 포함하는 5원 고리를 통째로** Kekulé 로 둔다.
-#    ⚠️ CSD 가 `Aromatic` 으로 적은 5원 헤테로고리에서는 반대로 오답이 될 수 있다 — 재봐야 안다.
-R3RING = os.environ.get("R3RING", "1") == "1"  # ★ 채택 2026-09-02
-# R3 범위 — all(도너 아무거나) · **N(질소 도너만 · 채택)** · mono(도너 1개 + 나머지 전부 탄소)
-#   실측(CV · CVPOOL 26,075 · §8 채점): Double  all .5586 · N .5297 · mono .4226
-#                                        Sq_L   all .7796 · N .7932 · mono .7914
-#   ⇒ N 이 all 이득의 82% 를 대가의 37% 로 얻는다.
-R3MODE = os.environ.get("R3MODE", "N")  # ★ 채택 범위 = 질소 도너만
-# 🔴 ROP — T3 우도의 **두 번째 차원** (2026-09-02). 거리는 `C–C` 에서 Double↔Conj 를
-#    못 가른다(1차원 최적 임계 F1 0.4473 vs ROP 0.6171 · 표본 1,500 · in-sample 상한).
-#    각도 3종(이면각·결합각·평면이탈)은 자명 기준선과 동일해 분리력 0 이었다.
-# 🔴 R4 (2026-09-02, 시험) — **4n 전탄소 고리(4·8원)** 는 반방향족이라 비편재가 아니다
-#    (COT 는 욕조형 D2d 중성). 우리가 `Conj` 로 내는 오답 1,269 결합이 여기다.
-#    ⚠️ η⁸-COT²⁻ 는 **평면 10π 방향족**이므로 제외해야 한다 ⇒ **비평면일 때만** 건다.
-R4RING = os.environ.get("R4RING", "1") == "1"  # ★ 채택 2026-09-02
-# 🔴 R5 (2026-09-02, 시험) — **결합 1개짜리 `Conj` 조각은 비편재가 아니다.**
-#   `Conj` 는 최소 2결합에 걸쳐야 성립한다. 오답 분해에서 "비고리 고립 이중결합인데 `Conj`"
-#   가 3,411 결합이었다(정답 `Double` 오답의 22%). 강등하면 `_solve_cap` 이 우도·제약으로
-#   정수(S/D/T)를 고른다. 파라미터 0개.
-#   실측(CV · `CVPOOL` · 원본 CSD 정답지): `Double` .6682 → **.6913** · `Conj` .9593 → .9612 ·
-#   유출 10,274 → 8,752 · `Sq_L` .7916 → .7932 · `OS` .8044 → .8054 (전하는 오히려 미세 상승).
-#   ⚠️ **규칙을 `conj_forbidden` **밖**에 두면 CV 경로에 안 걸린다** — `260831_propagation_prior_cv`
-#      는 `predict_T3_EHT` 를 부르지 않고 자체 경로(`conj_lik` -> `solve_cap`)로 돈다.
-#      R5 는 양쪽에 각각 넣었다. 초판은 이 함정으로 **효과 0 이 나왔다.**
-R5SOLO = os.environ.get("R5SOLO", "1") == "1"  # ★ 채택 2026-09-03
-# ★ `QHV` — 초원자가 전하식 일반화 (2026-09-03 · 기본 off · 판정은 `q_atom` 주석 참조)
-QHV = os.environ.get("QHV", "1") == "1"  # ★ 채택 2026-09-03
-# ★ `R6SWAP` — **같은 중심의 동일 원소 결합은 거리 순서와 차수 순서가 같아야 한다** (2026-09-03).
-#   나이트로 `N(=O)=O` · 카복실레이트 `C(=O)O` 처럼 **한 중심에 같은 원소가 2개 이상** 붙은 자리는
-#   지금 각 결합을 **독립으로** 채점한다 ⇒ 더 긴 결합이 `Double`, 더 짧은 것이 `Single` 이 될 수 있다.
-#   판정  교환한다 ⟺ e1=(X,Y1) · e2=(X,Y2) · el[Y1] == el[Y2]
-#                  AND d(e1) < d(e2)  AND  ord(e1) < ord(e2)
-#                  AND 교환 후 Y1·Y2 가 `CAP` 을 안 넘는다
-#   ⚠️ **교환이므로 X 의 원자가도 조각 결합차수 총합도 불변** — ⑤ 의 EHT 전하 목표를 깨뜨리지 않는다.
-#   `Conj`(1.5)는 대상에서 제외한다. 파라미터 0개.
+# 🔴 R3 (2026-09-02, trial) — R2 blocks **only bonds attached to a heteroatom**. The `C=C` of a
+#    pyrrole or imidazole 5-ring is carbon-carbon, so it is not caught and leaks into `Conj`;
+#    that is what the 6,171 `Double` errors against the [design doc] §8 reference labels are.
+#    R3 keeps **the whole 5-ring containing an R2-flagged atom** as Kekule.
+#    ⚠️ For 5-membered heterocycles that CSD records as `Aromatic` this can go the other way and
+#       produce errors — only a measurement will tell.
+R3RING = os.environ.get("R3RING", "1") == "1"  # ★ adopted 2026-09-02
+# R3 scope — all (any donor) · **N (nitrogen donors only · adopted)** · mono (1 donor + all the
+#   rest carbon)
+#   measured (CV · CVPOOL 26,075 · [design doc] §8 scoring):
+#                                        Double  all .5586 · N .5297 · mono .4226
+#                                        Sq_L    all .7796 · N .7932 · mono .7914
+#   ⇒ N buys 82% of all's gain for 37% of its cost.
+R3MODE = os.environ.get("R3MODE", "N")  # ★ adopted scope = nitrogen donors only
+# 🔴 ROP — the **second dimension** of the T3 likelihood (2026-09-02). Distance cannot separate
+#    Double from Conj in `C–C` (best 1-D threshold F1 0.4473 vs ROP 0.6171 · n = 1,500 ·
+#    in-sample upper bound). All three angle variants (dihedral, bond angle, out-of-plane
+#    deviation) matched the trivial baseline, i.e. zero separating power.
+# 🔴 R4 (2026-09-02, trial) — a **4n all-carbon ring (4- or 8-membered)** is antiaromatic and
+#    therefore not delocalized (neutral COT is the tub-shaped D2d form). 1,269 of the bonds we
+#    wrongly call `Conj` are here.
+#    ⚠️ η⁸-COT²⁻ is a **planar 10π aromatic** and must be excluded ⇒ apply only when non-planar.
+R4RING = os.environ.get("R4RING", "1") == "1"  # ★ adopted 2026-09-02
+# 🔴 R5 (2026-09-02, trial) — **a `Conj` fragment of a single bond is not delocalized.**
+#   `Conj` requires at least 2 bonds to hold. In the error breakdown, "acyclic isolated double
+#   bond marked `Conj`" accounted for 3,411 bonds (22% of the errors whose truth is `Double`).
+#   Demoting them lets `_solve_cap` pick an integer (S/D/T) from likelihood and constraints.
+#   0 parameters.
+#   measured (CV · `CVPOOL` · original CSD reference labels): `Double` .6682 → **.6913** ·
+#   `Conj` .9593 → .9612 · leakage 10,274 → 8,752 · `Sq_L` .7916 → .7932 · `OS` .8044 → .8054
+#   (charge even rises slightly).
+#   ⚠️ **Putting the rule **outside** `conj_forbidden` means the CV path never sees it** —
+#      `260831_propagation_prior_cv` does not call `predict_T3_EHT`; it runs its own path
+#      (`conj_lik` -> `solve_cap`). R5 was added to both. The first version fell into this trap
+#      and **measured zero effect.**
+R5SOLO = os.environ.get("R5SOLO", "1") == "1"  # ★ adopted 2026-09-03
+# ★ `QHV` — generalization of the hypervalent charge formula (2026-09-03 · default off · for the
+#   rule see the `q_atom` comment)
+QHV = os.environ.get("QHV", "1") == "1"  # ★ adopted 2026-09-03
+# ★ `R6SWAP` — **for same-element bonds on one center, distance order and bond-order order must
+#   agree** (2026-09-03).
+#   Sites where **two or more atoms of the same element** hang off one center — nitro
+#   `N(=O)=O`, carboxylate `C(=O)O` — are currently scored **independently** per bond ⇒ the
+#   longer bond can come out `Double` and the shorter one `Single`.
+#   rule  swap ⟺ e1=(X,Y1) · e2=(X,Y2) · el[Y1] == el[Y2]
+#               AND d(e1) < d(e2)  AND  ord(e1) < ord(e2)
+#               AND after the swap neither Y1 nor Y2 exceeds `CAP`
+#   ⚠️ **Being a swap, neither X's valence nor the fragment's total bond order changes** — it
+#      does not break the step-⑤ EHT charge target.
+#   `Conj` (1.5) is excluded. 0 parameters.
 R6SWAP = os.environ.get("R6SWAP", "0") == "1"
-# 🔴 `R7RING` — **하프틱 고리 안의 R2 도너를 π 후보로 되돌린다** (2026-09-03 채택 · 배포 기본 on).
-#   판정  추가(M,X) ⟺ X 가 R2 도너(`_LP_DEG`: O·S·Se deg ≥ 2 · N·P deg ≥ 3, deg 는 리간드
-#                     **내부** 이웃 수 · H 포함 · M–L 제외)
-#                  AND X 가 |r| = 5 인 고리 r 에 속함 (r 은 `nx.cycle_basis`)
-#                  AND r 의 **다른 원자** 중 **같은 금속 M** 에 T5 를 통과한 것이 ≥ R7MIN = 2
-#                  AND (M,X) 가 T4 결합이다 (d < d_bond AND w > w_veto)
+# 🔴 `R7RING` — **restore an R2 donor inside a haptic ring as a π candidate** (adopted
+#   2026-09-03 · on by default in the release).
+#   rule  add (M,X) ⟺ X is an R2 donor (`_LP_DEG`: O·S·Se deg ≥ 2 · N·P deg ≥ 3, where deg is
+#                     the number of ligand-**internal** neighbors · H included · M–L excluded)
+#                  AND X belongs to a ring r with |r| = 5 (r from `nx.cycle_basis`)
+#                  AND at least R7MIN = 2 of the **other atoms** of r passed T5 to the **same
+#                      metal M**
+#                  AND (M,X) is a T4 bond (d < d_bond AND w > w_veto)
 #                  AND ∠(M–X–Y) < THETA_HAPTIC = 81.02°
-#                      (Y = X 의 내부 이웃 중 결합 중점이 M 에 가장 가까운 것)
-#   ⇒ **T3 결합차수(4클래스)는 바꾸지 않는다.** T5 의 "X 가 π 조각에 속한다" 조건만 면제한다.
-#   왜: R2·R3 가 5원 고리를 Kekulé 로 만들면 이중결합이 최대 2개라 **원자 1개가 π 후보에서
-#       빠진다**(η⁵ → η⁴). R2 는 원소 규칙이라 피롤형 N 뿐 아니라 **퓨란 O · 싸이오펜 S ·
-#       셀레노펜 Se · 포스폴 P** 에도 같은 실패가 난다.
-#   T3 **뒤** 단계에서만 고치므로 설계도 §3.0 의 DAG 순환이 생기지 않는다. 새 적합 파라미터 0개
-#   (R7MIN 은 정수 격자).
-R7RING = os.environ.get("R7RING", "1") == "1"  # ★ 채택 2026-09-03
-R7MIN = int(os.environ.get("R7MIN", "2"))  # 같은 금속에 T5 를 통과한 같은 고리 원자 수 하한
-# ★ `BMLSKIP3C` — ④ 원자가 상한의 `b_ML` 예산에서 3c2e 참여 원자를 제외한다.
-#   🔴 **기본값 0 (끔). 2026-09-03 측정 후 기각.**
-#   설계도 §3.1 ④ 가 오래 *"3c2e 참여 원자와 B 는 제외"* 라고 적어 놨는데 **코드에는 없었다.**
-#   그래서 구현해 놓고 train 전량 CV 로 A/B 를 쟀더니 **전 클래스에서 같거나 나빴다**:
-#       Single .9893→.9892 · **Double .7157→.7137** · Triple .9814→.9806 · Conj 변화 없음
-#       Σq_L · OS · T6 는 소수 넷째 자리까지 동일 · 원자가 위반 구조 715 → **713** (2건)
-#   ⇒ **`Double` −0.0020 을 주고 위반 2건을 산다.** 기각하고 문서를 코드에 맞췄다.
-#   **왜 손해인가** — "3c2e 는 전자쌍 하나가 중심 3개에 걸치므로 2중심 결합 2개로 세면
-#   제약이 만족 불가능해진다" 는 논거는 **μ-H 에서만 성립하는데, 거기서는 제약이 애초에
-#   놀고 있다**(H 는 내부 결합이 0개라 `CAP(H)` 가 아무 내부 차수도 안 묶는다). 실제로
-#   예산이 묶고 있던 것은 **3c2e 탄소**(내부 이웃 5개 이상인 다리 C)이고, 그 자리에서
-#   예산을 풀면 내부 차수가 올라간다 — 전량 CV 에서 결합 264건(구조 156)이 바뀌었고
-#   그중 **209건이 `Single`→`Double`** 인데 `Double` F1 이 내려갔다(= 대부분 틀린 상향).
-#   ⚠️ 켜고 싶으면 `BMLSKIP3C=1`. 판정은 `pipeline.bridge_tags` · 설계도 §3.0 5c.
-BMLSKIP3C = os.environ.get("BMLSKIP3C", "0") == "1"  # ⛔ 기각 2026-09-03 (측정)
-# ★ T7 (설계도 §3.0 5c) — 다리 원자의 **정상 원자가**. `deg` 가 이 값을 넘으면 3c2e 로 본다.
-#   H 1 · C·Si 4 · B 3. 이 표에 없는 원소는 3c2e 후보가 아니다(= 다리면 `dative`).
+#                      (Y = the internal neighbor of X whose bond midpoint is closest to M)
+#   ⇒ **T3 bond orders (the 4 classes) are not changed.** It only waives T5's condition that
+#     "X belongs to a π fragment".
+#   Why: once R2/R3 make a 5-ring Kekule there are at most 2 double bonds, so **one atom drops
+#       out of the π candidates** (η⁵ → η⁴). R2 is an element rule, so the same failure hits not
+#       only pyrrole-type N but also **furan O · thiophene S · selenophene Se · phosphole P**.
+#   It is fixed only in a stage **after** T3, so no DAG cycle appears in [design doc] §3.0.
+#   0 new fitted parameters (R7MIN is on an integer grid).
+R7RING = os.environ.get("R7RING", "1") == "1"  # ★ adopted 2026-09-03
+# lower bound on the number of same-ring atoms that passed T5 to the same metal
+R7MIN = int(os.environ.get("R7MIN", "2"))
+# ★ `BMLSKIP3C` — exclude atoms taking part in a 3c2e bond from the `b_ML` budget of the ④
+#   valence cap.
+#   🔴 **default 0 (off). Rejected after measurement on 2026-09-03.**
+#   [design doc] §3.1 ④ had long said *"exclude 3c2e-participating atoms and B"*, but **the code
+#   never did.** So it was implemented and A/B-measured by CV over all of train, and it was
+#   **equal or worse in every class**:
+#       Single .9893→.9892 · **Double .7157→.7137** · Triple .9814→.9806 · Conj unchanged
+#       Σq_L · OS · T6 identical to 4 decimals · structures with valence violations 715 → **713**
+#       (2 fewer)
+#   ⇒ **you pay `Double` −0.0020 to buy 2 violations.** Rejected, and the doc was made to match
+#     the code.
+#   **Why it loses** — the argument "a 3c2e bond puts one electron pair across 3 centers, so
+#   counting it as 2 two-center bonds makes the constraint unsatisfiable" **only holds for μ-H,
+#   and there the constraint is idle anyway** (H has 0 internal bonds, so `CAP(H)` binds no
+#   internal order at all). What the budget was actually binding is the **3c2e carbon**
+#   (a bridging C with 5 or more internal neighbors), and releasing the budget there raises the
+#   internal order — over the full CV, 264 bonds (156 structures) changed, **209 of them
+#   `Single`→`Double`**, and `Double` F1 went down (= most of those raises were wrong).
+#   ⚠️ To turn it on, `BMLSKIP3C=1`. The rule is `pipeline.bridge_tags` · [design doc] §3.0 5c.
+BMLSKIP3C = os.environ.get("BMLSKIP3C", "0") == "1"  # ⛔ rejected 2026-09-03 (measured)
+# ★ T7 ([design doc] §3.0 5c) — the **normal valence** of a bridging atom. A `deg` above this
+#   value is taken as 3c2e. H 1 · C·Si 4 · B 3. An element not in this table is not a 3c2e
+#   candidate (= if it bridges, it is `dative`).
 VALENCE_3C = {"H": 1, "C": 4, "Si": 4, "B": 3}
-# ★ `GNEG` — ④ 정확 해의 `g ≤ 0` 탈락을 **조각 전하가 상향을 요구할 때만** 해제 (2026-09-03).
-#   `q_frag = C0 + 2B` 이므로 `q_EHT > q(전부 Single)` 인 조각은 결합차수를 **더 올려야** 한다.
-#   그런데 ④ 는 `score(Double) − score(Single) > 0` 인 결합만 후보로 넣는다 ⇒ 우도가 `Single` 을
-#   선호하면 전하가 요구해도 ④ 에서 못 올리고, 뒤의 ⑤ 가 탐욕으로 아무 데나 올린다.
-#   실측(단계 덤프): 표적 2,913 중 **1,890(64.9%)이 이 필터에 걸려 후보로도 안 올랐다.**
+# ★ `GNEG` — lift the `g ≤ 0` rejection in the ④ exact solution **only when the fragment charge
+#   demands a raise** (2026-09-03).
+#   Since `q_frag = C0 + 2B`, a fragment with `q_EHT > q(all Single)` **must** have its bond
+#   orders raised. But ④ only admits bonds with `score(Double) − score(Single) > 0` ⇒ when the
+#   likelihood prefers `Single`, ④ cannot raise it even though the charge demands it, and the
+#   later ⑤ greedily raises something arbitrary instead.
+#   measured (stage dump): of 2,913 targets, **1,890 (64.9%) were caught by this filter and never
+#   even became candidates.**
 GNEG = os.environ.get("GNEG", "0") == "1"
-# ★ `EHTMINFRAG` — ⑤ EHT 조각 전하 목표를 **원자 수가 이 값 미만인 조각에는 적용하지 않는다**
-#   (2026-09-03 · 기본 0 = 현행, 전 조각에 적용).
-#   근거(실측 · 표적 2,916 · 정답 배정 대비): 조각 크기별 EHT 목표 오류율이
-#     **2원자 99% (496/502)** · 3~9원자 39% · 10원자 이상 29% 이고,
-#   2원자 조각 표적의 **고침률이 0.0%** 다. 2원자 조각 = 나이트로실 `M–N=O` · `N₂` 류이고
-#   실물(`GOFYOQ`·`MENKAR`)에서 **우도도 ④ 상한 해도 `Double` 을 맞히는데 ⑤ 만 `Single` 로 내린다**
-#   (EHT 목표 −3, 정답 조각 전하 −1). 오차는 92%가 −2 로 계통적이다.
-#   ⚠️ 적합 임계가 아니라 **구조 게이트**다 — 새 파라미터를 적합하지 않는다.
+# ★ `EHTMINFRAG` — **do not apply the ⑤ EHT fragment-charge target to fragments with fewer atoms
+#   than this value** (2026-09-03 · default 0 = current behavior, applied to every fragment).
+#   Evidence (measured · 2,916 targets · against the reference assignment): the EHT target error
+#   rate by fragment size is **99% for 2 atoms (496/502)** · 39% for 3-9 atoms · 29% for 10+,
+#   and the **fix rate on 2-atom fragment targets is 0.0%**. 2-atom fragments are nitrosyl
+#   `M–N=O` and `N₂`-type, and in real cases (`GOFYOQ`, `MENKAR`) **both the likelihood and the
+#   ④ cap solution get `Double` right and only ⑤ pushes it down to `Single`** (EHT target −3,
+#   reference fragment charge −1). The error is systematic: 92% of it is −2.
+#   ⚠️ This is a **structural gate, not a fitted threshold** — no new parameter is fitted.
 EHTMINFRAG = int(os.environ.get("EHTMINFRAG", "0"))
-# ★ `EHTSKIP` — ⑤ EHT 조각 전하 목표를 **이 조성의 조각에만** 적용하지 않는다 (2026-09-03).
-#   조성 키 = 조각 원소를 정렬해 이어붙인 문자열(`NO` · `SS` · `CCHH`). 쉼표로 구분.
-#   왜 크기(`EHTMINFRAG`)가 아니라 조성인가 — 실측(정답 배정 기준 · train · **표적으로
-#   조건화하지 않은 전 조각**):
-#       `CO`  22,298 조각 → 오류  1.7%   ← 2원자인데 거의 안 틀린다
-#       `NO`     493 조각 → 오류 99.8%   (오차 −2 가 489/492)
-#       `SS`     118 조각 → 오류 94.9%   (오차 +2 가 112/112)
-#       `CCHH`   142 조각 → 오류 66.9%   (오차 +2 가 91/95)
-#   ⇒ 2원자 조각 전체를 끄면(`EHTMINFRAG=3`) `CO` 22,298 까지 끈다 — CV 에서 실제로 손해였다
-#     (`Double` .6913 → .6861 · `Σq_L` .7932 → .7908). 조성으로 좁힌다.
-#   ⚠️ 적합 파라미터가 아니라 **측정으로 고른 조성 목록**이다. 오차가 조성마다 한 방향으로
-#      고정이므로 "목표를 상수만큼 보정" 하는 대안도 있으나 그건 조성당 상수 1개가 늘어난다.
-EHTSKIP = {v for v in os.environ.get("EHTSKIP", "NO,SS,CCHH").split(",") if v}  # ★ 채택 2026-09-03
-# ★ `LPCOND` — 4클래스 우도의 **사전확률을 끝점 내부차수로 조건화한다** (2026-09-03).
-#   `lp[c] = ln P(c | 원소쌍)`  →  `ln P(c | 원소쌍, (deg_x, deg_y))`. `med`·`scl` 은 안 건드린다.
-#   셀 표본이 `LPCOND_NMIN` 미만이면 **원소쌍 전역으로 폴백**한다. 차수는 T1(내부 결합,
-#   CV F1 1.0000)에서 나오므로 정답지 누출이 아니다.
-#   왜 — `Double`→`Single` 오답의 마진은 거리항 +0.79 를 사전확률 −1.13 이 상쇄한 것이었다.
-#   `C–O` 전역은 `Single .417 / Double .111` 인데 셀 `deg(C)=3, deg(O)=1`(카보닐)에서는
-#   `.344 / .322` 로 벌점이 사라진다.
-#   ⚠️ `LPCOND_NOCONJ` — `Conj`(클래스 3)만 전역 사전확률로 되돌린다. 조건화를 전 클래스에
-#      걸면 `C–C` deg3–deg3 셀의 `P(Conj) = .908` 때문에 **`Double`→`Conj` 유출이 +505** 였다
-#      (CV 실측 8,752 → 9,257). `Conj` 를 빼면 오히려 **8,549** 로 준다.
-LPCOND = os.environ.get("LPCOND", "1") == "1"  # ★ 채택 2026-09-03
-LPCOND_NOCONJ = os.environ.get("LPCOND_NOCONJ", "1") == "1"  # ★ 채택 2026-09-03
+# ★ `EHTSKIP` — do not apply the ⑤ EHT fragment-charge target **only to fragments of these
+#   compositions** (2026-09-03).
+#   composition key = the fragment's elements sorted and concatenated (`NO` · `SS` · `CCHH`).
+#   Comma-separated.
+#   Why composition rather than size (`EHTMINFRAG`) — measured (against the reference assignment ·
+#   train · **all fragments, not conditioned on being a target**):
+#       `CO`  22,298 fragments → error  1.7%   ← 2 atoms, yet almost never wrong
+#       `NO`     493 fragments → error 99.8%   (error −2 in 489/492)
+#       `SS`     118 fragments → error 94.9%   (error +2 in 112/112)
+#       `CCHH`   142 fragments → error 66.9%   (error +2 in 91/95)
+#   ⇒ turning off every 2-atom fragment (`EHTMINFRAG=3`) would also turn off the 22,298 `CO` —
+#     and that lost in CV (`Double` .6913 → .6861 · `Σq_L` .7932 → .7908). So narrow it by
+#     composition instead.
+#   ⚠️ This is **a list of compositions chosen by measurement, not a fitted parameter**. Since
+#      the error is fixed in one direction per composition, "correct the target by a constant"
+#      is an alternative, but that adds one constant per composition.
+# ★ adopted 2026-09-03
+EHTSKIP = {v for v in os.environ.get("EHTSKIP", "NO,SS,CCHH").split(",") if v}
+# ★ `LPCOND` — **condition the prior of the 4-class likelihood on the endpoint internal degrees**
+#   (2026-09-03).
+#   `lp[c] = ln P(c | element pair)`  →  `ln P(c | element pair, (deg_x, deg_y))`. `med` and
+#   `scl` are untouched. If a cell has fewer than `LPCOND_NMIN` samples it **falls back to the
+#   element-pair global**. The degrees come from T1 (internal bonds, CV F1 1.0000), so this is
+#   not reference-label leakage.
+#   Why — the margin of a `Double`→`Single` error was a distance term of +0.79 cancelled by a
+#   prior of −1.13. Globally `C–O` is `Single .417 / Double .111`, but in the cell
+#   `deg(C)=3, deg(O)=1` (carbonyl) it is `.344 / .322` and the penalty disappears.
+#   ⚠️ `LPCOND_NOCONJ` — return only `Conj` (class 3) to the global prior. Conditioning every
+#      class makes `P(Conj) = .908` in the `C–C` deg3-deg3 cell drive **`Double`→`Conj` leakage
+#      up by +505** (CV measured 8,752 → 9,257). Excluding `Conj` instead brings it down to
+#      **8,549**.
+LPCOND = os.environ.get("LPCOND", "1") == "1"  # ★ adopted 2026-09-03
+LPCOND_NOCONJ = os.environ.get("LPCOND_NOCONJ", "1") == "1"  # ★ adopted 2026-09-03
 LPCOND_NMIN = int(os.environ.get("LPCOND_NMIN", "300"))
-# 사전확률 온도 — `score = 거리항 + LPA·ln P(c)`. 1.0 = 현행 · 0.0 = `D_flat`(기각).
+# prior temperature — `score = distance term + LPA·ln P(c)`. 1.0 = current · 0.0 = `D_flat`
+# (rejected).
 LPA = float(os.environ.get("LPA", "1.0"))
-# 🔴 `EHTCOST` — EHT 조각 전하 목표를 **절대명령으로 다루지 않는다** (2026-09-03).
-#   실측: EHT 목표가 정답 배정과 어긋나는 조각이 **5.8%(5,434)** 이고, 그 조각의 결합 오답률이
-#   **8.6% vs 3.2%**(2.7배) · **59.7%가 오답 보유**(맞은 조각 11.0%). 초과 오답 ≈ **6,500 결합**.
-#   `AFOKAH` 은 목표(−2, 정답은 0)를 맞추려 1.295 A `C=N` 포함 **6개**를 바꿨다.
-#   ⇒ 목표를 맞추는 **우도 비용**이 임계를 넘으면 그 조각은 목표를 포기하고 되돌린다.
-#   −1 = 무제한(옛 동작).
+# 🔴 `EHTCOST` — **do not treat the EHT fragment-charge target as an absolute command**
+#   (2026-09-03).
+#   measured: **5.8% (5,434)** of fragments have an EHT target that disagrees with the reference
+#   assignment, and those fragments have a bond error rate of **8.6% vs 3.2%** (2.7x) and
+#   **59.7% carry at least one error** (11.0% for agreeing fragments). Excess errors ≈ **6,500
+#   bonds**. To hit its target (−2, truth 0), `AFOKAH` changed **6** bonds including a 1.295 A
+#   `C=N`.
+#   ⇒ if the **likelihood cost** of meeting the target exceeds the threshold, that fragment gives
+#     up the target and reverts. −1 = unlimited (old behavior).
 EHTCOST = float(os.environ.get("EHTCOST", "-1"))
-# 🔴 `LNORM=1` — Laplace 로그사후확률의 **정규화항 `−log(2·scl)`** 을 넣는다 (2026-09-03).
-#   지금 식은 그 항이 빠져 있어 **산포가 좁은 클래스가 보상을 못 받는다.** `C=O`(결합길이
-#   분포가 좁다)가 그 수혜자다. 파라미터 0개 · 통계적으로 옳은 형태.
-#   ⚠️ 방향이 과제마다 반대일 수 있다 — `Conj` 도 scl 이 좁아(`C–C` 0.0089) 같이 유리해진다.
-#   실측(2026-09-03): 전량 적용은 **쌍마다 방향이 반대**다 — `C=O`→`Single` 오답 851→625
-#   (−26.6%)로 노린 것은 되는데 `Conj` 과잉이 `C–C` +352 · `C–N` +285 · `C–O` +203 늘어
-#   순효과 +783 악화. `Conj` 의 좁은 `scl` 은 실제 결합길이 분포가 아니라 **방향족 고리
-#   길이가 균일해서 생긴 인공물**이라 Laplace 보상을 주는 것이 애초에 틀렸다.
-#   ⇒ `LNORM=2` — 정규화항을 **S/D/T 에만** 적용하고 `Conj` 는 뺀다.
+# 🔴 `LNORM=1` — include the **normalization term `−log(2·scl)`** of the Laplace log posterior
+#   (2026-09-03).
+#   The current formula omits that term, so **a class with narrow spread gets no reward.** `C=O`
+#   (whose bond-length distribution is narrow) is the beneficiary. 0 parameters · the
+#   statistically correct form.
+#   ⚠️ The direction can be opposite per task — `Conj` also has a narrow scl (`C–C` 0.0089) and
+#      gains just as much.
+#   measured (2026-09-03): applied everywhere, **the direction flips pair by pair** — the intended
+#   effect works (`C=O`→`Single` errors 851→625, −26.6%) but `Conj` over-calling grows by
+#   `C–C` +352 · `C–N` +285 · `C–O` +203, a net worsening of +783. `Conj`'s narrow `scl` is not a
+#   real bond-length distribution but **an artifact of aromatic ring lengths being uniform**, so
+#   rewarding it through Laplace was wrong to begin with.
+#   ⇒ `LNORM=2` — apply the normalization term **to S/D/T only** and exclude `Conj`.
 LNORM = os.environ.get("LNORM", "0")
 LNORM_ON = LNORM in ("1", "2")
 LNORM_SKIP_CONJ = LNORM == "2"
-# ⛔ 미채택 — R3+R4 위에서 이득이 폴드 분산 안이다(Double +0.0014 · x2m판 +0.0018).
-#   단독으로는 +0.059 지만 R3·R4 와 **같은 오답을 노린다**. 파라미터 1개를 더 쓸 근거가 없다.
+# ⛔ not adopted — on top of R3+R4 the gain is within fold variance (Double +0.0014 · x2m variant
+#   +0.0018). Alone it is +0.059, but it **targets the same errors as R3 and R4**. There is no
+#   case for spending one more parameter.
 USE_ROP = os.environ.get("USE_ROP", "0") == "1"
 ROPW = float(os.environ.get("ROPW", "1.0"))
 _LP_DEG = {"O": 2, "S": 2, "Se": 2, "N": 3, "P": 3}
@@ -372,6 +421,6 @@ ROMAN = {"0": 0, "i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, 
 R = r"(?:0|i{1,3}|iv|vi{0,3})"
 PAT, PATM = re.compile(rf"([a-z]+)\(({R})\)"), re.compile(rf"([a-z]+)\(({R}(?:,{R})+)\)")
 
-# ★ T5 — haptic 판정 각도 임계 (전역 1개 · 설계도 §3 4a).
-#   원래 이 상수는 채점 스크립트(`260831_propagation_prior_cv.py`)에 있었다.
+# ★ T5 — angle threshold for the haptic decision (1 global value · [design doc] §3 4a).
+#   This constant originally lived in the scoring script (`260831_propagation_prior_cv.py`).
 THETA_HAPTIC = 81.02

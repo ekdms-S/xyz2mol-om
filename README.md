@@ -1,24 +1,24 @@
 # xyz2mol-om
 
-**전이금속 착물의 `xyz` 좌표에서 결합 · 결합차수 · 리간드 전하 · 금속 산화수를 낸다.**
-유기금속(organometallic)까지 다루도록 만든 것이라 이름이 `-om` 이다.
+**From the `xyz` coordinates of a transition metal complex, derive bonds, bond orders, ligand charges, and metal oxidation states.**
+It is built to handle organometallics as well, hence the `-om` in the name.
 
-## 의존성
+## Dependencies
 
-| 패키지 | 버전 | 쓰는 곳 |
+| Package | Version | Used for |
 |---|---|---|
-| `numpy` | ≥ 1.23 | 좌표·거리 |
-| `networkx` | ≥ 3.0 | 그래프·고리·연결 성분 |
-| `rdkit` | ≥ 2023.3 | SMILES · EHT 조각 전하(`rdEHTTools`) |
-| (선택) `pytest`·`ruff` | — | 테스트·린트 |
+| `numpy` | ≥ 1.23 | coordinates, distances |
+| `networkx` | ≥ 3.0 | graphs, rings, connected components |
+| `rdkit` | ≥ 2023.3 | SMILES · EHT fragment charge (`rdEHTTools`) |
+| (optional) `pytest`·`ruff` | — | tests, lint |
 
-Python ≥ 3.10. 검증 환경은 Python 3.13.5 · rdkit 2025.09.6 · numpy 2.1.3 · networkx 3.4.2.
+Python ≥ 3.10. Validated on Python 3.13.5 · rdkit 2025.09.6 · numpy 2.1.3 · networkx 3.4.2.
 
 ```bash
-conda install -c conda-forge rdkit numpy networkx    # 또는 pip install rdkit numpy networkx
+conda install -c conda-forge rdkit numpy networkx    # or pip install rdkit numpy networkx
 ```
 
-## 쓰는 법
+## Usage
 
 ```bash
 PYTHONPATH=<repo>/src python your_script.py
@@ -30,17 +30,17 @@ from xyz2mol_om import predict
 r = predict(elements, coords, total_charge=-1, wbo=wbo)
 ```
 
-| 인자 | 설명 |
+| Argument | Description |
 |---|---|
-| `elements` | 원소 기호 리스트 |
-| `coords` | `(n, 3)` 좌표 (Å) |
-| `total_charge` | 착물 총전하. 없으면 산화수·착물 SMILES 를 안 낸다 |
-| `wbo` | `{(금속 idx, 원자 idx): Mayer 결합차수}` — xtb GFN2 `--sp --wbo` 산출물 |
+| `elements` | list of element symbols |
+| `coords` | `(n, 3)` coordinates (Å) |
+| `total_charge` | total charge of the complex. Without it, oxidation states and the complex SMILES are not produced |
+| `wbo` | `{(metal idx, atom idx): Mayer bond order}` — output of xtb GFN2 `--sp --wbo` |
 
-⚠️ **`wbo=None` 으로 돌려도 된다** — M–L 판정이 거리 기반 폴백으로 떨어지고 **성능이 소폭
-감소**한다(M–L `Double` F1 0.73 → 0.70 · 결합 유무 F1 0.973 → 0.964 · 내부 결합은 거의 불변).
+⚠️ **You may run with `wbo=None`** — the M–L decision falls back to distances and **performance
+drops slightly** (M–L `Double` F1 0.73 → 0.70 · bond existence F1 0.973 → 0.964 · internal bonds nearly unchanged).
 
-## 출력
+## Output
 
 ```python
 r["metals"]  == [{"index": 0, "element": "Mo", "oxidation": 6, "mm_bonds": {}}]
@@ -52,105 +52,105 @@ r["ligands"] == [
    "smiles": "[N-3:1]", "smiles_ok": True, "smiles_note": "",
    "coordinating": [1],
    "ml_bonds": {(0, 1): {"type": "sigma",   # sigma | haptic | bridge
-                         "order": 3,        # haptic 이면 None
-                         "bridge": None}},  # 다리면 "3c2e" | "dative"
-   "eta": {},                  # {금속: k}
-   "charge": -3,               # 리간드 전하 q_L
-   "residual_charge": None},   # 골격으로 표현 안 되는 잔여 전하
+                         "order": 3,        # None if haptic
+                         "bridge": None}},  # if bridging, "3c2e" | "dative"
+   "eta": {},                  # {metal: k}
+   "charge": -3,               # ligand charge q_L
+   "residual_charge": None},   # residual charge not expressible by the skeleton
   … ]
 
 r["complex_smiles"] == "[H][O-]->[Mo+6](<-[N-3])(<-[Cl-])(<-[Cl-])<-[Cl-]"
 ```
 
-### SMILES 형식
+### SMILES format
 
-| | 규약 |
+| | Convention |
 |---|---|
-| 리간드 SMILES | 배위 원자에 원자 맵 `[X:n]` · 우리 차수·전하를 그대로 고정한다 |
-| 착물 SMILES | M–L 은 **전부 dative 화살표**(`->`) · 금속 형식전하 = **산화수** |
-| 차수 | 착물 SMILES 에서는 뭉갠다 — 실제 값은 `ml_bonds[(m,x)]["order"]` |
-| 검증 | `smiles_ok` = 왕복 검증(차수·전하·H·다중집합) 통과 여부 · 실패 사유는 `smiles_note` |
+| Ligand SMILES | atom map `[X:n]` on the coordinating atoms · our orders and charges are pinned as they are |
+| Complex SMILES | M–L are **all dative arrows** (`->`) · metal formal charge = **oxidation state** |
+| Order | collapsed in the complex SMILES — the real value is `ml_bonds[(m,x)]["order"]` |
+| Validation | `smiles_ok` = whether the round-trip check (order · charge · H · multiset) passed · the reason for failure is in `smiles_note` |
 
-### 착물 되조립
+### Complex reassembly
 
 ```python
 from xyz2mol_om import predict, assemble_complex
 
-mol, atom_map = assemble_complex(r)              # atom_map: {입력 인덱스 -> mol 인덱스}
-mol, _ = assemble_complex(r, ml_dative=False)    # M–L 을 정수 차수로 (하프틱은 dative)
+mol, atom_map = assemble_complex(r)              # atom_map: {input index -> mol index}
+mol, _ = assemble_complex(r, ml_dative=False)    # M–L as integer orders (haptic stays dative)
 ```
 
-리간드 단위로 직접 조립할 때 — 금속(형식전하 = `oxidation`) + 리간드 SMILES + `ml_bonds` +
-`mm_bonds` 를 잇는다. 원자 대응은 이 한 줄이다:
+To assemble ligand by ligand yourself — join the metal (formal charge = `oxidation`) + ligand SMILES +
+`ml_bonds` + `mm_bonds`. The atom correspondence is this one line:
 
 ```python
 input_idx = sorted(lg["coordinating"])[at.GetAtomMapNum() - 1]
 ```
 
-⚠️ 리간드 SMILES 의 맵 `[X:n]` 은 **입력 인덱스가 아니라** `coordinating` 정렬 목록의 n 번째다.
-⚠️ 암묵적 수소를 안 쓴다 — `sanitize=False` 로 읽고 KEKULIZE·SETAROMATICITY 를 빼고 sanitize 한다.
-⚠️ `complex_smiles` 는 M–L 차수를 뭉갠다(실제 값은 `ml_bonds[…]["order"]`). 원자 대응은 `complex_atom_order`.
+⚠️ The map `[X:n]` in a ligand SMILES is **not the input index** — it is the n-th entry of the sorted `coordinating` list.
+⚠️ Implicit hydrogens are not used — read with `sanitize=False` and sanitize with KEKULIZE and SETAROMATICITY removed.
+⚠️ `complex_smiles` collapses the M–L orders (the real value is in `ml_bonds[…]["order"]`). Atom correspondence: `complex_atom_order`.
 
-## 예시 — `examples/`
+## Examples — `examples/`
 
-실물 CSD 구조 5종. 각 예시는 네 벌이다 — `<이름>.xyz`(좌표) · `<이름>.wbo.json`(총전하 +
-Mayer 결합차수) · `<이름>.result.json`(**파이프라인 출력 전량**) · `<이름>.png`(Kekulé 2D 그래프).
+Five real CSD structures. Each example comes as four files — `<name>.xyz` (coordinates) · `<name>.wbo.json`
+(total charge + Mayer bond orders) · `<name>.result.json` (**the full pipeline output**) · `<name>.png` (Kekulé 2D graph).
 
 ```bash
-python examples/run_examples.py            # 5종을 돌려 <이름>.result.json 을 다시 쓴다
-python examples/run_examples.py 02         # 이름에 "02" 가 든 것만
-python examples/run_examples.py --no-wbo   # wbo 없이 (거리 폴백)
-python examples/draw_examples.py           # PNG 다시 그리기
+python examples/run_examples.py            # runs all 5 and rewrites <name>.result.json
+python examples/run_examples.py 02         # only those with "02" in the name
+python examples/run_examples.py --no-wbo   # without wbo (distance fallback)
+python examples/draw_examples.py           # redraw the PNGs
 ```
 
-| # | 파일 | 실물 | 보여주는 것 | 출력 | 그림 |
+| # | File | Real system | What it shows | Output | Figure |
 |---|---|---|---|---|---|
-| ① | `01_dative_os_carbonyl` | `fac-[Os(CO)₃Cl₃]⁻` | σ-dative 만 · 내부 `C≡O` | [json](examples/01_dative_os_carbonyl.result.json) | [png](examples/01_dative_os_carbonyl.png) |
-| ② | `02_haptic_cp_ticl3` | `CpTiCl₃` | η⁵ 하프틱 | [json](examples/02_haptic_cp_ticl3.result.json) | [png](examples/02_haptic_cp_ticl3.png) |
-| ③ | `03_bridge_ag2cl4` | `[Ag₂Cl₄]²⁻` | μ-Cl 다리(`bridge:dative`) · 금속 2개 | [json](examples/03_bridge_ag2cl4.result.json) | [png](examples/03_bridge_ag2cl4.png) |
-| ④ | `04_3c2e_gallium_bh4` | `Me₂Ga(BH₄)` | 3c2e 다리 H · `B` 가 리간드 원자 | [json](examples/04_3c2e_gallium_bh4.result.json) | [png](examples/04_3c2e_gallium_bh4.png) |
-| ⑤ | `05_mm_quadruple_re2cl8` | `[Re₂Cl₈]²⁻` | M–M 결합 | [json](examples/05_mm_quadruple_re2cl8.result.json) | [png](examples/05_mm_quadruple_re2cl8.png) |
+| ① | `01_dative_os_carbonyl` | `fac-[Os(CO)₃Cl₃]⁻` | σ-dative only · internal `C≡O` | [json](examples/01_dative_os_carbonyl.result.json) | [png](examples/01_dative_os_carbonyl.png) |
+| ② | `02_haptic_cp_ticl3` | `CpTiCl₃` | η⁵ haptic | [json](examples/02_haptic_cp_ticl3.result.json) | [png](examples/02_haptic_cp_ticl3.png) |
+| ③ | `03_bridge_ag2cl4` | `[Ag₂Cl₄]²⁻` | μ-Cl bridge (`bridge:dative`) · two metals | [json](examples/03_bridge_ag2cl4.result.json) | [png](examples/03_bridge_ag2cl4.png) |
+| ④ | `04_3c2e_gallium_bh4` | `Me₂Ga(BH₄)` | 3c2e bridging H · `B` as a ligand atom | [json](examples/04_3c2e_gallium_bh4.result.json) | [png](examples/04_3c2e_gallium_bh4.png) |
+| ⑤ | `05_mm_quadruple_re2cl8` | `[Re₂Cl₈]²⁻` | M–M bond | [json](examples/05_mm_quadruple_re2cl8.result.json) | [png](examples/05_mm_quadruple_re2cl8.png) |
 
-결과를 직접 저장하려면 `save_json(r, path)` · 읽으려면 `load_json(path)` 를 쓴다
-(결합 키 `(i, j)` 를 `"i,j"` 로 바꿔 담고 읽을 때 되돌린다).
+To save a result yourself use `save_json(r, path)`, and to read it back `load_json(path)`
+(bond keys `(i, j)` are stored as `"i,j"` and converted back on read).
 
-## 성능
+## Performance
 
-holdout **6,456 구조**(적합에 안 쓴 분) · 정답지 CSD `bond_type` + tmQMg-L `q_ligand`.
+holdout **6,456 structures** (not used in the fit) · reference labels: CSD `bond_type` + tmQMg-L `q_ligand`.
 
-| 과제 | 지표 | 값 | 자명 기준선 |
+| Task | Metric | Value | Trivial baseline |
 |---|---|---|---|
-| T1 리간드 내부 결합 유무 | F1 | **0.9998** | 전부 결합 .7306 |
-| T2 공액 판정 | F1 | **0.9583** | — |
-| T3 내부 차수 `Single`/`Double`/`Triple`/`Conj` | F1 | **.9894 / .7187 / .9826 / .9583** | 전부 `Single` .9097 / 0 / 0 |
-| T4 M–L·M–M 결합 유무 | F1 | **0.9904** | 전부 결합 .5276 |
-| T5 하프틱 판정 | F1 | **0.9768** | 전부 haptic .6766 |
-| T6 η^k (리간드 정확 일치) | 정확도 | **0.9858** | 전부 `k=0` .8704 |
-| T8 M–L 차수 `Single`/`Double`/`Triple` | F1 | **.9931 / .7398 / .6336** | — |
-| T10 리간드 전하 `Σq_L` (구조 정확 일치) | 정확도 | **0.8338** | 상한 83.4% |
-| T10 금속 산화수 `OS` (구조 정확 일치) | 정확도 | **0.8464** | 상한 85.6% |
+| T1 ligand internal bond existence | F1 | **0.9998** | all bonded .7306 |
+| T2 conjugation call | F1 | **0.9583** | — |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9894 / .7187 / .9826 / .9583** | all `Single` .9097 / 0 / 0 |
+| T4 M–L·M–M bond existence | F1 | **0.9904** | all bonded .5276 |
+| T5 haptic call | F1 | **0.9768** | all haptic .6766 |
+| T6 η^k (exact match per ligand) | accuracy | **0.9858** | all `k=0` .8704 |
+| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9931 / .7398 / .6336** | — |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8338** | ceiling 83.4% |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8464** | ceiling 85.6% |
 
-### 원자가 위반 — 출력의 화학적 유효성
+### Valence violations — chemical validity of the output
 
-| 평가 | 풀 | 위반 구조 | 정답지 기준선 (같은 셈) |
+| Evaluation | Pool | Violating structures | Reference-label baseline (same count) |
 |---|---|---|---|
-| holdout | 6,456 구조 | **164 = 2.54%** | 44 = 0.68% |
-| train CV | 26,075 구조 | **707 = 2.71%** | 103 = 0.40% |
+| holdout | 6,456 structures | **164 = 2.54%** | 44 = 0.68% |
+| train CV | 26,075 structures | **707 = 2.71%** | 103 = 0.40% |
 
-## ⚠️ 한계
+## ⚠️ Limits
 
-- **라디칼을 지원하지 않는다** — 홀전자를 적을 수단이 없어 **오류 없이** 가장 가까운 닫힌 껍질 답이 나간다.
-- **M–M 차수를 안 낸다** — 결합 유무만 내고 차수는 `1` 로 둔다(예시 ⑤ 의 `[Re₂Cl₈]²⁻` 는 실제로 사중결합이다).
-- **3c2e·클러스터**는 2중심 형식 밖이다 — 다리 H 가 있는 리간드는 SMILES 왕복 검증을 **일부러 거부**하고, 카보란 케이지의 조각 전하는 EHT 값을 쓴다.
+- **Radicals are not supported** — there is no way to write an unpaired electron, so the nearest closed-shell answer comes out **without an error**.
+- **M–M orders are not produced** — only bond existence is given and the order is left at `1` (the `[Re₂Cl₈]²⁻` of example ⑤ is in fact a quadruple bond).
+- **3c2e and clusters** are outside the two-center formalism — a ligand with a bridging H is **deliberately** rejected by the SMILES round-trip check, and the fragment charge of a carborane cage uses the EHT value.
 
-판정 규칙·유도·측정 이력은 라이브러리 밖이다 —
-`ognm-bh-workspace/docs/backlog/tm-bond-remaining.md`(설계도) ·
-`docs/analysis/2026-09-03-t3-tuning-history.md`(채택 이력) · 이 저장소의 `docs/PIPELINE.md`.
+The decision rules, their derivation, and the measurement history live outside the library —
+`ognm-bh-workspace/docs/backlog/tm-bond-remaining.md` (design) ·
+`docs/analysis/2026-09-03-t3-tuning-history.md` (adoption history) · `docs/PIPELINE.md` in this repository.
 
-## 라이선스 · 출처
+## License · Provenance
 
 **MIT** ([LICENSE](LICENSE)).
 
-적합에 쓴 정답지는 CSD(Cambridge Structural Database) 결합 라벨과 tmQMg-L 리간드 전하다.
-**원본 데이터는 이 저장소에 없다** — 실린 것은 적합 결과(임계값 · 우도 파라미터)와
-`examples/` 의 CSD 유래 구조 5종뿐이다.
+The reference labels used for the fit are CSD (Cambridge Structural Database) bond labels and tmQMg-L ligand charges.
+**The source data is not in this repository** — what ships here is the fit result (thresholds · likelihood parameters)
+and the five CSD-derived structures in `examples/`.
