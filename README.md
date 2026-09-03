@@ -151,31 +151,30 @@ atoms excluded).
 (hypervalency, ionic/covalent boundary cases). Read our numbers against that baseline, not
 against zero.
 
-Tool comparison (holdout), split into three pools — **a tool's numbers are only shown in a
-pool where its success is guaranteed for every structure in it**, so that every row is a true
-same-pool comparison:
+Tool comparison (holdout), split into three pools — a tool appears in a pool only where its
+success is guaranteed for every structure in it, so each row is a true same-pool comparison:
 
 ```
-HOLDOUT   full holdout, 6,456 structures.                  ours only — no other tool succeeds
-                                                             on all of it, so none is shown here.
-TOOL      HOLDOUT restricted to structures where            all 4 tools, evaluated on the same
-          xyz2mol · xyz2mol_tm · OpenBabel ALL succeeded     4,930 structures.
-          — 4,930.
-X2M_TM    HOLDOUT restricted to structures where             ours vs xyz2mol_tm only — xyz2mol's
-          xyz2mol_tm succeeded — 5,479.                     and OpenBabel's success is not
-                                                             guaranteed on this pool, so they are
-                                                             not shown here.
+HOLDOUT   full holdout, 6,456              ours only — no other tool succeeds on all of it
+TOOL      all 3 external tools succeeded — 4,930   all 4 tools, same 4,930 structures
+X2M_TM    xyz2mol_tm succeeded — 5,479     ours vs xyz2mol_tm only
 ```
 
-⚠️ `TOOL` is not "full holdout" — evaluating each tool on the full 6,456 with its own failures
-counted as wrong (as done elsewhere in this repo's design doc, §5.2-H) uses a *different*
-denominator per tool and is not a same-pool comparison. This table only puts tools side by
-side where their shared denominator is real.
+**How `b_ML` is read — only as far as each tool's output allows:**
 
-Two metric columns for the same reason — a tool that cannot produce M–L order would otherwise
-look artificially good on the full metric:
+| Tool | What it emits for M–L | How we count it |
+|---|---|---|
+| **xyz2mol-om** | `type` (haptic/dative/bridge) **+** `order` | haptic excluded from the budget — the output says it carries no order |
+| OpenBabel | integer order, no type | its order, as emitted |
+| xyz2mol_tm | connectivity only — no type, no order | dative (=1) each, the only reading available to a consumer |
+| xyz2mol | no M–L at all | — |
 
-| Pool · n | Tool | Violating atoms (`b_int` only) | Violating structures (`b_int` only) | Violating atoms (`b_int`+`b_ML`) | Violating structures (`b_int`+`b_ML`) |
+Counting a dative bond as +1 is correct under this project's convention (`b_ML(X) ≤ lp(X)` — a
+dative bond really does consume the donor's lone pair). It breaks in exactly one place: haptic
+sites, where η⁵-Cp is one π-system donation rather than five lone-pair donations, so the same
+electrons get counted twice.
+
+| Pool · n | Tool | Viol. atoms (`b_int`) | Viol. structures (`b_int`) | Viol. atoms (`b_int`+`b_ML`) | Viol. structures (`b_int`+`b_ML`) |
 |---|---|---|---|---|---|
 | **HOLDOUT** 6,456 | **xyz2mol-om (this)** | **0.01%** | **0.36%** | **0.09%** | **3.55%** |
 | **TOOL** 4,930 | **xyz2mol-om (this)** | **0.01%** | **0.43%** | **0.10%** | **3.98%** |
@@ -186,19 +185,33 @@ look artificially good on the full metric:
 | | xyz2mol_tm | 0.17% | 4.87% | 4.74% | 43.49% |
 
 The `b_int`-only columns are the fair comparison — every tool shown can produce that, on the
-same pool. We are lowest on both, in `TOOL` and `X2M_TM` alike.
+same pool. We are lowest on both, in all three pools.
 
-`xyz2mol_tm`'s `b_int+b_ML` rate does not improve when narrowed from `TOOL` (43.79%) to
-`X2M_TM` (43.49%, a superset that additionally requires xyz2mol/OpenBabel to have succeeded
-dropped) — succeeding at producing connectivity is not the same as succeeding at getting the
-order right, and that gap does not shrink on `xyz2mol_tm`'s own success cases. The number
-itself is largely an artifact of not producing M–L *order* at all (everything gets counted as
-`Single`, which throws off the budget at multiply-bonded sites like oxo/imido). OpenBabel
-looks lower than us on `b_int+b_ML` in the `TOOL` pool, but its M–L recall is also lower
-(T4 F1 0.78 there) — bonds it misses cannot violate anything, so a lower violation rate is not
-by itself a sign of better output; its atom-level rate is in fact close to ours (0.07% vs
-0.10%) while its structure-level rate looks much lower (1.66% vs 3.98%), meaning its errors
-cluster onto fewer structures rather than being genuinely rarer.
+### Why the `b_int`+`b_ML` column differs so much — three different failure modes
+
+Broken down per atom (1,621-structure holdout sample):
+
+| Tool | M–L emitted | of which at haptic sites | T4 precision | **T4 recall** | Viol. atoms | **of which haptic** |
+|---|---|---|---|---|---|---|
+| **xyz2mol-om** | 13,437 | 3,335 (24.8%) | 0.9885 | **0.9926** | 106 | **0.3%** |
+| xyz2mol_tm | 11,672 | 3,224 (27.6%) | 0.9849 | 0.8427 | **3,704** | **81.3%** |
+| OpenBabel | 9,606 | **836 (8.7%)** | 0.9958 | **0.6575** | 60 | 0.4% |
+
+**xyz2mol_tm's 43.79% is the cost of not typing its M–L bonds**, not a scoring artifact. It
+finds the bonds fine (27.6% of its M–L are at haptic sites, comparable to our 24.8%), but
+without a type a consumer must read them as dative, so every η⁵-Cp makes five carbons
+over-valent at once — **81.3% of its violating atoms are at haptic sites**, versus 0.3% of
+ours. That gap is exactly what emitting `type` buys.
+
+**OpenBabel's 1.66% is not skill — it is missing bonds.** Its T4 recall is **0.6575**: it
+misses a third of the true M–L bonds (its precision, 0.9958, is the highest — it emits only
+what it is sure of). The misses concentrate at haptic sites: only **8.7%** of its M–L bonds
+are there, versus 24.8–27.6% for the other two. It sidesteps the sites where xyz2mol_tm blows
+up by not making those bonds at all — there is nothing there to violate. **A low violation
+rate is not by itself a sign of better output.**
+
+Our haptic exclusion is not a free pass either — the T5 haptic call it rests on scores F1
+0.9683 (HOLDOUT) / 0.9671 (TOOL) / 0.9685 (X2M_TM).
 
 ## ⚠️ Limits
 
