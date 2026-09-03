@@ -21,13 +21,29 @@
           "smiles_ok":    bool,             왕복 검증(차수·전하·H·화학적 타당성) 통과 여부
           "smiles_note":  str,              실패 사유 (통과면 "")
           "coordinating": [int, …],         금속에 배위한 원자
-          "ml_bonds":     {(m, x): {"type": "sigma"|"haptic", "order": 1|2|3|None}},
+          "ml_bonds":     {(m, x): {
+                "type":   "sigma"|"haptic"|"bridge",   우선순위 haptic > bridge > sigma
+                "order":  1|2|3|None,                 haptic 은 None (차수를 안 매긴다)
+                "bridge": None|"3c2e"|"dative",       T7 하위 태그 (설계도 §3.0 5c)
+          }},
           "eta":          {m: k},           그 금속에 대한 η^k (haptic 일 때)
           "charge":       int,              리간드 전하 q_L
           "residual_charge": int | None,    골격으로 표현 안 되는 잔여 전하 (있으면)
       }, … ]
 
-    r["total_charge"] = 입력 총전하 (그대로)
+    r["complex_smiles"]      = str | None   **착물 전체** SMILES. M–L 은 전부 dative 화살표
+    r["complex_smiles_ok"]   = bool         왕복 검증 통과 여부
+    r["complex_smiles_note"] = str          실패·미생성 사유 (통과면 "")
+    r["complex_atom_order"]  = [int, …]     SMILES 출력 순서대로의 입력 원자 인덱스
+    r["total_charge"]        = 입력 총전하 (그대로)
+
+🔴 **`complex_smiles` 의 M–L 은 차수를 뭉갠다.** 옥소 `M=O` 든 나이트라이도 `M≡N` 든 화살표
+   하나로 나간다 — 실제 차수는 `ligands[*]["ml_bonds"][(m,x)]["order"]` 에 있다 (오너 결정
+   2026-09-03). dative 로 적는 이유는 RDKit 의 `DATIVE` 가 **도너 쪽 원자가에 안 세이기**
+   때문이다 — 우리 `q_atom` 이 이미 전자쌍 기부를 형식전하로 반영해 놨으므로 보통 결합으로
+   적으면 도너가 이중으로 세어진다.
+🔴 **금속의 형식전하 = 산화수**다. `total_charge` 를 안 주면 산화수가 안 나오므로
+   `complex_smiles` 도 **만들지 않는다**(`complex_smiles_note` 에 사유가 담긴다).
 
 ⚠️ **`wbo`(Mayer 결합차수)가 없으면** M–L 판정이 거리만 쓰고 차수는 전부 `Single` 이 된다.
    `{(금속 인덱스, 원자 인덱스): w}` 로 넘긴다 (xtb `--sp` 산출물).
@@ -48,11 +64,11 @@ import numpy as np
 
 from .charge import _qfrag, kekulize, q_atom
 from .config import METALS, RCOV
-from .smiles import ligand_smiles, verify_roundtrip
+from .smiles import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .connectivity import load_dint
 from .eht import eht_frag_charges
 from .likelihood import load_scores4
-from .pipeline import predict_T3_T5
+from .pipeline import bridge_tags, predict_T3_T5
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo):
@@ -92,7 +108,8 @@ def _drop_agostic(el, G, ml_raw):
     return out
 
 
-def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=None):
+def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=None,
+            complex_atom_map=False):
     """`xyz` → 결합·차수·전하·산화수. 인자·반환은 모듈 docstring 참조."""
     el = list(elements)
     xyz = np.asarray(coords, dtype=float)
@@ -176,9 +193,13 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # ── 리간드 조각 단위로 묶는다
     NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
     hapset = {(min(a, b), max(a, b)) for a, b in hap}
+    # T7 (설계도 §3.0 5c) — 다리 태그 `{배위원자: "3c2e" | "dative"}`. ④ 예산에서 3c2e 를 빼는
+    # 판정(`BMLSKIP3C`)과 **같은 함수**를 쓴다 — 출력 태그와 예산 판정이 갈리지 않게 한다.
+    btag = bridge_tags(el, G, ml_pred)
     coord_of = collections.defaultdict(set)  # 조각 대표 -> 배위 원자
     ligands = []
     q_all = {}
+    qat_all = {}  # 원자별 형식전하 전량 — complex SMILES 가 쓴다
     for li, comp0 in enumerate(nx.connected_components(G)):
         comp = sorted(comp0)
         cs = set(comp)
@@ -195,6 +216,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             bsum = sum(bk.get((min(x, w), max(x, w)), 1) for w in G[x])
             qat[x] = int(round(q_atom(el[x], float(bsum), G.degree(x),
                                       tuple(sorted(el[w] for w in G[x])))))
+        qat_all.update(qat)
         smi, _map = ligand_smiles(el, comp, bk, qat, coord)
         ok, why = False, "SMILES 생성 실패"
         if smi:
@@ -206,9 +228,14 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 continue
             e = (min(m, x), max(m, x))
             is_h = e in hapset
+            # 🔴 `type` 의 우선순위는 **haptic > bridge > sigma** 다 (2026-09-03 오너 요청).
+            #   한 단어로 답하는 칸이라 겹칠 때 하나를 골라야 한다. 겹쳐도 정보를 잃지 않도록
+            #   `bridge` 칸은 **다리이기만 하면 채운다**(haptic 이어도) — T7 하위 태그가 남는다.
+            br = btag.get(x)
             mlb_out[(m, x)] = {
-                "type": "haptic" if is_h else "sigma",
+                "type": "haptic" if is_h else ("bridge" if br else "sigma"),
                 "order": None if is_h else int(mlout.get((m, x), 0)) + 1,
+                "bridge": br,  # None | "3c2e" | "dative"  (T7 · 설계도 §3.0 5c)
             }
         # 🔴 η^k 는 **리간드 단위**로 센다 (2026-09-03 정합). 채점기(`len(comp ∩ hall)`)와
         #    정답지(`n_haptic_bound`)가 둘 다 리간드 단위다. π 조각별로 세면 R2·R3 로 Kekulé 가
@@ -237,7 +264,35 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         if num % len(mets) == 0:
             os_metal = dict.fromkeys(mets, num // len(mets))
 
+    # ── ⑧ complex SMILES — 착물 전체. M–L 은 **전부 dative 화살표**(오너 결정 2026-09-03).
+    #   결합차수는 여기서 뭉개진다 — 실제 M–L 차수는 `ligands[*]["ml_bonds"][(m,x)]["order"]`.
+    #   금속의 형식전하 = **산화수**. `total_charge` 를 안 주면 산화수를 못 구하므로 만들지 않는다
+    #   (0 으로 찍으면 총전하가 안 맞는 SMILES 가 나간다 — 조용히 틀린 것보다 없는 게 낫다).
+    cx_smi, cx_ok, cx_note, cx_order = None, False, "", []
+    if not mets:
+        cx_note = "금속이 없다 — 리간드 SMILES 를 쓴다"
+    elif not os_metal:
+        cx_note = (
+            "산화수를 못 구했다 — `total_charge` 를 주지 않았거나 금속 수로 나누어떨어지지 않는다"
+        )
+    else:
+        qcx = dict(qat_all)
+        qcx.update(os_metal)
+        cx_smi, cx_order = complex_smiles(
+            el, list(range(len(el))), orders, qcx, ml_pred, mm, with_map=complex_atom_map
+        )
+        if cx_smi is None:
+            cx_note = "complex SMILES 생성 실패"
+        else:
+            cx_ok, cx_note = verify_complex(
+                cx_smi, el, list(range(len(el))), orders, qcx, ml_pred, mm, total_charge
+            )
+
     return {
+        "complex_smiles": cx_smi,
+        "complex_smiles_ok": cx_ok,
+        "complex_smiles_note": cx_note,
+        "complex_atom_order": cx_order,
         "metals": [
             {
                 "index": m,

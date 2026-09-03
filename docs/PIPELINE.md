@@ -148,7 +148,14 @@ lp[k, cell, c] = ln P(c | 원소쌍 k, 차수쌍 cell)      셀 표본 ≥ 300 �
 제약     b_int_kek(X) + b_ML(X)  ≤  CAP(X)        모든 비금속 X
 
   b_int_kek : 공액 결합 k 개는 **k + 1** 로 센다 (그중 하나가 π). 1.5 환산이 아니다.
-  b_ML      : T8 출력. **haptic 제외** · 3c2e 참여 원자와 B 는 제외.
+  b_ML      : T8 출력. **haptic 만 제외.** 3c2e·B 는 안 뺀다.
+              ⛔ 3c2e 제외(`BMLSKIP3C=1`)를 구현해 train 전량 CV 로 재고 **기각**했다
+                 (2026-09-03): `Double` .7157 → **.7137** · `Triple` .9814 → .9806 ·
+                 `Σq_L`·`OS`·`T6` 는 동일 · 원자가 위반 구조 715 → 713(2건).
+                 "μ-H 는 `CAP(H)=1` 인데 `b_ML=2` 라 만족 불가능" 이라는 논거는 맞지만,
+                 **μ-H 는 내부 결합이 0개라 그 제약이 애초에 아무것도 안 묶는다.**
+                 실제로 묶고 있던 것은 3c2e **탄소**이고 거기서 풀면 차수가 틀리게 오른다.
+                 플래그는 남아 있고 기본값은 **0(끔)** 이다.
   CAP       : H 1 · B 4 · C 4 · N 5 · O 4 · F 4 · Si 6 · P 6 · S 6 · Cl 7 · Br/Se/As/Te/I 6
 ```
 
@@ -234,6 +241,14 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
         그 외                →  Kekulé 최대매칭 후 (a) 합
 
 (c) 3c2e 참여 원자는 (a) 전에 걸러 3중심 2전자 단위로 센다
+    판정 (T7) n_center(X) = (M–L 결합 수) + (내부 이웃 중 B·Al 개수)   ·  deg(X) = 내부 + M–L
+              bridge ⟺ n_center >= 2
+              3c2e   ⟺ bridge AND el ∈ {H,C,Si,B} AND deg > 정상 원자가 (H 1 · C·Si 4 · B 3)
+              dative ⟺ bridge AND 위가 거짓
+    실물      μ-H → 3c2e  ·  B–H···M → 3c2e  ·  μ-Cl → dative(3c4e)  ·  말단 Cl → 태그 없음
+    출력      `ml_bonds[(m,x)]["bridge"]` = None|"3c2e"|"dative" · `["type"]` 은 haptic > bridge > sigma
+    ⚠️ **결합은 안 없어진다** — M–L 결합 2개가 그대로 남고 T8 이 차수도 매긴다. 빠지는 것은
+       원자가 회계(`b_ML` 예산 · 위반 채점)뿐이다.
 
 (d) q_L = 리간드 조각 **전 원자**의 형식전하 합    ← 배위 원자만 세지 않는다
     OS(M) = (q_total − Σ_L q_L) / n_M              ← 금속에 균등 분배

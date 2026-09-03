@@ -12,8 +12,9 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA,
-                     LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,)
+from .config import (BMLSKIP3C, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA,
+                     LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
+                     VALENCE_3C,)
 from .charge import _qfrag
 from .conjugation import conj_forbidden, lp_donor, rule_a_ok
 from .eht import eht_frag_charges
@@ -174,6 +175,58 @@ def drop_agostic(el, G, ml_raw):
     return out
 
 
+def is_3c2e(el0, deg, n_center):
+    """T7 3c2e 판정의 **원시 술어** — `bridge_tags` 와 채점기가 같이 쓴다 (규칙을 한 곳에 둔다).
+
+    `deg`      = 그 원자의 (내부 결합 수 + M–L 결합 수)
+    `n_center` = (M–L 결합 수) + (내부 이웃 중 원소가 B·Al 인 것의 수)
+    판정  3c2e ⟺ n_center >= 2  AND  el0 ∈ VALENCE_3C  AND  deg > VALENCE_3C[el0]
+    """
+    v0 = VALENCE_3C.get(el0)
+    return n_center >= 2 and v0 is not None and deg > v0
+
+
+def bridge_tags(el, G, ml_pred):
+    """T7 (설계도 §3.0 5c) — 배위 원자별 **다리 태그**. 반환 `{x: "3c2e" | "dative"}`.
+
+    다리가 아닌 원자는 **키 자체가 없다.**
+
+    판정식 (채점기 `260831_propagation_prior_cv.py:is_3c2e` 와 같은 식이다)
+
+        n_center(X) = (X 의 M–L 결합 수)  +  (X 의 내부 이웃 중 원소가 B·Al 인 것의 수)
+        deg(X)      = (X 의 내부 결합 수) +  (X 의 M–L 결합 수)
+
+        bridge(X) ⟺ n_center(X) >= 2
+        3c2e(X)   ⟺ bridge(X)  AND  el[X] ∈ {H, C, Si, B}  AND  deg(X) > VALENCE_3C[el[X]]
+                                                              (H 1 · C·Si 4 · B 3)
+        dative(X) ⟺ bridge(X)  AND  3c2e(X) 가 거짓
+
+    실물 4경우 (`n_center` · `deg` · 태그)
+
+        μ-H      M–H–M          n_center 2 · deg 2 (내부 0 + M–L 2)  →  **3c2e**
+        B–H···M  보로하이드라이드  n_center 2 (M 1 + 이웃 B 1) · deg 2  →  **3c2e**
+        μ-Cl     M–Cl–M         n_center 2 · deg 2 · Cl 은 표에 없다   →  **dative** (3c4e)
+        말단 Cl   M–Cl           n_center 1                            →  태그 없음
+
+    ⚠️ `ml_pred` 는 **agostic 을 뺀 뒤 · 하프틱을 포함한** T4 결합이다 — 채점기가 `Pi`(하프틱)
+       M–L 도 금속 수에 세므로 같은 입력을 쓴다.
+    """
+    nmet = collections.Counter(x for _m, x in ml_pred)
+    tags = {}
+    # 🔴 후보를 `nmet` 로 좁히지 않는다 — **M–L 결합이 0개인 원자도 다리일 수 있다.**
+    #   지금은 B·Al 이 `METALS` 라 내부 이웃으로 안 나오지만, `B` 를 리간드 원자로 돌리면
+    #   `B–H–B` 의 H 는 M–L 이 0개이고 내부 이웃 B 2개로만 다리가 된다. 그때 이 루프가
+    #   `nmet` 기준이면 **그 H 를 통째로 놓친다.** 판정을 중심원자 정의와 분리해 둔다.
+    #   ⚠️ 지금 동작은 안 바뀐다 — B·Al 이 `METALS` 인 동안 내부 이웃 항이 항상 0 이다.
+    for x in G.nodes():
+        nm = nmet.get(x, 0)
+        n_center = nm + sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
+        if n_center < 2:
+            continue
+        tags[x] = "3c2e" if is_3c2e(el[x], G.degree(x) + nm, n_center) else "dative"
+    return tags
+
+
 def _angle_ok(xyz, m, x, y, theta):
     """∠(M–X–Y) < theta ?  Y 는 호출자가 고른다."""
     v1, v2 = xyz[m] - xyz[x], xyz[y] - xyz[x]
@@ -214,8 +267,18 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         if x in unsat0 and nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
             hap_pre.add((m, x))
     keep = [p for p in ml_pred if p not in hap_pre]
+    # 🔴 `BMLSKIP3C` — ④ 예산에서 **3c2e 참여 원자를 뺀다** (2026-09-03 채택 · 판정은 `bridge_tags`).
+    #   전자쌍 하나가 중심 3개에 걸친 단위를 2중심 결합 2개로 세면 같은 쌍을 두 번 쓰는 것이라
+    #   제약이 **만족 불가능**해진다(μ-H 는 `CAP(H)=1` 인데 `b_ML=2`). 설계도 §3.0 5c 가 원자가
+    #   채점에서 빼는 것과 같은 이유를 예산에 적용한 것이다. 상세는 `config.BMLSKIP3C`.
+    #   ⚠️ `keep`(= M–L 차수 최적화 후보)에서는 **안 뺀다** — T8 은 그대로 차수를 매긴다.
+    skip3c = (
+        {x for x, t in bridge_tags(el, G, ml_pred).items() if t == "3c2e"} if BMLSKIP3C else set()
+    )
     bml = collections.defaultdict(float)
     for _m, x in keep:
+        if x in skip3c:
+            continue
         bml[x] += 1.0  # M–L 기준선 = Single
     # 🔴 `wbo` 가 없으면 **거리 폴백**으로 M–L 차수를 매긴다 (2026-09-03).
     #   Mayer 가 없으면 T8 은 전 결합을 `Single` 로 내보낸다(`Double` F1 **0.0000** · 실측
