@@ -17,6 +17,7 @@ sys.path.insert(0, str(HERE.parent / "src"))
 
 from rdkit import Chem, RDLogger  # noqa: E402
 from rdkit.Chem import Draw  # noqa: E402
+from rdkit.Chem import rdCoordGen  # noqa: E402
 from rdkit.Chem.Draw import rdMolDraw2D  # noqa: E402
 
 from xyz2mol_om import predict  # noqa: E402
@@ -35,12 +36,46 @@ def read_xyz(p: Path):
     return el, np.array(xyz), lines[1]
 
 
+METALS_FOR_H = {"Ti", "Zr", "Hf", "V", "Nb", "Ta", "Cr", "Mo", "W", "Mn", "Re", "Fe", "Ru",
+                "Os", "Co", "Rh", "Ir", "Ni", "Pd", "Pt", "Cu", "Ag", "Au", "Zn", "Sc", "Y",
+                "La", "Ce", "Al", "Ga", "In", "Sn", "Pb", "Mg", "B"}
+
+
+def display_copy(mol):
+    """Drawing copy: drop terminal H. Keep H on a metal (hydrido / 3c2e bridge).
+
+    Every H is explicit in our molecules, so drawing them all makes the picture unreadable.
+    """
+    keep = set()
+    for a in mol.GetAtoms():
+        if a.GetSymbol() != "H":
+            continue
+        nb = list(a.GetNeighbors())
+        if len(nb) != 1 or nb[0].GetSymbol() in METALS_FOR_H:
+            keep.add(a.GetIdx())
+    rw = Chem.RWMol(mol)
+    for i in sorted((a.GetIdx() for a in mol.GetAtoms()
+                     if a.GetSymbol() == "H" and a.GetIdx() not in keep), reverse=True):
+        rw.RemoveAtom(i)
+    m = rw.GetMol()
+    for a in m.GetAtoms():
+        a.SetNoImplicit(True)
+    return m
+
+
 def draw(mol, out: Path, legend: str) -> None:
-    Chem.rdDepictor.Compute2DCoords(mol)
-    d = rdMolDraw2D.MolDraw2DCairo(760, 520)
-    d.drawOptions().addStereoAnnotation = False
-    d.drawOptions().legendFontSize = 18
-    rdMolDraw2D.PrepareAndDrawMolecule(d, mol, legend=legend, kekulize=True)
+    m = display_copy(mol)
+    rdCoordGen.AddCoords(m)          # far better than the default generator for complexes
+    d = rdMolDraw2D.MolDraw2DCairo(1100, 820)
+    o = d.drawOptions()
+    o.addStereoAnnotation = False
+    o.legendFontSize = 20
+    o.minFontSize = 13
+    o.maxFontSize = 22
+    o.bondLineWidth = 2
+    o.padding = 0.08
+    o.multipleBondOffset = 0.18
+    rdMolDraw2D.PrepareAndDrawMolecule(d, m, legend=legend, kekulize=True)
     d.FinishDrawing()
     out.write_bytes(d.GetDrawingText())
 
@@ -70,10 +105,12 @@ def main() -> None:
             m = Chem.MolFromSmiles(lg["smiles"] or "", sanitize=False)
             if m is None:
                 continue
+            m = display_copy(m)
+            rdCoordGen.AddCoords(m)
             mols.append(m)
             legs.append(f"q={lg['charge']:+d}" + (f" η{max(lg['eta'].values())}" if lg.get("eta") else ""))
         img = Draw.MolsToGridImage(mols, legends=legs, molsPerRow=min(3, max(1, len(mols))),
-                                   subImgSize=(260, 220), useSVG=False)
+                                   subImgSize=(340, 300), useSVG=False)
         out.write_bytes(img.data if hasattr(img, "data") else img)
         print(f"{out.name:30} drawn as ligand grid ({len(mols)} fragments)")
 
