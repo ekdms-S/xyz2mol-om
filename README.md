@@ -40,6 +40,10 @@ r = predict(elements, coords, total_charge=-1, wbo=wbo)
 ⚠️ **You may run with `wbo=None`** — the M–L decision falls back to distances and **performance
 drops slightly** (M–L `Double` F1 0.73 → 0.70 · bond existence F1 0.973 → 0.964 · internal bonds nearly unchanged).
 
+⚠️ When you do pass `wbo`, fill **every** `(metal, atom)` pair. A missing pair is read as
+"veto passed", not "unknown" — xtb's `wbo` file omits near-zero pairs, so build
+`{(m, x): 0.0 for …}` first and overwrite with the values the file does list.
+
 ## Output
 
 ```python
