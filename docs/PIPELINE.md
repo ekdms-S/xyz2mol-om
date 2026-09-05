@@ -13,6 +13,50 @@ Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal o
 
 ## Order (DAG)
 
+🔴 **Read the picture first.** The numbered list under it is a *reference per step*, **not** an
+execution order. `T3` runs **twice**, and the M–L **type** decisions (5 · 5″) sit **between** the
+two passes — they are what pass 2's budget is made of.
+
+```text
+                    0. metal / non-metal split  (METALS · `centers()`)
+                                       │
+             ┌─────────────────────────┴─────────────────────────┐
+             ↓                                                   ↓
+   1. [T1] internal bond exists                    4. [T4] M–L · M–M bond **exists**
+   2.      rings = SSSR                                    existence only — no type, no order
+        ── metal-independent ──                                  │
+             │                                                   │ coordinating-atom set
+             │                                                   ↓  = `coord`
+             └─────────────────────────┬─────────────────────────┘
+                                       ↓
+                   3. [T3] pass 1     bml = {} · ml_sc = None
+                                       │   no metal budget at all
+                                       ↓
+                    π fragments  ·  provisional internal orders
+                                       │
+             ┌─────────────────────────┴─────────────────────────┐
+             ↓                                                   ↓
+   5. [T5] provisional haptic                        5″. [T7] `bridge_tags`
+          angle only (θ < 81.02°)                          3c2e / dative
+          spends 0 budget                                  reads pass-1 **orders**
+             │                                             3c2e spends `BML3C_COST` in total
+             └─────────────────────────┬─────────────────────────┘
+                                       ↓
+                        `bml` budget fixed  (`pipeline.bml_budget`)
+                                       ↓
+                   3. [T3] pass 2     bml · ml_sc
+                                       │   7. [T8] M–L orders are solved **inside** this
+                                       ↓      same ④ matching, not in a later step
+    final internal orders · final M–L orders · 5. [T5] final haptic (pass-2 π) + 5′. [R7]
+                                       ↓
+             6. [T6] η^k  →  8. [T10] q_L · OS(M)  →  ⑥ output converter
+```
+
+Why pass 1 exists: a haptic M–L bond spends no budget, but whether a bond is haptic can only be
+told once the π fragments are known — so T3 is solved **once with an empty budget** to get them.
+5″ rides along on the same pass because the bond-order form of its rule needs internal orders
+that are not yet contaminated by the metal budget (see 5″).
+
 ```
 0.  metal / non-metal split                             METALS list
 
@@ -22,13 +66,9 @@ Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal o
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 3.  [T3] 4-class assignment ①→②→③→④→⑤→⑥                see §T3 below
-         🔴 **T3 runs twice** (`pipeline.predict_T3_T5`). The numbers below are *not* a chain
-            that follows it — 5, 5″ and the M–L half of 7 happen **between the two passes**
-            and are exactly what pass 2's budget is made of.
-
-              pass 1   bml = {} · no M–L optimization   → provisional orders · π fragments
-                  ↓    (5 provisional haptic · 5″ bridge tags are read off this)
-              pass 2   bml = the budget · M–L scores     → the output orders, incl. M–L
+         🔴 **runs twice** (`pipeline.predict_T3_T5`) — see the picture above.
+              pass 1   bml = {} · ml_sc = None   → provisional orders · π fragments
+              pass 2   bml = the budget · ml_sc  → the output orders, M–L included
 
 4.  [T4] M–X bond **exists**  ⟺   d(M,X) < d_bond(M,X)  AND  w(M,X) > w_veto(M,X)
          existence only — no type and no order. The coordinating-atom set it produces is
