@@ -275,6 +275,24 @@ R7MIN = int(os.environ.get("R7MIN", "2"))
 #   `Single`→`Double`**, and `Double` F1 went down (= most of those raises were wrong).
 #   ⚠️ To turn it on, `BMLSKIP3C=1`. The rule is `pipeline.bridge_tags` · [design doc] §3.0 5c.
 BMLSKIP3C = os.environ.get("BMLSKIP3C", "0") == "1"  # ⛔ rejected 2026-09-03 (measured)
+# ★ `BML3C_COST` — the ④·⑥ budget an atom taking part in a 3c2e bond spends **in total,
+#   regardless of how many M–L bonds it has** (2026-09-06).
+#   One electron pair spanning 3 centers is worth **one** bond of valence — not two, not zero.
+#   `BMLSKIP3C` above is the `0.0` end of this same knob, and it lost for exactly that reason:
+#   releasing the whole budget gave a bridging methyl carbon headroom 1 and 209 `Single`→`Double`
+#   raises followed. The midpoint is the chemically correct value.
+#       μ-CO   internal 1 + cost 1 = 2  ⇒ headroom 2, `C≡O` stays  (per-bond ⇒ headroom 1, `C=O`)
+#       μ-CH₃  internal 3 + cost 1 = 4  ⇒ headroom 0 = CAP(C)       (per-bond ⇒ 5, a violation)
+#   ⚠️ measured here, not assumed: `0.0` and `1.0` give the **same** answer on Co₂(CO)₈ and
+#   Al₂Me₆ — a μ-CH₃ cannot be raised under either, because its internal neighbours are H and
+#   `CAP(H)=1` leaves the H side no headroom. The two part on bridging carbons with **carbon**
+#   neighbours, which is where the 2026-09-03 CV found 209 wrong `Single`→`Double` raises for
+#   `0.0`. `1.0` states the chemistry (one pair across three centers is one bond of valence)
+#   instead of removing the constraint, so it should not buy those raises.
+#   values  1.0 = one pair (default) · 0.0 = the old `BMLSKIP3C` · <0 = one per M–L bond
+#           (the behaviour before this branch — keep it for A/B measurement)
+#   ⚠️ **Not measured against the CSD reference labels yet.** Do that before merging to master.
+BML3C_COST = 0.0 if BMLSKIP3C else float(os.environ.get("BML3C_COST", "1"))
 # ★ T7 ([design doc] §3.0 5c) — the **normal valence** of a bridging atom. A `deg` above this
 #   value is taken as 3c2e. H 1 · C·Si 4 · B 3. An element not in this table is not a 3c2e
 #   candidate (= if it bridges, it is `dative`).

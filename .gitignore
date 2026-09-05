@@ -6,3 +6,8 @@ dist/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+
+# rdEHTTools (extended Huckel) scratch — written into the CWD by any `predict` call that
+# reaches the (5) EHT fragment-charge target
+nul
+run.out

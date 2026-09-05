@@ -12,7 +12,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (BMLSKIP3C, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA,
+from .config import (BML3C_COST, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from .charge import _qfrag
@@ -204,17 +204,34 @@ def is_3c2e(el0, deg, n_center):
     return n_center >= 2 and v0 is not None and deg > v0
 
 
-def bridge_tags(el, G, ml_pred):
+def bridge_tags(el, G, ml_pred, cls=None):
     """T7 ([design doc] §3.0 5c) — the **bridge tag** per coordinating atom.
     Returns `{x: "3c2e" | "dative"}`.
 
     An atom that is not a bridge **has no key at all.**
 
+    🔴 `cls` — **pass-1 internal bond classes** (2026-09-06). When given, `deg` is the sum of
+       internal bond **orders** instead of the number of internal **bonds**. Counting neighbors
+       misses every bridging atom whose internal bond is multiple, and `μ-CO` is exactly that
+       case (C has one neighbour, O, but a triple bond to it):
+
+           μ-CO   neighbour count  1 + 2 = 3 ≤ 4  →  dative   ✗
+                  bond-order sum   3 + 2 = 5 > 4  →  3c2e     ✓
+
+       ⚠️ It must be the **pass-1** classes, not pass-2. Pass 2 needs the tag to build its
+          budget, so reading pass-2 orders here would be circular. Pass 1 runs with no metal
+          budget at all and already calls that C–O `Triple` — the same trick the provisional
+          haptic set uses (pass-1 π fragments → budget → pass 2).
+       ⚠️ `cls=None` keeps the pre-2026-09-06 neighbour-count behaviour, which is what the
+          scorer `260831_propagation_prior_cv.py:is_3c2e` still computes. Update the scorer
+          alongside this.
+
     rule (the same formula as the scorer `260831_propagation_prior_cv.py:is_3c2e`)
 
         n_center(X) = (number of M–L bonds of X) + (number of internal neighbors of X whose
                                                    element is B or Al)
-        deg(X)      = (number of internal bonds of X) + (number of M–L bonds of X)
+        deg(X)      = (internal bond orders of X, Kekule count) + (number of M–L bonds of X)
+                      [`cls=None`: number of internal bonds instead of their orders]
 
         bridge(X) ⟺ n_center(X) >= 2
         3c2e(X)   ⟺ bridge(X)  AND  el[X] ∈ {H, C, Si, B}  AND  deg(X) > VALENCE_3C[el[X]]
@@ -232,6 +249,7 @@ def bridge_tags(el, G, ml_pred):
        also counts `Pi` (haptic) M–L bonds toward the metal count, so the same input is used.
     """
     nmet = collections.Counter(x for _m, x in ml_pred)
+    bint = _kek_val(G, el, cls) if cls else None
     tags = {}
     # 🔴 Do not narrow the candidates by `nmet` — **an atom with 0 M–L bonds can also be a
     #   bridge.** Right now B and Al are in `METALS` so they never appear as internal neighbors,
@@ -245,8 +263,32 @@ def bridge_tags(el, G, ml_pred):
         n_center = nm + sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
         if n_center < 2:
             continue
-        tags[x] = "3c2e" if is_3c2e(el[x], G.degree(x) + nm, n_center) else "dative"
+        deg = (bint.get(x, 0.0) if bint is not None else G.degree(x)) + nm
+        tags[x] = "3c2e" if is_3c2e(el[x], deg, n_center) else "dative"
     return tags
+
+
+def bml_budget(ml_bonds, three_c, cost=None):
+    """The ④·⑥ `b_ML` budget — `{coordinating atom: budget}`.
+
+    Every M–L bond costs 1.0, **except** that an atom taking part in a 3c2e bond spends
+    `cost` in total no matter how many M–L bonds it has (`config.BML3C_COST`, default 1.0).
+    `cost < 0` restores the pre-2026-09-06 behaviour of one unit per bond.
+
+    ⚠️ `ml_bonds` must already have the bonds that spend nothing removed — haptic for ④
+       (`keep`), the final haptic set for ⑥.
+    """
+    cost = BML3C_COST if cost is None else cost
+    bml = collections.defaultdict(float)
+    counted = set()
+    for _m, x in ml_bonds:
+        if x in three_c and cost >= 0.0:
+            if x not in counted:
+                counted.add(x)
+                bml[x] += cost
+        else:
+            bml[x] += 1.0
+    return bml
 
 
 def _angle_ok(xyz, m, x, y, theta):
@@ -266,11 +308,12 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
     the haptic set** end to end.
 
-    Returns `(cls, mlout, hap, ml_pred)`
+    Returns `(cls, mlout, hap, ml_pred, btag)`
       `cls`     {(i,j): 0 Single · 1 Double · 2 Triple · 3 Conj}   internal bonds
       `mlout`   {(m,x): class}                                     M–L orders (haptic excluded)
       `hap`     {(m,x)}                                            haptic M–L bonds
       `ml_pred` [(m,x)]                                            T4 bonds with agostic removed
+      `btag`    {x: "3c2e" | "dative"}                             T7 bridge tags (pass-1 based)
 
     Why 2 passes: a haptic M–L bond **gets no order and spends no budget** ([design doc] §3 5a).
     But whether a bond is haptic can only be decided once T3 (the π fragments) is known. So the
@@ -293,21 +336,17 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         if x in unsat0 and nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
             hap_pre.add((m, x))
     keep = [p for p in ml_pred if p not in hap_pre]
-    # 🔴 `BMLSKIP3C` — **remove 3c2e-participating atoms from the ④ budget** (adopted 2026-09-03 ·
-    #   the rule is `bridge_tags`). Counting a unit whose single electron pair spans 3 centers as
-    #   2 two-center bonds uses the same pair twice, which makes the constraint **unsatisfiable**
-    #   (μ-H has `CAP(H)=1` but `b_ML=2`). This applies to the budget the same reasoning by which
-    #   [design doc] §3.0 5c excludes them from valence scoring. Details in `config.BMLSKIP3C`.
+    # 🔴 T7 bridge tags — computed **here**, between the two passes, because pass 2's budget
+    #   depends on them. `cls0` (pass-1, metal-free orders) is what makes the bond-order form of
+    #   the rule non-circular. The same tags are returned so the output cannot diverge from the
+    #   budget decision.
+    #   A unit whose single electron pair spans 3 centers is **one** bond of valence, so those
+    #   atoms spend `BML3C_COST` (default 1.0) in total rather than 1.0 per M–L bond.
     #   ⚠️ They are **not** removed from `keep` (= the M–L order optimization candidates) — T8
     #      still assigns orders to them.
-    skip3c = (
-        {x for x, t in bridge_tags(el, G, ml_pred).items() if t == "3c2e"} if BMLSKIP3C else set()
-    )
-    bml = collections.defaultdict(float)
-    for _m, x in keep:
-        if x in skip3c:
-            continue
-        bml[x] += 1.0  # M–L baseline = Single
+    btag = bridge_tags(el, G, ml_pred, cls0)
+    three_c = {x for x, tg in btag.items() if tg == "3c2e"}
+    bml = bml_budget(keep, three_c)  # M–L baseline = Single, 3c2e = one pair
     # 🔴 With no `wbo`, M–L orders come from the **distance fallback** (2026-09-03).
     #   Without Mayer, T8 emits `Single` for every bond (`Double` F1 **0.0000** · measured over
     #   300 structures, TP 0 / FN 40). On the same pool with refcode 5-fold CV, the monotone
@@ -357,4 +396,4 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                         hap_by_m[m].add(x)
     for e in hap:  # haptic bonds get no order
         mlout.pop(e, None)
-    return cls, mlout, hap, ml_pred
+    return cls, mlout, hap, ml_pred, btag

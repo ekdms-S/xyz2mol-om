@@ -16,13 +16,23 @@ Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal o
 ```
 0.  metal / non-metal split                             METALS list
 
-━━ metal-independent stage ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━ metal-independent ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1.  [T1] internal bond exists ⟺ d(X,Y) < d_int(X,Y)     45 element pairs (data/d_int.csv)
 2.       rings = SSSR                                   no parameters
-3.  [T3] 4-class assignment ①→②→③→④→⑤→⑥                see §T3 below
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-4.  [T4] M–X bond exists  ⟺   d(M,X) < d_bond(M,X)  AND  w(M,X) > w_veto(M,X)
+3.  [T3] 4-class assignment ①→②→③→④→⑤→⑥                see §T3 below
+         🔴 **T3 runs twice** (`pipeline.predict_T3_T5`). The numbers below are *not* a chain
+            that follows it — 5, 5″ and the M–L half of 7 happen **between the two passes**
+            and are exactly what pass 2's budget is made of.
+
+              pass 1   bml = {} · no M–L optimization   → provisional orders · π fragments
+                  ↓    (5 provisional haptic · 5″ bridge tags are read off this)
+              pass 2   bml = the budget · M–L scores     → the output orders, incl. M–L
+
+4.  [T4] M–X bond **exists**  ⟺   d(M,X) < d_bond(M,X)  AND  w(M,X) > w_veto(M,X)
+         existence only — no type and no order. The coordinating-atom set it produces is
+         passed to **pass 1** as `coord` (it waives the conjugation under-valence penalty).
          X is any atom, metals included — (M,M) pairs are decided here too.  element pairs 314 (M–L) · 37 (M–M)
          agostic excluded: `C–H···M` is not counted as a bond
            ⟺ that H has exactly one metal-like neighbor and has an internal neighbor that is not metal-like
@@ -53,6 +63,27 @@ Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal o
              failure occurs not only for pyrrole-type N but for **furan O · thiophene S · selenophene Se · phosphole P**.
          Y candidates: X is by definition not in a π fragment, so the "same-fragment neighbor" of 5 cannot be used ⇒
              pick among the **neighbors that do belong to a π fragment**. η^k is added to that Y's fragment.
+
+5″. [T7] bridge tag — the **type** of an existing M–L bond, `pipeline.bridge_tags`
+         (moved here 2026-09-06; it used to be filed under §Charge, which is not where it runs)
+
+           n_center(X) = (M–L bonds of X) + (internal neighbours of X whose element is B·Al)
+           deg(X)      = (internal bond **orders** of X, pass-1 Kekule count) + (M–L bonds of X)
+           bridge(X) ⟺ n_center >= 2
+           3c2e(X)   ⟺ bridge AND el ∈ {H,C,Si,B} AND deg > VALENCE_3C[el] (H 1 · C·Si 4 · B 3)
+           dative(X) ⟺ bridge AND the above is false
+
+         🔴 `deg` counts **orders, from pass 1** (2026-09-06). It used to count *neighbours*,
+            which misses every bridging atom whose internal bond is multiple — `μ-CO` is that
+            case (`1+2=3 ≤ 4` → dative ✗ · `3+2=5 > 4` → 3c2e ✓). Pass-1 orders are used
+            because pass 2 needs this tag to build its budget; pass 1 has no metal budget and
+            already calls that C–O `Triple`, so there is no circularity.
+         real cases  μ-H → 3c2e · B–H···M → 3c2e · **μ-CO → 3c2e** · μ-Cl → dative (3c4e) ·
+                     μ-CR₂ bridging carbene → dative (`2+2=4`, genuinely two 2c2e) ·
+                     terminal Cl → no tag
+         output      `ml_bonds[(m,x)]["bridge"]` = None|"3c2e"|"dative" · `["type"]` is
+                     haptic > bridge > sigma
+         ⚠️ **No bond disappears** — both M–L bonds stay and 7 assigns their orders too.
 
 6.  [T6] η^k     k = number of atoms in that π fragment that passed 5     no parameters
          counted per fragment (ferrocene is two η⁵, not one η¹⁰)
@@ -148,7 +179,13 @@ maximize    Σ_e  score(e, c(e))
 subject to  b_int_kek(X) + b_ML(X)  ≤  CAP(X)        for every non-metal X
 
   b_int_kek : k conjugated bonds count as **k + 1** (one of them is π). Not a 1.5 conversion.
-  b_ML      : T8 output. **Only haptic is excluded.** 3c2e and B are not subtracted.
+  b_ML      : **not** an order sum — one unit per existing M–L bond (`pipeline.bml_budget`).
+              haptic spends 0. An atom taking part in a **3c2e** spends `BML3C_COST` (default
+              **1.0**) *in total* regardless of how many M–L bonds it has — one electron pair
+              across three centers is one bond of valence (2026-09-06). `BML3C_COST=-1` restores
+              the old one-per-bond counting, `0.0` is the `BMLSKIP3C` behaviour below.
+              ⚠️ The same budget is rebuilt for ⑥ and the charge in `api.predict` — before
+                 2026-09-06 that copy had **no** 3c2e term, so ⑥ could undo what ④ allowed.
               ⛔ Excluding 3c2e (`BMLSKIP3C=1`) was implemented, remeasured by CV over the whole
                  train set, and **rejected** (2026-09-03): `Double` .7157 → **.7137** · `Triple` .9814 → .9806 ·
                  `Σq_L`, `OS`, `T6` identical · structures with a valence violation 715 → 713 (2 structures).
@@ -240,15 +277,21 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
         monocyclic all-carbon `CmHm`  →  Hückel:  z = m − (4n+2) minimizing |m − h| (larger h on a tie)
         otherwise                     →  sum of (a) after Kekulé maximum matching
 
-(c) atoms taking part in a 3c2e are filtered out before (a) and counted as three-center two-electron units
-    decision (T7) n_center(X) = (number of M–L bonds) + (number of B·Al among internal neighbors)   ·  deg(X) = internal + M–L
-              bridge ⟺ n_center >= 2
-              3c2e   ⟺ bridge AND el ∈ {H,C,Si,B} AND deg > normal valence (H 1 · C·Si 4 · B 3)
-              dative ⟺ bridge AND the above is false
-    real cases  μ-H → 3c2e  ·  B–H···M → 3c2e  ·  μ-Cl → dative (3c4e)  ·  terminal Cl → no tag
-    output      `ml_bonds[(m,x)]["bridge"]` = None|"3c2e"|"dative" · `["type"]` is haptic > bridge > sigma
-    ⚠️ **No bond disappears** — both M–L bonds stay and T8 assigns their orders too. What is dropped
-       is only the valence accounting (`b_ML` budget · violation scoring).
+(c) 3c2e — the decision itself is **T7 at stage 5″** of the DAG, not here.
+    🔴 Corrected 2026-09-06. This section used to say "atoms taking part in a 3c2e are filtered
+       out before (a)". **`charge.py` does no such thing** — it has no 3c2e branch at all, and a
+       bridging atom gets exactly the same `q_atom(element, b_int)` as any other. What the tag
+       actually reaches is the ④·⑥ **budget** (`BML3C_COST`) and the violation tally.
+    So the tag moves the charge only **indirectly**, through the internal orders the budget
+    allows:  budget → `b_int` → `q_atom` → `q_L` → `OS(M)`.
+    Worked example (Co₂(CO)₈ · GFN2 geometry · measured 2026-09-06)
+
+        cost per bond (old)   use(C) = 2 + 1 = 3  → headroom 1 → `C=O`  → q(C) −2 → q_L −2 → Co **+2**
+        cost 1 in total       use(C) = 1 + 1 = 2  → headroom 2 → `C≡O`  → q(C) −1 → q_L  0 → Co **0**
+
+    The second row is the conventional assignment (CO is a neutral 2e donor whether it bridges
+    or not), and it makes a bridging CO come out with the **same** ligand SMILES as a terminal
+    one, `[O+]#[C-:1]`.
 
 (d) q_L = sum of the formal charges of **all atoms** of the ligand fragment   ← not only the coordinating atoms
     OS(M) = (q_total − Σ_L q_L) / n_M              ← distributed evenly over the metals

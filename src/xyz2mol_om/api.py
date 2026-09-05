@@ -71,7 +71,7 @@ from .smiles import complex_smiles, ligand_smiles, verify_complex, verify_roundt
 from .connectivity import load_dint
 from .eht import eht_frag_charges
 from .likelihood import load_scores4
-from .pipeline import bridge_tags, predict_T3_T5
+from .pipeline import bml_budget, predict_T3_T5
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
@@ -183,12 +183,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   assembled differently per caller, and that diverged from the scorer in **four places**
     #   (measured 2026-09-03 · [design doc] §6.5). Now only `ml_raw` and `wbo` are passed in.
     q_eht = eht_frag_charges(el, xyz, G)
-    cls, mlout, hap, ml_pred = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
-    bml = collections.defaultdict(float)
-    for _m, x in ml_pred:
-        if (_m, x) not in hap:
-            bml[x] += 1.0  # the output converter and the charge use the **same budget**
-        #                (haptic excluded)
+    cls, mlout, hap, ml_pred, btag = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
+    # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
+    # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
+    # 🔴 Before 2026-09-06 this loop had no 3c2e term at all, so ⑥ could undo what ④ allowed.
+    three_c = {x for x, tg in btag.items() if tg == "3c2e"}
+    bml = bml_budget([p for p in ml_pred if p not in hap], three_c)
 
     # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge
     orders, frag_q = kekulize(G, el, cls, dict(bml))
@@ -211,10 +211,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # -- group by ligand fragment
     NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
     hapset = {(min(a, b), max(a, b)) for a, b in hap}
-    # T7 ([design doc] §3.0 5c) — bridge tags `{coordinating atom: "3c2e" | "dative"}`. It uses
-    # **the same function** as the decision that removes 3c2e from the ④ budget (`BMLSKIP3C`) —
-    # so the output tag and the budget decision cannot diverge.
-    btag = bridge_tags(el, G, ml_pred)
+    # T7 ([design doc] §3.0 5c) — bridge tags `{coordinating atom: "3c2e" | "dative"}`.
+    # 🔴 Taken from `predict_T3_T5` (2026-09-06) rather than recomputed: the rule now reads the
+    # **pass-1** internal orders, which only that function has, and reusing its result is what
+    # guarantees the output tag and the ④·⑥ budget cannot diverge.
     coord_of = collections.defaultdict(set)  # fragment representative -> coordinating atoms
     ligands = []
     q_all = {}
