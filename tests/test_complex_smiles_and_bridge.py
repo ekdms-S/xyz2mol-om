@@ -71,24 +71,35 @@ def test_bridge_tags_rule():
     """T7 decision rule - the four real cases of design doc §3.0 5c."""
     import networkx as nx
 
-    # μ-H : 0 internal bonds · 2 M–L  ⇒ n_center 2 · deg 2 > VALENCE_3C[H]=1  ⇒ 3c2e
+    # μ-H : 0 internal bonds · 2 M–L  ⇒ n_center 2 · b_use 2 > VALENCE_3C[H]=1  ⇒ 3c2e
+    #   `cls` is **empty**, not absent — a bare bridging hydride has no internal bond at all.
+    #   It used to be passed as nothing, which took the removed neighbour-count fallback.
     el = ["Fe", "Fe", "H"]
     G = nx.Graph()
     G.add_nodes_from([2])
-    assert bridge_tags(el, G, [(0, 2), (1, 2)]) == {2: "3c2e"}
+    assert bridge_tags(el, G, [(0, 2), (1, 2)], {}) == {2: "3c2e"}
 
     # μ-Cl : n_center 2 but Cl is not in VALENCE_3C  ⇒ dative (3c4e)
     el = ["Fe", "Fe", "Cl"]
-    assert bridge_tags(el, G, [(0, 2), (1, 2)]) == {2: "dative"}
+    assert bridge_tags(el, G, [(0, 2), (1, 2)], {}) == {2: "dative"}
 
     # terminal Cl : n_center 1  ⇒ no tag
-    assert bridge_tags(el, G, [(0, 2)]) == {}
+    assert bridge_tags(el, G, [(0, 2)], {}) == {}
 
-    # B–H···M : 1 internal neighbour B + 1 M–L ⇒ n_center 2 · deg 2 > 1 ⇒ 3c2e
+    # B–H···M : 1 internal neighbour B + 1 M–L ⇒ n_center 2 · b_use 2 > 1 ⇒ 3c2e
     el = ["Fe", "B", "H"]
     G2 = nx.Graph()
     G2.add_edge(1, 2)
-    assert bridge_tags(el, G2, [(0, 2)]) == {2: "3c2e"}
+    assert bridge_tags(el, G2, [(0, 2)], {(1, 2): 0}) == {2: "3c2e"}
+
+    # μ-CO : C has **one** internal neighbour but a **triple** bond to it — the case the
+    #   neighbour-count form missed.  b_use = 3 + 2 = 5 > VALENCE_3C[C]=4  ⇒ 3c2e
+    el = ["Co", "Co", "C", "O"]
+    G3 = nx.Graph()
+    G3.add_edge(2, 3)
+    assert bridge_tags(el, G3, [(0, 2), (1, 2)], {(2, 3): 2}) == {2: "3c2e"}
+    #   the same carbon with a **double** C–O would be 2 + 2 = 4, not a 3c2e
+    assert bridge_tags(el, G3, [(0, 2), (1, 2)], {(2, 3): 1}) == {2: "dative"}
 
 
 def test_bridge_type_precedence():
@@ -98,7 +109,7 @@ def test_bridge_type_precedence():
     el = ["Fe", "Fe", "Cl"]
     G = nx.Graph()
     G.add_nodes_from([2])
-    assert bridge_tags(el, G, [(0, 2), (1, 2)])[2] == "dative"
+    assert bridge_tags(el, G, [(0, 2), (1, 2)], {})[2] == "dative"
 
 
 if __name__ == "__main__":
