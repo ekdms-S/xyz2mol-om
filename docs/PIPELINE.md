@@ -1,7 +1,8 @@
 # Pipeline — what is decided in what order, by what formula
 
 **Every decision rule** from one `xyz` coming in to bonds, orders, charges, and oxidation states coming out.
-Trial and error and the rejection history are not here → `ognm-bh-workspace/docs/analysis/2026-09-03-t3-tuning-history.md`.
+This document is the pipeline **as it is**. Trial and error, rejected alternatives and the tuning history are
+kept in the project workspace (`docs/analysis/` · `docs/settings/`), not here.
 
 Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q_frag` fragment charge ·
 `deg(X)` number of **internal** neighbors within the ligand (H included · M–L excluded) · `b_int(X)` sum of internal bond orders ·
@@ -85,10 +86,9 @@ that are not yet contaminated by the metal budget (see 5″).
            if false, σ-dative (the bond itself was already settled in 4, so it stays)
            π fragment = connected component of {Conj ∪ Double ∪ Triple} bonds
            ⇒ **X belongs to a π fragment ⟺ X touches a `Double`, `Triple`, or `Conj` bond.**
-             🔴 **There is no fragment-size condition** (the "size ≥ 2" in the first edition of this
-             document is not in the code — corrected 2026-09-03). A lone isolated double bond is a π fragment too.
+             🔴 **There is no fragment-size condition.** A lone isolated double bond is a π fragment too.
 
-5′. [R7] **Return an R2 donor inside a haptic ring to the π candidates**   (adopted 2026-09-03 · on by default)
+5′. [R7] **Return an R2 donor inside a haptic ring to the π candidates**   (on by default)
          Turn it off with `R7RING=0`. 0 fitted parameters (`R7MIN` is an integer lattice).
 
            add(M,X) ⟺ X is an R2 donor (O·S·Se: deg ≥ 2 · N·P: deg ≥ 3)
@@ -233,17 +233,10 @@ subject to  b_int_kek(X) + b_ML(X)  ≤  CAP(X)        for every non-metal X
   b_ML      : **not** an order sum — one unit per existing M–L bond (`pipeline.bml_budget`).
               haptic spends 0. An atom taking part in a **3c2e** spends `BML3C_COST` (default
               **1.0**) *in total* regardless of how many M–L bonds it has — one electron pair
-              across three centers is one bond of valence (2026-09-06). `BML3C_COST=-1` restores
-              the old one-per-bond counting, `0.0` is the `BMLSKIP3C` behaviour below.
-              ⚠️ The same budget is rebuilt for ⑥ and the charge in `api.predict` — before
-                 2026-09-06 that copy had **no** 3c2e term, so ⑥ could undo what ④ allowed.
-              ⛔ Excluding 3c2e (`BMLSKIP3C=1`) was implemented, remeasured by CV over the whole
-                 train set, and **rejected** (2026-09-03): `Double` .7157 → **.7137** · `Triple` .9814 → .9806 ·
-                 `Σq_L`, `OS`, `T6` identical · structures with a valence violation 715 → 713 (2 structures).
-                 The argument "μ-H has `CAP(H)=1` but `b_ML=2`, so it is unsatisfiable" is correct, but
-                 **μ-H has zero internal bonds, so that constraint binds nothing in the first place.**
-                 What it was actually binding is 3c2e **carbon**, and releasing it raises orders wrongly.
-                 The flag remains and its default is **0 (off)**.
+              across three centers is one bond of valence. `BML3C_COST=-1` counts one unit per
+              M–L bond instead, `0.0` releases the budget entirely (`BMLSKIP3C`).
+              ⑥ and the charge use this same budget — `api.predict` calls `bml_budget` too — so
+              the two cannot diverge.
   CAP       : H 1 · B 4 · C 4 · N 5 · O 4 · F 4 · Si 6 · P 6 · S 6 · Cl 7 · Br/Se/As/Te/I 6
 ```
 
@@ -287,8 +280,7 @@ Basis for (b) (against the reference assignment · all train fragments):
 | **`SS`** | 118 | **94.9%** | +2 in 112/112 |
 | **`CCHH`** (η²-acetylene) | 142 | **66.9%** | +2 in 91/95 |
 
-⛔ **Cutting by size is wrong** — turning off every two-atom fragment also turns off the 22,298 `CO` and loses
-(`Double` .6913 → .6861 · `Σq_L` .7932 → .7908).
+The exception is keyed on the **pattern**, not on fragment size — a size cut would also disable the 22,298 `CO`.
 
 ### ⑥ Output converter (kekulization)
 
@@ -328,21 +320,16 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
         monocyclic all-carbon `CmHm`  →  Hückel:  z = m − (4n+2) minimizing |m − h| (larger h on a tie)
         otherwise                     →  sum of (a) after Kekulé maximum matching
 
-(c) 3c2e — the decision itself is **T7 at stage 5″** of the DAG, not here.
-    🔴 Corrected 2026-09-06. This section used to say "atoms taking part in a 3c2e are filtered
-       out before (a)". **`charge.py` does no such thing** — it has no 3c2e branch at all, and a
-       bridging atom gets exactly the same `q_atom(element, b_int)` as any other. What the tag
-       actually reaches is the ④·⑥ **budget** (`BML3C_COST`) and the violation tally.
-    So the tag moves the charge only **indirectly**, through the internal orders the budget
-    allows:  budget → `b_int` → `q_atom` → `q_L` → `OS(M)`.
-    Worked example (Co₂(CO)₈ · GFN2 geometry · measured 2026-09-06)
+(c) 3c2e — the decision itself is **T7 at stage 5″** of the DAG, not here. `charge.py` has no
+    3c2e branch: a bridging atom gets exactly the same `q_atom(element, b_int)` as any other.
+    The tag reaches the charge only **indirectly**, through the internal orders that the ④·⑥
+    budget allows:  budget → `b_int` → `q_atom` → `q_L` → `OS(M)`.
+    Worked example (Co₂(CO)₈ · GFN2 geometry)
 
-        cost per bond (old)   use(C) = 2 + 1 = 3  → headroom 1 → `C=O`  → q(C) −2 → q_L −2 → Co **+2**
-        cost 1 in total       use(C) = 1 + 1 = 2  → headroom 2 → `C≡O`  → q(C) −1 → q_L  0 → Co **0**
+        use(C) = b_int 1 + cost 1 = 2  → headroom 2 → `C≡O` → q(C) −1 → q_L 0 → Co **0**
 
-    The second row is the conventional assignment (CO is a neutral 2e donor whether it bridges
-    or not), and it makes a bridging CO come out with the **same** ligand SMILES as a terminal
-    one, `[O+]#[C-:1]`.
+    CO is a neutral 2e donor whether it bridges or not, so a bridging CO comes out with the
+    **same** ligand SMILES as a terminal one, `[O+]#[C-:1]`.
 
 (d) q_L = sum of the formal charges of **all atoms** of the ligand fragment   ← not only the coordinating atoms
     OS(M) = (q_total − Σ_L q_L) / n_M              ← distributed evenly over the metals
@@ -403,11 +390,8 @@ holdout excess **1.6%p**.
 🔴 A known residual: `B` and `Al` are central atoms, but the Mayer cache holds only true transition metals, so `B–X` is
 always missing, and every one of those missing entries becomes an M–L bond that eats the `CAP` budget of the neighboring `C` and `H`
 (measured: **6.0% of M–L candidates are missing, all of them `B`-centered**).
-⛔ A version subtracting 3c2e-participating atoms from the budget (`BMLSKIP3C=1`) was tried and **rejected** —
-violating structures drop only 715 → 713 (**2 structures**) while `Double` falls .7157 → **.7137**.
-
-**The ⑥ output converter (kekulization) already solved most of this metric** — it removes the **spurious** violations
-that arose from converting `Conj` to 1.5, cutting the violation rate **4.13% → 0.48%**, an 8.6× reduction (the version at that time).
+**The ⑥ output converter (kekulization) removes the spurious violations** that arise from converting `Conj` to 1.5 —
+most of what this metric would otherwise count.
 
 ### Trivial baselines (always read the performance next to these)
 
