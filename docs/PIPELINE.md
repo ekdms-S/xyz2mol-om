@@ -5,7 +5,8 @@ Trial and error and the rejection history are not here → `ognm-bh-workspace/do
 
 Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q_frag` fragment charge ·
 `deg(X)` number of **internal** neighbors within the ligand (H included · M–L excluded) · `b_int(X)` sum of internal bond orders ·
-`b_ML(X)` sum of M–L bond orders · `v` number of valence electrons.
+`b_ML(X)` sum of M–L bond orders · `n_ML(X)` **number** of M–L bonds of X · `n_lp(X)` lone pairs X still has to give ·
+`v` number of valence electrons.
 
 Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal order 1.5).
 
@@ -105,22 +106,32 @@ that are not yet contaminated by the metal budget (see 5″).
              pick among the **neighbors that do belong to a π fragment**. η^k is added to that Y's fragment.
 
 5″. [T7] bridge tag — the **type** of an existing M–L bond, `pipeline.bridge_tags`
-         (moved here 2026-09-06; it used to be filed under §Charge, which is not where it runs)
 
-           n_center(X) = (M–L bonds of X) + (internal neighbours of X whose element is B·Al)
-           deg(X)      = (internal bond **orders** of X, pass-1 Kekule count) + (M–L bonds of X)
+           n_center(X) = n_ML(X) + (internal neighbours of X whose element is B·Al)
+           b_use(X)    = b_int(X) + n_ML(X)        b_int from the **pass-1** Kekule orders
            bridge(X) ⟺ n_center >= 2
-           3c2e(X)   ⟺ bridge AND el ∈ {H,C,Si,B} AND deg > VALENCE_3C[el] (H 1 · C·Si 4 · B 3)
+           3c2e(X)   ⟺ bridge AND el ∈ {H,C,Si,B} AND b_use > VALENCE_3C[el] (H 1 · C·Si 4 · B 3)
            dative(X) ⟺ bridge AND the above is false
 
-         🔴 `deg` counts **orders, from pass 1** (2026-09-06). It used to count *neighbours*,
-            which misses every bridging atom whose internal bond is multiple — `μ-CO` is that
-            case (`1+2=3 ≤ 4` → dative ✗ · `3+2=5 > 4` → 3c2e ✓). Pass-1 orders are used
-            because pass 2 needs this tag to build its budget; pass 1 has no metal budget and
-            already calls that C–O `Triple`, so there is no circularity.
-         real cases  μ-H → 3c2e · B–H···M → 3c2e · **μ-CO → 3c2e** · μ-Cl → dative (3c4e) ·
-                     μ-CR₂ bridging carbene → dative (`2+2=4`, genuinely two 2c2e) ·
-                     terminal Cl → no tag
+         The two halves of `b_use` carry different units by design: an internal bond spends X's
+         budget by its **order**, an M–L bond by its **count** — under the ionic cut an M–L bond
+         has no order, it is one donated lone pair. `VALENCE_3C[el]` is accordingly not a
+         neutral-atom valence but the closed-shell budget (bonds + lone pairs), so with
+         `VALENCE_3C[el] − b_int(X) = n_lp(X)` the rule reads **`n_ML > n_lp`** — X donates to
+         more centers than it has lone pairs for, and one pair has to be shared over three
+         centers. The element list is the shorthand for "`n_lp ≥ 2` whenever `n_center = 2`";
+         μ₃ and above are out of scope.
+
+           μ-H       M–H–M         b_use 0+2 = 2 > 1  →  3c2e
+           μ-CH₃     M–CH₃–M       b_use 3+2 = 5 > 4  →  3c2e
+           μ-CO      M–CO–M        b_use 3+2 = 5 > 4  →  3c2e    (C≡O · a C=O would give 4)
+           B–H···M   borohydride   n_center = M 1 + neighbour B 1 · b_use 2 > 1  →  3c2e
+           μ-CR₂     bridging carbene   b_use 2+2 = 4  →  dative (genuinely two 2c2e)
+           μ-Cl      M–Cl–M        Cl ∉ VALENCE_3C    →  dative (3c4e)
+           terminal  M–L           n_center 1         →  no tag
+
+         `cls` (the pass-1 classes) is a required argument: pass 2 needs this tag to build its
+         budget, so the orders have to come from the pass that has no metal budget.
          output      `ml_bonds[(m,x)]["bridge"]` = None|"3c2e"|"dative" · `["type"]` is
                      haptic > bridge > sigma
          ⚠️ **No bond disappears** — both M–L bonds stay and 7 assigns their orders too.

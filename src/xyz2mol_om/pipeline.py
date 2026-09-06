@@ -192,28 +192,41 @@ def drop_agostic(el, G, ml_raw):
     return out
 
 
-def is_3c2e(el0, deg, n_center):
+def is_3c2e(el0, b_use, n_center):
     """The **raw predicate** of the T7 3c2e decision — shared by `bridge_tags` and the scorer
     (the rule lives in one place).
 
-    `deg`      = that atom's (number of internal bonds + number of M–L bonds)
+    `b_use`    = `b_int(X) + n_ML(X)` — what X has **used**. Internal bonds count by their
+                 **order** (Kekule sum), M–L bonds by their **number** (one donated lone pair
+                 each; under the ionic cut an M–L bond carries no order at all). The two halves
+                 use different units on purpose.
+                 🔴 Called `deg` until 2026-09-06, when the internal half was still the
+                 neighbour **count** — that form misses every bridging atom holding a multiple
+                 internal bond, and `μ-CO` is exactly that case. `deg` means the plain internal
+                 neighbour count everywhere else (PIPELINE.md notation), so the name is not
+                 reused here.
     `n_center` = (number of M–L bonds) + (number of internal neighbors whose element is B or Al)
-    rule  3c2e ⟺ n_center >= 2  AND  el0 ∈ VALENCE_3C  AND  deg > VALENCE_3C[el0]
+    rule  3c2e ⟺ n_center >= 2  AND  el0 ∈ VALENCE_3C  AND  b_use > VALENCE_3C[el0]
+
+    `VALENCE_3C[el]` is **not** a neutral-atom valence — it is the closed-shell budget of the
+    coordinating atom, (bonds + lone pairs). Since `VALENCE_3C[el] - b_int(X) = n_lp(X)`, the
+    rule is equivalent to `n_ML > n_lp`: *X is donating to more centers than it has lone pairs
+    for, so one pair has to be shared.* That is the chemical criterion the tag encodes.
     """
     v0 = VALENCE_3C.get(el0)
-    return n_center >= 2 and v0 is not None and deg > v0
+    return n_center >= 2 and v0 is not None and b_use > v0
 
 
-def bridge_tags(el, G, ml_pred, cls=None):
+def bridge_tags(el, G, ml_pred, cls):
     """T7 ([design doc] §3.0 5c) — the **bridge tag** per coordinating atom.
     Returns `{x: "3c2e" | "dative"}`.
 
     An atom that is not a bridge **has no key at all.**
 
-    🔴 `cls` — **pass-1 internal bond classes** (2026-09-06). When given, `deg` is the sum of
-       internal bond **orders** instead of the number of internal **bonds**. Counting neighbors
-       misses every bridging atom whose internal bond is multiple, and `μ-CO` is exactly that
-       case (C has one neighbour, O, but a triple bond to it):
+    🔴 `cls` — **pass-1 internal bond classes**, `{(i,j): 0|1|2|3}` (2026-09-06). `b_use` is the
+       sum of internal bond **orders** taken from it, not the number of internal **bonds**.
+       Counting neighbours misses every bridging atom whose internal bond is multiple, and
+       `μ-CO` is exactly that case (C has one neighbour, O, but a triple bond to it):
 
            μ-CO   neighbour count  1 + 2 = 3 ≤ 4  →  dative   ✗
                   bond-order sum   3 + 2 = 5 > 4  →  3c2e     ✓
@@ -222,34 +235,36 @@ def bridge_tags(el, G, ml_pred, cls=None):
           budget, so reading pass-2 orders here would be circular. Pass 1 runs with no metal
           budget at all and already calls that C–O `Triple` — the same trick the provisional
           haptic set uses (pass-1 π fragments → budget → pass 2).
-       ⚠️ `cls=None` keeps the pre-2026-09-06 neighbour-count behaviour, which is what the
-          scorer `260831_propagation_prior_cv.py:is_3c2e` still computes. Update the scorer
-          alongside this.
+       ⚠️ **Required, no default.** It used to default to `None` and silently fall back to the
+          neighbour count — the pre-2026-09-06 behaviour — which no caller wants and which an
+          empty `cls` (a ligand with no internal bonds, e.g. a bare μ-H) also triggered through
+          a truthiness test. The scorer `260831_propagation_prior_cv.py:is_3c2e` still computes
+          the old form; update it alongside this.
 
     rule (the same formula as the scorer `260831_propagation_prior_cv.py:is_3c2e`)
 
         n_center(X) = (number of M–L bonds of X) + (number of internal neighbors of X whose
                                                    element is B or Al)
-        deg(X)      = (internal bond orders of X, Kekule count) + (number of M–L bonds of X)
-                      [`cls=None`: number of internal bonds instead of their orders]
+        b_use(X)    = (internal bond orders of X, pass-1 Kekule count) + (number of M–L bonds of X)
 
         bridge(X) ⟺ n_center(X) >= 2
-        3c2e(X)   ⟺ bridge(X)  AND  el[X] ∈ {H, C, Si, B}  AND  deg(X) > VALENCE_3C[el[X]]
+        3c2e(X)   ⟺ bridge(X)  AND  el[X] ∈ {H, C, Si, B}  AND  b_use(X) > VALENCE_3C[el[X]]
                                                               (H 1 · C·Si 4 · B 3)
         dative(X) ⟺ bridge(X)  AND  3c2e(X) is false
 
-    4 real cases (`n_center` · `deg` · tag)
+    5 real cases (`n_center` · `b_use` · tag)
 
-        μ-H       M–H–M         n_center 2 · deg 2 (internal 0 + M–L 2)  →  **3c2e**
-        B–H···M   borohydride   n_center 2 (M 1 + neighbor B 1) · deg 2  →  **3c2e**
-        μ-Cl      M–Cl–M        n_center 2 · deg 2 · Cl is not in the table → **dative** (3c4e)
-        terminal Cl  M–Cl       n_center 1                               →  no tag
+        μ-H       M–H–M         n_center 2 · b_use 2 (internal 0 + M–L 2)   →  **3c2e**
+        μ-CO      M–CO–M        n_center 2 · b_use 5 (C≡O 3 + M–L 2) > 4    →  **3c2e**
+        B–H···M   borohydride   n_center 2 (M 1 + neighbor B 1) · b_use 2   →  **3c2e**
+        μ-Cl      M–Cl–M        n_center 2 · b_use 2 · Cl is not in the table → **dative** (3c4e)
+        terminal Cl  M–Cl       n_center 1                                  →  no tag
 
     ⚠️ `ml_pred` is the set of T4 bonds **after agostic removal and including haptic** — the scorer
        also counts `Pi` (haptic) M–L bonds toward the metal count, so the same input is used.
     """
     nmet = collections.Counter(x for _m, x in ml_pred)
-    bint = _kek_val(G, el, cls) if cls else None
+    bint = _kek_val(G, el, cls)
     tags = {}
     # 🔴 Do not narrow the candidates by `nmet` — **an atom with 0 M–L bonds can also be a
     #   bridge.** Right now B and Al are in `METALS` so they never appear as internal neighbors,
@@ -263,8 +278,8 @@ def bridge_tags(el, G, ml_pred, cls=None):
         n_center = nm + sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
         if n_center < 2:
             continue
-        deg = (bint.get(x, 0.0) if bint is not None else G.degree(x)) + nm
-        tags[x] = "3c2e" if is_3c2e(el[x], deg, n_center) else "dative"
+        b_use = bint.get(x, 0.0) + nm
+        tags[x] = "3c2e" if is_3c2e(el[x], b_use, n_center) else "dative"
     return tags
 
 
