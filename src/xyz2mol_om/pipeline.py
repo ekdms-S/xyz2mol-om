@@ -199,12 +199,8 @@ def is_3c2e(el0, b_use, n_center):
     `b_use`    = `b_int(X) + n_ML(X)` — what X has **used**. Internal bonds count by their
                  **order** (Kekule sum), M–L bonds by their **number** (one donated lone pair
                  each; under the ionic cut an M–L bond carries no order at all). The two halves
-                 use different units on purpose.
-                 🔴 Called `deg` until 2026-09-06, when the internal half was still the
-                 neighbour **count** — that form misses every bridging atom holding a multiple
-                 internal bond, and `μ-CO` is exactly that case. `deg` means the plain internal
-                 neighbour count everywhere else (PIPELINE.md notation), so the name is not
-                 reused here.
+                 use different units on purpose. (`deg(X)` in PIPELINE.md's notation is the
+                 plain internal neighbour count — a different quantity.)
     `n_center` = (number of M–L bonds) + (number of internal neighbors whose element is B or Al)
     rule  3c2e ⟺ n_center >= 2  AND  el0 ∈ VALENCE_3C  AND  b_use > VALENCE_3C[el0]
 
@@ -223,23 +219,16 @@ def bridge_tags(el, G, ml_pred, cls):
 
     An atom that is not a bridge **has no key at all.**
 
-    🔴 `cls` — **pass-1 internal bond classes**, `{(i,j): 0|1|2|3}` (2026-09-06). `b_use` is the
-       sum of internal bond **orders** taken from it, not the number of internal **bonds**.
-       Counting neighbours misses every bridging atom whose internal bond is multiple, and
-       `μ-CO` is exactly that case (C has one neighbour, O, but a triple bond to it):
-
-           μ-CO   neighbour count  1 + 2 = 3 ≤ 4  →  dative   ✗
-                  bond-order sum   3 + 2 = 5 > 4  →  3c2e     ✓
+    `cls` — **pass-1 internal bond classes**, `{(i,j): 0|1|2|3}`. `b_int` is read from these,
+       so an atom's multiple internal bond (the C≡O of a bridging carbonyl) counts as its order.
+       Required — there is no neighbour-count fallback.
 
        ⚠️ It must be the **pass-1** classes, not pass-2. Pass 2 needs the tag to build its
           budget, so reading pass-2 orders here would be circular. Pass 1 runs with no metal
-          budget at all and already calls that C–O `Triple` — the same trick the provisional
-          haptic set uses (pass-1 π fragments → budget → pass 2).
-       ⚠️ **Required, no default.** It used to default to `None` and silently fall back to the
-          neighbour count — the pre-2026-09-06 behaviour — which no caller wants and which an
-          empty `cls` (a ligand with no internal bonds, e.g. a bare μ-H) also triggered through
-          a truthiness test. The scorer `260831_propagation_prior_cv.py:is_3c2e` still computes
-          the old form; update it alongside this.
+          budget at all — the same trick the provisional haptic set uses (pass-1 π fragments →
+          budget → pass 2).
+       ⚠️ The scorer `260831_propagation_prior_cv.py:is_3c2e` computes this the old way
+          (neighbour count) and must be updated alongside.
 
     rule (the same formula as the scorer `260831_propagation_prior_cv.py:is_3c2e`)
 

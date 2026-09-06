@@ -1,11 +1,9 @@
 """mu-CO — the bridging carbonyl must come out as `3c2e` with an intact `C≡O`.
 
-Why this test exists (2026-09-06). `bridge_tags` used to measure `deg` as the **number** of
-internal bonds, so the C of a bridging CO scored `1 + 2 = 3 <= 4` and was tagged `dative`. And
-even with the tag fixed nothing moved, because the tag reached only `BMLSKIP3C` (off, rejected).
-Two changes together are what fix it — `deg` counts pass-1 bond **orders**, and an atom taking
-part in a 3c2e spends `BML3C_COST` (1.0) in total instead of one unit per M-L bond. This pins
-both, and the last test pins the old behaviour so the change stays A/B-measurable.
+What is pinned: `b_use` counts pass-1 bond **orders**, so the C of a bridging CO scores
+`3 + 2 = 5 > 4` and is tagged `3c2e`; and an atom taking part in a 3c2e spends `BML3C_COST`
+(1.0) of the budget in total rather than one unit per M-L bond, which is what leaves the `C≡O`
+intact and Co at 0. The last test pins `BML3C_COST=-1` so the setting stays A/B-measurable.
 
 Structure: Co2(CO)8, the C2v bridged isomer, relaxed with GFN2-xTB (Co-Co 2.514 A · experiment
 2.52). **Not a CSD structure** — it is embedded here so the test needs no data file. `wbo` is
