@@ -141,7 +141,8 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         Gj.add_edges_from(conj)
         conj = {e for e in conj if Gj.degree(e[0]) > 1 or Gj.degree(e[1]) > 1}
     w = {e: v.get(1, 0.0) - v.get(0, 0.0) for e, v in sc.items()}
-    # ④ hard valence-cap constraint — exact solution (M–L up to Triple)
+    # ④ hard valence-cap constraint (M–L up to Triple) — a matching reduction, not the
+    #   exact maximum; see `_solve_cap` and the `CAPMILP` comment in `config`
     iness = set()
     cls, mlout = _solve_cap(G, el, sc, conj, bml, ml_sc, ml_max=2, iness_out=iness)
     if CAPINESS and iness:

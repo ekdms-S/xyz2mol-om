@@ -1,4 +1,4 @@
-"""Search — exact solution under the valence cap (④) · local search for the conjugated set (③) ·
+"""Search — the valence-cap assignment (④) · local search for the conjugated set (③) ·
 the R6 swap.
 
 ⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
@@ -146,8 +146,16 @@ def _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, base):
 
 
 def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
-    """**Exact solution** enforcing the cap only — the maximum-likelihood assignment among those
-    that satisfy the cap (Blossom, polynomial time).
+    """The cap-respecting assignment — high likelihood subject to the valence cap, via a matching
+    reduction (Blossom, polynomial time).
+
+    🔴 **Not the exact maximum** (measured 2026-09-08, the docstring used to claim it was).
+    `Triple` is confirmed first, greedily, before the `Double`/M–L matching runs, so one `Triple`
+    is never weighed against several `Double`s. Solving the identical objective under the
+    identical constraints as a MILP and comparing: **113 of 12,245** ④ calls on holdout are
+    suboptimal, median loss **4.58** (max 23.07) — about one bond decision. `CAPMILP=1` is that
+    exact path; it is implemented and **off**, because the ④ metrics rise while the deployment
+    output gets worse (see the `CAPMILP` comment in `config`).
 
     If `ml_sc` is given, **the M–L orders are decided inside the same optimization** (the order
     is raised one unit at a time, with a single dummy per unit so the same unit cannot be used
@@ -300,7 +308,7 @@ def _solve_sc(G, el, sc, ringA, coord, bml, lam_hi=10.0, lam_lo=10.0, maxit=50):
     are not penalized for being under-valent.
 
     This is the same search `D` and `D_satA` use. Here it is used **only to fix the conjugated
-    set** (the orders themselves are decided again by the exact solution that follows).
+    set** (the orders themselves are decided again by the cap-respecting solve that follows).
     """
     cur = {}
     for a, b in G.edges:

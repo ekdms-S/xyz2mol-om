@@ -135,11 +135,19 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | T5 haptic call | F1 | **0.9777** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | **0.9863** | 4,221 ligands | all `k=0` .8704 |
 | T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7461 / .7317** | 39,540 bonds | — |
-| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8398** | 1,161 structures | ceiling 83.4% |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8712** | 2,779 structures | ceiling 85.6% |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8398** | 1,161 structures | reference-order 0.8528 |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8712** | 2,779 structures | reference-order 0.8698 |
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%.
+
+⚠️ **`reference-order` is not an upper bound.** It is what the same charge rule produces when the
+**reference** bond orders are fed to it (CSD labels through `charge.kekulize`), so it measures how
+much of the gap is our notation against tmQMg-L's rather than our bond orders. Its pool is slightly
+smaller (1,155 / 2,643 structures — kekulization of the reference fails on a few), so it must not
+be read against the column to its left. **On the common pool** the comparison is
+`Σq_L` **0.8442 → 0.8528** and `OS` **0.8649 → 0.8725**, i.e. 0.9%p and 0.8%p of headroom left.
+(Re-measured 2026-09-08; the figures previously printed here, 83.4% and 85.6%, were stale.)
 
 ### Valence violations — chemical validity of the output
 
@@ -168,7 +176,7 @@ structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm suc
 
 ⚠️ **Our own rows in this table were measured on 2026-08-31, before `ADJQVETO` was adopted**
 (2026-09-07); the external tools' rows are unaffected. On the whole holdout the adoption moved
-violating structures by **+0.04%p** (2.99% → 3.03%), so expect a shift of that size here. It has
+violating structures by **+0.03%p** (2.99% → 3.02%), so expect a shift of that size here. It has
 not been re-measured, because the run also drives the three external tools live.
 
 The `b_int`-only columns are the fair comparison (every tool can produce that) — we are lowest

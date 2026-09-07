@@ -1,5 +1,31 @@
 # Pipeline — what is decided in what order, by what formula
 
+
+## ★ Current performance — re-measured 2026-09-08 (shipped defaults)
+
+`ADJQVETO=1 CLUSKEK=1 CONJW=1 CAPINESS=1 EHTNITRO=1 CAPDUP=1` (**no fitted parameter**) ·
+`ADJQW=0 TAUD=0 ETAEXO=0 CAPMILP=0` (built, measured, rejected — see the `config` comments).
+
+| task | holdout 6,793 | train 27,294 |
+|---|---|---|
+| T1 internal bond existence | .9998 | .9998 |
+| T3 `Single`/`Double`/`Triple`/`Conj` | **.9901 / .7417 / .9770 / .9583** | .9893 / .7327 / .9777 / .9558 |
+| T4 M–L·M–M existence | .9905 | .9918 |
+| T5 haptic | .9777 | .9794 |
+| T6 η^k | .9863 | .9818 |
+| T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7461 / .7317** | .9934 / .7515 / .7728 |
+| T10 `Σq_L` · `OS` | **.8398 · .8712** | .8344 · .8640 |
+| valence-violating structures | .0302 | .0307 |
+| harmful `Double` errors | **305 bonds · 167 structures (2.46%)** | — |
+| emitted charges not summing to the input total | 298 (4.39%) | — |
+
+Feeding the **reference** bond orders to the same charge rule gives `Σq_L` .8528 · `OS` .8698 —
+that is the share of the gap owed to our notation rather than our bond orders, **not an upper
+bound**. Its pool is slightly smaller (1,155 / 2,643); on the **common pool** the pair reads
+`Σq_L` .8442 → .8528 and `OS` .8649 → .8725.
+
+🔴 **The numbers further down are from the date they were taken** — they record how a rule was
+adopted, not current performance. Quote this table.
 **Every decision rule** from one `xyz` coming in to bonds, orders, charges, and oxidation states coming out.
 This document is the pipeline **as it is**. Trial and error, rejected alternatives and the tuning history are
 kept in the project workspace (`docs/analysis/` · `docs/settings/`), not here.
@@ -367,8 +393,10 @@ Compared over the same bond set, `Double` is .6888 → **.6952**.
 ### What is left
 
 - **`Double` is the only weak class.** The rest are .98–.99.
-- The **ceiling of `Σq_L` and `OS` is 83.4% / 85.6%**. Even feeding the CSD reference bond orders wholesale
-  does not go beyond that — the `charge` of the reference labels (tmQMg-L) is **NBO-derived**, so its convention
+- Feeding the CSD reference bond orders wholesale to the same charge rule gives `Σq_L` **0.8528** ·
+  `OS` **0.8698** (re-measured 2026-09-08; the 83.4% / 85.6% printed here before was stale, and it is
+  a reference point, **not a ceiling** — its pool differs, and on the common pool the pair reads
+  0.8442 → 0.8528 and 0.8649 → 0.8725).
   differs from our Lewis accounting (haptic charge convention · ionic/covalent boundary). **It is not prediction error.**
 - The remaining `Double` errors cluster in carbonyl `C–O` · imine `C–N` · thiocarbonyl `C–S` · azo `N–N`,
   and close to half of them are a question of **how far `Conj` is taken**.
