@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .config import (ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
+from .config import (ALT, CAP, CLUSKEK, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
 
 
 def q_atom(e, b, deg=None, nb=()):
@@ -257,19 +257,27 @@ def parse_os(m, nm):
 #      wrong).
 #   ⚠️ The body of this function must **stay identical to** workspace
 #      `260830_fit_t10_charge.py`.
-def is_cluster_frag(G, el, cls, comp):
-    """Is the fragment a cluster (multicenter skeleton)? — the rule above."""
+def is_cluster_frag(G, el, cls, comp, orders=None):
+    """Is the fragment a cluster (multicenter skeleton)? — the rule above.
+
+    With `CLUSKEK=1` and `orders` (the Kekule integers from `kekulize`) the sum uses those
+    instead of the 4-class values, so a `Conj` bond counts 1 or 2 rather than 1.5 — see the
+    `CLUSKEK` comment in `config`.
+    """
     for x in comp:
-        b = sum(ORD4[cls.get((min(x, w), max(x, w)), 0)] for w in G[x])
+        if CLUSKEK and orders is not None:
+            b = sum(orders.get((min(x, w), max(x, w)), 1) for w in G[x])
+        else:
+            b = sum(ORD4[cls.get((min(x, w), max(x, w)), 0)] for w in G[x])
         if b > CAP.get(el[x], 4) + 1e-9:
             return True
     return False
 
 
-def frag_charge_or_eht(G, el, cls, comp, q_eht=None):
+def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None):
     """Fragment charge — the **EHT fragment charge** for a cluster, otherwise the formal-charge
     sum (`_qfrag`)."""
-    if is_cluster_frag(G, el, cls, comp):
+    if is_cluster_frag(G, el, cls, comp, orders):
         q = (q_eht or {}).get(min(comp))
         if q is not None:
             return float(q)

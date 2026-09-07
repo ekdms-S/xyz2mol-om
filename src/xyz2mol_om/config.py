@@ -372,6 +372,24 @@ ADJQW = float(os.environ.get("ADJQW", "0"))
 #      — ⑤ demotions were sometimes relieving a cap that ④ had spent.
 # ★ adopted 2026-09-07 (proposal 1)
 ADJQVETO = os.environ.get("ADJQVETO", "1") == "1"
+# ★ `CLUSKEK=1` — decide `is_cluster_frag` on the **Kekule integer** bond orders instead of the
+#   4-class ones (adopted 2026-09-08).
+#   Why: the cluster test is `b_int(x) > CAP(el[x])`, and a `Conj` bond counts **1.5**, so a
+#   carbon with three of them reads 4.5 > 4 and an ordinary substituted arene is taken for a
+#   multicentre cage -- its ligand charge then comes from EHT instead of the formal-charge sum.
+#   The EHT number is often right by luck, so `Sq_L`/`OS` looked fine **while the emitted
+#   structure disagreed with them**: `EJUJUP` reports `q_L = 0` / `OS(Cr) = 0` and draws two
+#   carbanions, i.e. a complex whose formal charges sum to -2 against an input total of 0
+#   (`complex_smiles_ok` already said so: "charge sum differs from total charge -2 vs 0").
+#   Measured (holdout 6,793 - `260908_charge_conservation.py`):
+#     cluster calls, fragment level        906 -> 159   (747 were artifacts of the 1.5)
+#     structures whose emitted charges do not sum to the input total
+#                                          383 (5.64%) -> **297 (4.37%)**   (93 fixed, 7 broken)
+#     reported ligand charge != Kekule     318 -> 230
+#     cost:  `OS` .8618 -> .8611 (2 structures) · `Sq_L` .8312 unchanged · T1/T3/T4/T5/T6/T8 all
+#            unchanged
+#   ⚠️ The remaining 297 have other causes and are **not** measured yet.
+CLUSKEK = os.environ.get("CLUSKEK", "1") == "1"
 # 🔴 `LNORM=1` — include the **normalization term `−log(2·scl)`** of the Laplace log posterior
 #   (2026-09-03).
 #   The current formula omits that term, so **a class with narrow spread gets no reward.** `C=O`

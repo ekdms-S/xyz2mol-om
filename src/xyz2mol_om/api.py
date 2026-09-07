@@ -228,7 +228,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         # 🔴 For a cluster fragment (carborane and the like) the formal-charge sum cannot be
         #    trusted — use the EHT fragment charge. For the rule and its evidence see the
         #    `charge.is_cluster_frag` comment (2026-09-03).
-        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht))
+        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders))
         q_all[key] = qL
         coord = sorted({x for _m, x in ml_raw if x in cs})
         coord_of[key] = coord

@@ -136,7 +136,7 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | T6 η^k (exact match per ligand) | accuracy | **0.9863** | 4,221 ligands | all `k=0` .8704 |
 | T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7400 / .6391** | 39,540 bonds | — |
 | T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8312** | 1,161 structures | ceiling 83.4% |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8618** | 2,779 structures | ceiling 85.6% |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8611** | 2,779 structures | ceiling 85.6% |
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%.
