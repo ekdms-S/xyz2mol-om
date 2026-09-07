@@ -130,41 +130,12 @@ that are not yet contaminated by the metal budget (see 5″).
            μ-Cl      M–Cl–M        Cl ∉ VALENCE_3C    →  dative (3c4e)
            terminal  M–L           n_center 1         →  no tag
 
-         🔴 **μ-CO is written as `C≡O` + one 3c2e bond, and that is a deliberate choice with a
-         measured price.** A symmetrically bridging carbonyl has two defensible representations
-         (Green, Green & Parkin, *Chem. Commun.* **2012**, 48, 11481): with π-backbonding it is
-         **μ-X₂** — a ketonic `C=O` and two 2c–2e M–C bonds, each metal receiving one electron;
-         without backbonding it is **μ-L** — a single 3c–2e bond, the ligand a neutral 2e donor.
-         The two disagree on both outputs, and we cannot have both:
-
-           | | C–O order | `q_L` | oxidation state of Co₂(CO)₈ |
-           |---|---|---|---|
-           | μ-X₂ (ketonic) | `C=O` | −2 | Co(+2) |
-           | **μ-L (this code)** | **`C≡O`** | **0** | **Co(0)** |
-
-         **Why μ-L.** The output feeds electron-conserving models whose molecular representation
-         is a bond-electron matrix (diagonal = lone pairs, off-diagonal = bond order, the matrix
-         conserved across a reaction) with an explicit **bridge class for 3c–2e**. In that
-         representation μ-L is the consistent one: one donated pair, one bridge bond, and a
-         carbon that keeps its **octet** (`C≡O` 3 + bridge 1 = 4). The ketonic form written with
-         a neutral carbon would be a **6-electron** carbon, and written with `q_L = −2` it
-         contradicts the oxidation-state convention (CO counts as neutral whether terminal or
-         bridging).
-
-         **What it costs, measured** (CSD reference labels · deployed path):
-         the CSD writes μ₂-CO as `Double` — 311/318 of the bridging carbonyls where the C has one
-         heteroatom neighbour and C–O ≤ 1.25 Å (terminal: `Triple` 19,808/21,318) — so every one
-         of them is scored wrong here. On a 2,116-structure sample that is internal
-         `Double` F1 **.6963 → .6892** and `Triple` **.9809 → .9746**; 25 of 25 μ-CO bonds flip
-         from a correct `Double` to `Triple`.
-         The oxidation state moves the other way: against the roman numeral in the CSD
-         `chemical_name`, μ-CO structures go **0/21 → 17/21** (control, structures without μ-CO:
-         353/400 = 0.882).
-         ⚠️ The physics is on the ketonic side — every one of the 322 μ-CO structures in the
-         reference set shows the C–O elongation of real backbonding (μ₂ − terminal = +0.011 to
-         +0.031 Å across 16 metals, and no d⁰ early metal appears at all). We take μ-L anyway,
-         because a consistent, octet-complete, electron-conserving graph is what the consumer
-         needs; the integer bond order cannot express a backbonded bridge either way.
+         🔴 **This tag is not a label on the output — it changes the answer.** An atom tagged
+         `3c2e` spends `BML3C_COST` (1.0) of the ④ valence budget *in total* instead of one unit
+         per M–L bond, which raises its headroom and therefore the **internal bond orders** ④
+         assigns to it; ⑥ and the fragment charge use the same budget. So μ-CO comes out as
+         `C≡O` with one 3c2e bond and a neutral ligand (`[O+]#[C-]`, the same fragment as a
+         terminal CO), not as a ketonic `C=O` with two dative bonds.
 
          `cls` (the pass-1 classes) is a required argument: pass 2 needs this tag to build its
          budget, so the orders have to come from the pass that has no metal budget.
