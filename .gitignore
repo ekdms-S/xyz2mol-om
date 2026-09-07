@@ -11,3 +11,9 @@ dist/
 # reaches the (5) EHT fragment-charge target
 nul
 run.out
+
+# development-stage code and data — deliberately NOT part of the published package.
+# `dev/` has its own private git repository; `data/` holds CSD-licensed coordinates
+# (mol2 · ref_xtb2) that must never be published. Do not `git add -f` either of them.
+/dev/
+/data/

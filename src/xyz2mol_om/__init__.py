@@ -9,8 +9,10 @@ What is used (decision rules and formulas) and the performance figures are in `d
 from .api import predict
 from .assemble import assemble_complex
 from .charge import frag_charge, kekulize, q_atom
+from .config import METALS, METALS_HARD, RCOV
 from .connectivity import load_dint
 from .eht import eht_frag_charges
+from .geometry import read_xyz
 from .likelihood import deg_cell, fit_scores4, load_scores4, scores4_meta
 from .ml_order import load_b_ml_mayer, ml_order_scores, predict_T8
 from .pipeline import predict_T3_EHT
@@ -20,6 +22,13 @@ from .smiles import ligand_smiles, verify_roundtrip
 __version__ = "0.1.0"
 __all__ = [
     "predict",
+    # small helpers a caller needs to feed `predict` — reading an xyz file and
+    # asking which elements this pipeline treats as metals (`METALS` includes B, `METALS_HARD`
+    # does not · `RCOV` are the covalent radii the connectivity uses)
+    "read_xyz",
+    "METALS",
+    "METALS_HARD",
+    "RCOV",
     "assemble_complex",
     "predict_T3_EHT",
     "load_scores4",
