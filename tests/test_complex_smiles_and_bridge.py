@@ -9,11 +9,9 @@ Two systems are covered:
 # ruff: noqa: E501
 from __future__ import annotations
 
-from unittest import mock
-
 import numpy as np
 
-from xyz2mol_om import predict, pipeline
+from xyz2mol_om import predict
 from xyz2mol_om.pipeline import bridge_tags
 
 EL = ["Mo", "N", "O", "H", "Cl", "Cl", "Cl"]
@@ -94,22 +92,14 @@ def test_bridge_tags_rule():
     G2.add_edge(1, 2)
     assert bridge_tags(el, G2, [(0, 2)], {(1, 2): 0}) == {2: "3c2e"}
 
-    # μ-CO : a bridging pi acceptor. Raw pass-1 order gives 3 + 2 = 5 > 4, but `piacc_relief`
-    #   subtracts one per metal beyond the first ⇒ 3 − 1 + 2 = 4 = VALENCE_3C[C]  ⇒ **dative**
-    #   (ketonic `C=O` + two 2c2e M–C bonds · CSD: μ₂ CO is `Double` 311/318)
+    # μ-CO : C has **one** internal neighbour but a **triple** bond to it — the case the
+    #   neighbour-count form missed.  b_use = 3 + 2 = 5 > VALENCE_3C[C]=4  ⇒ 3c2e
     el = ["Co", "Co", "C", "O"]
     G3 = nx.Graph()
     G3.add_edge(2, 3)
-    assert bridge_tags(el, G3, [(0, 2), (1, 2)], {(2, 3): 2}) == {2: "dative"}
-    #   without the correction the same input is `3c2e` — that is the 2026-09-06 branch answer
-    with mock.patch.object(pipeline, "PIACC_BRIDGE", False):
-        assert bridge_tags(el, G3, [(0, 2), (1, 2)], {(2, 3): 2}) == {2: "3c2e"}
-    #   a bridging **methoxide** methyl carbon (single C–O) never took the correction anyway
-    assert bridge_tags(el, G3, [(0, 2), (1, 2)], {(2, 3): 0}) == {2: "dative"}
-    #   a bridging carbon whose multiple bond is to **carbon** (vinylidene) is not a pi-acceptor
-    #   diatomic — the correction does not apply, and 2 + 2 = 4 makes it dative on its own
-    el4 = ["Co", "Co", "C", "C"]
-    assert bridge_tags(el4, G3, [(0, 2), (1, 2)], {(2, 3): 1}) == {2: "dative"}
+    assert bridge_tags(el, G3, [(0, 2), (1, 2)], {(2, 3): 2}) == {2: "3c2e"}
+    #   the same carbon with a **double** C–O would be 2 + 2 = 4, not a 3c2e
+    assert bridge_tags(el, G3, [(0, 2), (1, 2)], {(2, 3): 1}) == {2: "dative"}
 
 
 def test_bridge_type_precedence():

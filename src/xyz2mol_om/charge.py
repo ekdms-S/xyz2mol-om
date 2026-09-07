@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .config import ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL
+from .config import (ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
 
 
-def q_atom(e, b, deg=None, nb=(), piacc=False):
+def q_atom(e, b, deg=None, nb=()):
     """(a) q_i = v + b − quota (octet assumption `lp = 4 − b`).
 
     ★ (a′) covers only the sites where the octet breaks (2026-08-30, [design doc] §5.0.8 ④ · V2d).
@@ -33,24 +33,6 @@ def q_atom(e, b, deg=None, nb=(), piacc=False):
     #   measured (reference assignment · train 26,075 · 94,117 fragments): 1,427 hypervalent
     #   atoms · EHT target mismatch for their fragments **50.7% → 28.5%** (626 → 352). Not a
     #   single `b ≤ 4` site changes.
-    # ★ (a'') bridging pi acceptor — `piacc` (2026-09-07). The octet formula assumes
-    #   `lp = 4 - b`, i.e. **two** lone pairs on a `C=O` carbon. A ketonic bridging carbonyl
-    #   carbon has four bonds (`C=O` + two M-C) and therefore **no room for two lone pairs**:
-    #   only the first M-C bond is a pair donated *by* the ligand, the second is the metal's
-    #   backbonding pair drawn as a sigma bond. Counting it as donated by carbon invents an
-    #   electron pair and gives `q_L = -2` (Co2(CO)8 -> Co(+2)).
-    #   This is the same physics as the heteroatom-stabilized carbene rule below - a carbon
-    #   with one lone pair, not two - and it makes CO the **neutral 2-electron donor** it is
-    #   under the mu-L description (Green, Green & Parkin, Chem. Commun. 2012, 48, 11481).
-    #   measured (CSD `chemical_name` roman numerals, the same parser and pipeline):
-    #       oxidation state of mu-CO structures   without this rule **0/21** · with it **17/21**
-    #       control, structures with no mu-CO      353/400 = 0.882
-    #   ⚠️ This mixes two formalisms on purpose: the **bond order** follows the ketonic
-    #      (mu-X2) picture, which is what the CSD labels (mu2 `Double` 311/318), while the
-    #      **charge** follows the mu-L picture, which is what the naming convention uses. No
-    #      single formalism reproduces both. See PIPELINE.md.
-    if piacc:
-        return 0
     if QHV and b > 4.0 + 1e-9:
         return VAL.get(e, 4) - b
     nO, nN = nb.count("O"), nb.count("N")
@@ -74,7 +56,6 @@ def q_atom(e, b, deg=None, nb=(), piacc=False):
     if e == "N" and deg == 2 and b == 4.0 and nO == 2:
         return -1  # nitro (two N=O) — 10 electrons.            octet formula +1
     return VAL.get(e, 4) + b - FULL.get(e, 8)
-
 
 def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
     """Charge of one conjugated fragment — rule (b).
@@ -125,15 +106,9 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
         q += q_atom(el[v], b, None if deg is None else deg.get(v), (nbrs or {}).get(v, ()))
     return q
 
-
-def _qfrag(G, el, cls, comp, piacc=frozenset()):
+def _qfrag(G, el, cls, comp):
     """Charge of one fragment — the same q rule as in the main text (conjugated fragments go
-    through `frag_charge`).
-
-    `piacc` — bridging pi-acceptor donor atoms (`pipeline.piacc_bridges`), which take the
-    `q_atom` exception above. Pass the **same set** everywhere the charge is computed, or the
-    (5) EHT target and the reported charge will chase different numbers.
-    """
+    through `frag_charge`)."""
     pc = {e for e, v in cls.items() if v == 3 and e[0] in comp}
     Gc = nx.Graph()
     Gc.add_edges_from(pc)
@@ -156,14 +131,9 @@ def _qfrag(G, el, cls, comp, piacc=frozenset()):
         if v in ca:
             continue
         q += q_atom(
-            el[v],
-            sum(ORD4[cls.get((min(v, w), max(v, w)), 0)] for w in G[v]),
-            DEG[v],
-            NB[v],
-            v in piacc,
+            el[v], sum(ORD4[cls.get((min(v, w), max(v, w)), 0)] for w in G[v]), DEG[v], NB[v]
         )
     return q
-
 
 def kekulize(G, el, cls, bml=None):
     """⑥ **output converter** — turn the 4-class prediction (`Conj` included) back into integer
@@ -223,7 +193,6 @@ def kekulize(G, el, cls, bml=None):
             frag_q[min(cm)] = q
     return orders, frag_q
 
-
 def parse_os(m, nm):
     """Read the oxidation state of metal `m` from the name. Returns None for mixed valence or
     unknown (excluded from scoring)."""
@@ -258,11 +227,11 @@ def is_cluster_frag(G, el, cls, comp):
     return False
 
 
-def frag_charge_or_eht(G, el, cls, comp, q_eht=None, piacc=frozenset()):
+def frag_charge_or_eht(G, el, cls, comp, q_eht=None):
     """Fragment charge — the **EHT fragment charge** for a cluster, otherwise the formal-charge
     sum (`_qfrag`)."""
     if is_cluster_frag(G, el, cls, comp):
         q = (q_eht or {}).get(min(comp))
         if q is not None:
             return float(q)
-    return _qfrag(G, el, cls, comp, piacc)
+    return _qfrag(G, el, cls, comp)

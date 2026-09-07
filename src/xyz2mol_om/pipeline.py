@@ -12,30 +12,9 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (
-    BML3C_COST,
-    CAP,
-    EHTCOST,
-    EHTMINFRAG,
-    EHTSKIP,
-    LNORM_ON,
-    LNORM_SKIP_CONJ,
-    LPA,
-    ORD4,
-    PIACC_BRIDGE,
-    PIACC_NB,
-    LPCOND,
-    LPCOND_NOCONJ,
-    R2CONJ,
-    R5SOLO,
-    ROPW,
-    TAU_P,
-    USE_ROP,
-    R7MIN,
-    R7RING,
-    THETA_HAPTIC,
-    VALENCE_3C,
-)
+from .config import (BML3C_COST, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA,
+                     LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
+                     VALENCE_3C,)
 from .charge import _qfrag
 from .conjugation import conj_forbidden, lp_donor, rule_a_ok
 from .eht import eht_frag_charges
@@ -45,9 +24,7 @@ from .solvers import _kek_val, _solve_cap, _solve_sc, r6_swap
 from .ml_order import load_b_ml_mayer, ml_order_scores, ml_order_scores_dist
 
 
-def predict_T3_EHT(
-    el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None, piacc=frozenset()
-):
+def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None):
     """★ Adopted option `D_eht` — all stages of [design doc] §3 `1c`.
     Returns `(internal classes, M–L classes)`.
 
@@ -146,7 +123,7 @@ def predict_T3_EHT(
         snap = {e: cls[e] for e in edges}
         cost = 0.0
         for _ in range(12):
-            d = tgt - round(_qfrag(G, el, cls, comp, piacc))
+            d = tgt - round(_qfrag(G, el, cls, comp))
             if d == 0 or abs(d) % 2 == 1:
                 break
             use = collections.defaultdict(float, _kek_val(G, el, cls))
@@ -215,48 +192,6 @@ def drop_agostic(el, G, ml_raw):
     return out
 
 
-def piacc_relief(el, G, cls, x, n_ml):
-    """The **bridging pi-acceptor correction** to `b_use` (`config.PIACC_BRIDGE`).
-
-    Returns how much internal order to subtract from `b_use(X)` — `n_ml - 1`, or `0.0` when the
-    correction does not apply.
-
-    applies ⟺ `n_ml >= 2`  AND  X is C  AND  X has exactly **one** internal neighbor Y
-              AND  el[Y] ∈ {O, N, S}  AND  the pass-1 order of X–Y is **>= 2**
-
-    That set is the pi-acceptor diatomic donors — CO, CN, CS, RNC. Each metal beyond the first
-    turns one of their pi bonds into a sigma bond (backbonding), so the free-ligand order pass 1
-    returns is one too high per extra metal:
-
-        mu2-CO   b_use = 3 (`C#O`, pass 1) - 1 + 2 = **4** <= CAP(C)  ->  dative, ketonic `C=O`
-        terminal CO   n_ml 1, no correction, and `n_center` 1 means no tag at all
-
-    Untouched: mu-H (not C) · mu-CH3 (3 internal neighbors) · mu-CR2 (2 neighbors) ·
-    bridging alkoxide/thiolate methyl carbons (their C–O/C–S is a single bond).
-
-    measured (CSD labels · train) — `config.PIACC_BRIDGE` carries the census.
-    """
-    if not PIACC_BRIDGE or n_ml < 2 or el[x] != "C":
-        return 0.0
-    nbrs = list(G[x])
-    if len(nbrs) != 1 or el[nbrs[0]] not in PIACC_NB:
-        return 0.0
-    y = nbrs[0]
-    if ORD4[cls.get((min(x, y), max(x, y)), 0)] < 2.0:
-        return 0.0
-    return float(n_ml - 1)
-
-
-def piacc_bridges(el, G, cls, ml_pred):
-    """The bridging pi-acceptor donor atoms — `{x}` where `piacc_relief` applies.
-
-    Same predicate as the T7 correction, exposed because the **charge** needs it too: for these
-    atoms only the first M-L bond is a pair donated by the ligand (`charge.q_atom`).
-    """
-    nml = collections.Counter(x for _m, x in ml_pred)
-    return frozenset(x for x in nml if piacc_relief(el, G, cls, x, nml[x]) > 0.0)
-
-
 def is_3c2e(el0, b_use, n_center):
     """The **raw predicate** of the T7 3c2e decision — shared by `bridge_tags` and the scorer
     (the rule lives in one place).
@@ -268,7 +203,6 @@ def is_3c2e(el0, b_use, n_center):
                  plain internal neighbour count — a different quantity.)
     `n_center` = (number of M–L bonds) + (number of internal neighbors whose element is B or Al)
     rule  3c2e ⟺ n_center >= 2  AND  el0 ∈ VALENCE_3C  AND  b_use > VALENCE_3C[el0]
-          ⚠️ `b_use` reaches this predicate **after** `piacc_relief` (`config.PIACC_BRIDGE`).
 
     `VALENCE_3C[el]` is **not** a neutral-atom valence — it is the closed-shell budget of the
     coordinating atom, (bonds + lone pairs). Since `VALENCE_3C[el] - b_int(X) = n_lp(X)`, the
@@ -301,7 +235,6 @@ def bridge_tags(el, G, ml_pred, cls):
         n_center(X) = (number of M–L bonds of X) + (number of internal neighbors of X whose
                                                    element is B or Al)
         b_use(X)    = (internal bond orders of X, pass-1 Kekule count) + (number of M–L bonds of X)
-                      - `piacc_relief(X)`   (bridging pi acceptor: -1 per metal beyond the first)
 
         bridge(X) ⟺ n_center(X) >= 2
         3c2e(X)   ⟺ bridge(X)  AND  el[X] ∈ {H, C, Si, B}  AND  b_use(X) > VALENCE_3C[el[X]]
@@ -311,9 +244,7 @@ def bridge_tags(el, G, ml_pred, cls):
     5 real cases (`n_center` · `b_use` · tag)
 
         μ-H       M–H–M         n_center 2 · b_use 2 (internal 0 + M–L 2)   →  **3c2e**
-        μ-CO      M–CO–M        n_center 2 · b_use 4 (C≡O 3 - 1 + M–L 2) = 4 →  **dative**
-                                    (ketonic `C=O` + two 2c2e M–C bonds — CSD labels
-                                     μ₂ `Double` 311/318, terminal `Triple` 19,808/21,318)
+        μ-CO      M–CO–M        n_center 2 · b_use 5 (C≡O 3 + M–L 2) > 4    →  **3c2e**
         B–H···M   borohydride   n_center 2 (M 1 + neighbor B 1) · b_use 2   →  **3c2e**
         μ-Cl      M–Cl–M        n_center 2 · b_use 2 · Cl is not in the table → **dative** (3c4e)
         terminal Cl  M–Cl       n_center 1                                  →  no tag
@@ -336,7 +267,7 @@ def bridge_tags(el, G, ml_pred, cls):
         n_center = nm + sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
         if n_center < 2:
             continue
-        b_use = bint.get(x, 0.0) + nm - piacc_relief(el, G, cls, x, nm)
+        b_use = bint.get(x, 0.0) + nm
         tags[x] = "3c2e" if is_3c2e(el[x], b_use, n_center) else "dative"
     return tags
 
@@ -376,9 +307,8 @@ def _closest_mid(xyz, x, m, cand):
     return min(cand, key=lambda q: float(np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m])))
 
 
-def predict_T3_T5(
-    el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None, q_eht=None, rop=None
-):
+def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
+                  q_eht=None, rop=None):
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
     the haptic set** end to end.
 
@@ -420,9 +350,6 @@ def predict_T3_T5(
     #      still assigns orders to them.
     btag = bridge_tags(el, G, ml_pred, cls0)
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
-    # The bridging pi acceptors are needed by the **charge** as well (`charge.q_atom`), and the
-    # (5) EHT target has to use the same convention or it will chase a different number.
-    piacc = piacc_bridges(el, G, cls0, ml_pred)
     bml = bml_budget(keep, three_c)  # M–L baseline = Single, 3c2e = one pair
     # 🔴 With no `wbo`, M–L orders come from the **distance fallback** (2026-09-03).
     #   Without Mayer, T8 emits `Single` for every bond (`Double` F1 **0.0000** · measured over
@@ -435,7 +362,7 @@ def predict_T3_T5(
     else:
         ml_sc = ml_order_scores_dist(el, keep, xyz)
     # pass 2 — this is the output
-    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, piacc)
+    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop)
     # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**
     #      (measured 2026-09-03: fragment neighbors F1 .9810 · all internal neighbors .9803 —
     #      precision is higher for fragment neighbors).
@@ -455,7 +382,7 @@ def predict_T3_T5(
     if R7RING:
         mlset = set(ml_pred)
         donors = {x for x in G if lp_donor(el[x], G.degree(x))}
-        for r5 in nx.cycle_basis(G) if donors else []:
+        for r5 in (nx.cycle_basis(G) if donors else []):
             if len(r5) != 5:
                 continue
             din = [x for x in r5 if x in donors]
@@ -473,4 +400,4 @@ def predict_T3_T5(
                         hap_by_m[m].add(x)
     for e in hap:  # haptic bonds get no order
         mlout.pop(e, None)
-    return cls, mlout, hap, ml_pred, btag, piacc
+    return cls, mlout, hap, ml_pred, btag

@@ -39,7 +39,7 @@ two passes — they are what pass 2's budget is made of.
              ┌─────────────────────────┴─────────────────────────┐
              ↓                                                   ↓
    5. [T5] provisional haptic                        5″. [T7] `bridge_tags`
-          angle only (θ < 81.02°)                          3c2e / dative (π-acceptor relief)
+          angle only (θ < 81.02°)                          3c2e / dative
           spends 0 budget                                  reads pass-1 **orders**
              │                                             3c2e spends `BML3C_COST` in total
              └─────────────────────────┬─────────────────────────┘
@@ -108,8 +108,7 @@ that are not yet contaminated by the metal budget (see 5″).
 5″. [T7] bridge tag — the **type** of an existing M–L bond, `pipeline.bridge_tags`
 
            n_center(X) = n_ML(X) + (internal neighbours of X whose element is B·Al)
-           b_use(X)    = b_int(X) + n_ML(X) − relief(X)   b_int from the **pass-1** Kekule orders
-           relief(X)   = n_ML(X) − 1  if X is a bridging π acceptor, else 0   (see below)
+           b_use(X)    = b_int(X) + n_ML(X)        b_int from the **pass-1** Kekule orders
            bridge(X) ⟺ n_center >= 2
            3c2e(X)   ⟺ bridge AND el ∈ {H,C,Si,B} AND b_use > VALENCE_3C[el] (H 1 · C·Si 4 · B 3)
            dative(X) ⟺ bridge AND the above is false
@@ -125,60 +124,47 @@ that are not yet contaminated by the metal budget (see 5″).
 
            μ-H       M–H–M         b_use 0+2 = 2 > 1  →  3c2e
            μ-CH₃     M–CH₃–M       b_use 3+2 = 5 > 4  →  3c2e
-           μ-CO      M–CO–M        b_use 3−1+2 = 4    →  dative (π acceptor · ketonic C=O)
-           μ-OMe     M–OCH₃–M      the methyl C has a **single** C–O ⇒ no relief; 1+0 = 1 → no tag
+           μ-CO      M–CO–M        b_use 3+2 = 5 > 4  →  3c2e    (C≡O · a C=O would give 4)
            B–H···M   borohydride   n_center = M 1 + neighbour B 1 · b_use 2 > 1  →  3c2e
            μ-CR₂     bridging carbene   b_use 2+2 = 4  →  dative (genuinely two 2c2e)
            μ-Cl      M–Cl–M        Cl ∉ VALENCE_3C    →  dative (3c4e)
            terminal  M–L           n_center 1         →  no tag
 
-         **π-acceptor relief** (`config.PIACC_BRIDGE`, on by default · 2026-09-07)
+         🔴 **μ-CO is written as `C≡O` + one 3c2e bond, and that is a deliberate choice with a
+         measured price.** A symmetrically bridging carbonyl has two defensible representations
+         (Green, Green & Parkin, *Chem. Commun.* **2012**, 48, 11481): with π-backbonding it is
+         **μ-X₂** — a ketonic `C=O` and two 2c–2e M–C bonds, each metal receiving one electron;
+         without backbonding it is **μ-L** — a single 3c–2e bond, the ligand a neutral 2e donor.
+         The two disagree on both outputs, and we cannot have both:
 
-           applies ⟺ n_ML ≥ 2 AND el[X] = C AND X has exactly one internal neighbour Y
-                     AND el[Y] ∈ {O,N,S} AND the pass-1 order of X–Y ≥ 2      (CO · CN · CS · RNC)
+           | | C–O order | `q_L` | oxidation state of Co₂(CO)₈ |
+           |---|---|---|---|
+           | μ-X₂ (ketonic) | `C=O` | −2 | Co(+2) |
+           | **μ-L (this code)** | **`C≡O`** | **0** | **Co(0)** |
 
-         Pass 1 runs with **no metal budget**, so for these ligands it returns the *free* order
-         (`C≡O`), not the coordinated one. Every metal past the first turns one π bond into a σ
-         bond by backbonding, so the free order is one too high per extra metal — subtract it
-         before the comparison. Without the relief the rule fires on a ligand that is not
-         electron-deficient at all, and the freed budget lets the distance likelihood (which
-         prefers `Triple` at 1.166 Å) break the octet.
+         **Why μ-L.** The output feeds electron-conserving models whose molecular representation
+         is a bond-electron matrix (diagonal = lone pairs, off-diagonal = bond order, the matrix
+         conserved across a reaction) with an explicit **bridge class for 3c–2e**. In that
+         representation μ-L is the consistent one: one donated pair, one bridge bond, and a
+         carbon that keeps its **octet** (`C≡O` 3 + bridge 1 = 4). The ketonic form written with
+         a neutral carbon would be a **6-electron** carbon, and written with `q_L = −2` it
+         contradicts the oxidation-state convention (CO counts as neutral whether terminal or
+         bridging).
 
-         measured (CSD labels · train · C donor with one heteroatom neighbour, multiple bond by
-         distance) — the label drops by exactly one order at the second metal:
-
-           C–O   terminal `Triple` 19,808/21,318 (d 1.147 Å)  →  μ₂ **`Double` 311/318** (1.168)
-           C–N   terminal `Triple`  1,307/1,580  (1.153)      →  μ₂ **`Double` 25/39**   (1.205)
-           C–S   terminal `Triple`     10/17                  →  μ₂ **`Double` 3/4**
-
-         ⚠️ Only C–O is measured solidly — C–N is 25/39 and C–S is n = 4.
-         ⚠️ **μ₃ (3+ metals) does not occur in this data.** The formula extrapolates there.
-         **The charge takes the same correction** (`charge.q_atom`, the `piacc` branch ·
-         2026-09-07). The octet formula assumes `lp = 4 − b`, i.e. **two** lone pairs on a `C=O`
-         carbon; a ketonic bridge carbon has four bonds and no room for two. Only the first M–C
-         bond is a pair donated by the ligand — the second is the metal's backbonding pair drawn
-         as a σ bond — so these atoms get `q = 0`, the ligand is the **neutral 2e donor** it is
-         under the μ-L description, and Co₂(CO)₈ comes out **Co(0)**.
-
-           measured (CSD `chemical_name` roman numerals · same parser, same pipeline)
-             μ-CO structures    without the rule **0/21**  ·  with it **17/21**
-             control (no μ-CO)  **353/400 = 0.882**   ← the rule restores them to the baseline
-           measured (CSD 2,116 · deployed path): 27 structures change `Σq_L`; the ⑤ EHT target
-             follows and 2 bonds improve (`Single` .9883→.9884 · `Double` .6972→.6975);
-             `Σq_L` 301/374 unchanged — μ-CO structures have **no charge reference at all**
-             (0 of 322 are covered by tmQMg-L).
-
-         🔴 **This mixes two formalisms, deliberately.** The literature offers them as a pair
-         (Green, Green & Parkin, *Chem. Commun.* **2012**, 48, 11481): with π-backbonding the
-         bridge is **μ-X₂**, two 2c–2e bonds, ketonic `C=O`, each metal receiving one electron
-         (⇒ ionic cut `CO²⁻`); without backbonding it is **μ-L**, a single 3c–2e bond, neutral.
-         We take the **bond order from μ-X₂** and the **charge from μ-L**, because that is what
-         our two reference labels use — CSD `bond_type` writes μ₂-CO `Double` (311/318) and the
-         CSD naming counts CO as neutral (17/21). No single formalism reproduces both.
-         ⚠️ Measured, for the record: every metal in the 322 μ-CO structures shows the C–O
-            elongation of real backbonding (μ₂ − terminal = +0.011 to +0.031 Å, 16 elements),
-            and **no d⁰ early metal appears at all** — so the naming convention is not tracking
-            backbonding, it is a convention.
+         **What it costs, measured** (CSD reference labels · deployed path):
+         the CSD writes μ₂-CO as `Double` — 311/318 of the bridging carbonyls where the C has one
+         heteroatom neighbour and C–O ≤ 1.25 Å (terminal: `Triple` 19,808/21,318) — so every one
+         of them is scored wrong here. On a 2,116-structure sample that is internal
+         `Double` F1 **.6963 → .6892** and `Triple` **.9809 → .9746**; 25 of 25 μ-CO bonds flip
+         from a correct `Double` to `Triple`.
+         The oxidation state moves the other way: against the roman numeral in the CSD
+         `chemical_name`, μ-CO structures go **0/21 → 17/21** (control, structures without μ-CO:
+         353/400 = 0.882).
+         ⚠️ The physics is on the ketonic side — every one of the 322 μ-CO structures in the
+         reference set shows the C–O elongation of real backbonding (μ₂ − terminal = +0.011 to
+         +0.031 Å across 16 metals, and no d⁰ early metal appears at all). We take μ-L anyway,
+         because a consistent, octet-complete, electron-conserving graph is what the consumer
+         needs; the integer bond order cannot express a backbonded bridge either way.
 
          `cls` (the pass-1 classes) is a required argument: pass 2 needs this tag to build its
          budget, so the orders have to come from the pass that has no metal budget.
