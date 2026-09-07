@@ -3,18 +3,23 @@
 
 ## ★ Current performance — re-measured 2026-09-08 (shipped defaults)
 
-`ADJQVETO=1 CLUSKEK=1 CONJW=1 CAPINESS=1 EHTNITRO=1 CAPDUP=1` (**no fitted parameter**) ·
+Three rules on top of the base pipeline, each a single idea with **no fitted parameter** —
+`ADJQVETO=1` (⑤ may not create adjacent same-sign formal charges) · `CAPINESS=1` (④ charges
+an atom `k`, not `k+1`, when ⑥ can leave it unmatched) · the ⑤ **EHT target trust gate**
+(`EHTMINFRAG` · `EHTSKIP=NO,SS,CCHH` · `EHTNITRO=1`). Two defect fixes are unconditional
+(one capacity unit per bond in ④; cluster detection on Kekulé integers), and the ⑥ matching
+is always weighted by the distance likelihood.
 `ADJQW=0 TAUD=0 ETAEXO=0 CAPMILP=0` (built, measured, rejected — see the `config` comments).
 
 | task | holdout 6,793 | train 27,294 |
 |---|---|---|
 | T1 internal bond existence | .9998 | .9998 |
-| T3 `Single`/`Double`/`Triple`/`Conj` | **.9901 / .7417 / .9770 / .9583** | .9893 / .7327 / .9777 / .9558 |
+| T3 `Single`/`Double`/`Triple`/`Conj` | **.9901 / .7420 / .9770 / .9583** | .9893 / .7334 / .9777 / .9558 |
 | T4 M–L·M–M existence | .9905 | .9918 |
 | T5 haptic | .9777 | .9794 |
 | T6 η^k | .9863 | .9818 |
 | T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7461 / .7317** | .9934 / .7515 / .7728 |
-| T10 `Σq_L` · `OS` | **.8398 · .8712** | .8344 · .8640 |
+| T10 `Σq_L` · `OS` | **.8398 · .8715** | .8346 · .8652 |
 | valence-violating structures | .0302 | .0307 |
 | harmful `Double` errors | **305 bonds · 167 structures (2.46%)** | — |
 | emitted charges not summing to the input total | 298 (4.39%) | — |

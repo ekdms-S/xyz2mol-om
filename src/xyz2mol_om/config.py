@@ -273,8 +273,14 @@ GNEG = os.environ.get("GNEG", "0") == "1"
 #   reference fragment charge −1). The error is systematic: 92% of it is −2.
 #   ⚠️ This is a **structural gate, not a fitted threshold** — no new parameter is fitted.
 EHTMINFRAG = int(os.environ.get("EHTMINFRAG", "0"))
-# ★ `EHTSKIP` — do not apply the ⑤ EHT fragment-charge target **only to fragments of these
-#   compositions** (2026-09-03).
+# ══ ⑤ EHT target trust gate — `pipeline._eht_untrusted` ═══════════════════════════════════
+#   One rule with three conditions, all saying the same thing: *for this class of fragment the
+#   bare-fragment extended-Hückel charge is not a target worth chasing.* ⑤ then leaves the
+#   fragment to the likelihood and the ④ solution. `EHTMINFRAG` (size) is above; the two
+#   below are composition and local motif. Each is a **list chosen by measurement, not a
+#   fitted parameter** — set either to empty to turn that condition off.
+#
+# ★ `EHTSKIP` — skip these whole-fragment compositions (2026-09-03).
 #   composition key = the fragment's elements sorted and concatenated (`NO` · `SS` · `CCHH`).
 #   Comma-separated.
 #   Why composition rather than size (`EHTMINFRAG`) — measured (against the reference assignment ·
@@ -291,6 +297,39 @@ EHTMINFRAG = int(os.environ.get("EHTMINFRAG", "0"))
 #      is an alternative, but that adds one constant per composition.
 # ★ adopted 2026-09-03
 EHTSKIP = {v for v in os.environ.get("EHTSKIP", "NO,SS,CCHH").split(",") if v}
+# ★ `EHTNITRO` — skip a fragment holding a **nitro or nitrite group**: an N carrying **exactly
+#   two terminal O** (2026-09-08). Same action as `EHTSKIP`, expressed as a local motif because
+#   the group appears inside fragments of any composition.
+#   Why: `EHTCOST` (capping what ⑤ pays) blocked only 15 of the 77 `02_eht_target` failures --
+#   ⑤ pays a median of 0.82, so the likelihood barely resists. The fault is the target, not its
+#   price: the EHT target disagreed with the reference in 72 of those 75.
+#   Measured by motif (holdout · 31,412 fragments · reference = CSD labels through
+#   `charge.kekulize`): the target is wrong 3.8% of the time overall, but for the 160 fragments
+#   the detector fires on -- split by what the N actually is (`260908_nitro_motif_split.py`):
+#       `R–NO2`  N deg 3, 2 terminal O, third neighbour C   64 fragments · **84.4% wrong**
+#       free `NO2-`  N deg 2, 2 terminal O                  13 fragments · **100% wrong**
+#       `X–NO2`  third neighbour not C                       8 fragments ·   37.5% wrong
+#       `NO3-`   **three** terminal O                       75 fragments ·  **0.0% wrong**
+#   🔴 Every error is exactly `-2` per group (67 of 70), so this is a systematic bias, not noise.
+#   ⚠️ **Exactly two, not at least two.** The first version read `>= 2` and threw away the 75
+#      nitrate fragments whose target is always right. Narrowing to `== 2` left the harmful-
+#      `Double` count and its whole decomposition **unchanged at 305** (48 shards) while halving
+#      the collateral -- so the wider detector was buying nothing.
+#   ⚠️ Refitting the EHT constants is **not** the alternative: fitted on train (126,362
+#      fragments) they move accuracy .9602 → .9631, holdout .9618 → .9632, nitro .5625 → .5875.
+#      They come verbatim from xyz2mol_tm `get_proposed_ligand_charge` and are already near
+#      optimal; the residual is the method (extended Hückel on a bare fragment). Correcting the
+#      target by `+2` per group instead of dropping it is untested.
+#   Measured (48 shards · deployment path · holdout 6,793):
+#     harmful `Double` errors **424 → 307** (121 fixed, 4 broken) · `02_eht_target` **77 → 17**
+#     `Double` .7272 → **.7317** · `Sq_L` .8372 → **.8398** · `OS` .8672 → **.8712**
+#     violations .0302 and T1/T4/T5/T6/T8 unchanged · charge conservation 297 → 298
+#     train 27,294  `Double` .7177 → **.7223** · `Sq_L` .8290 → **.8344** · `OS` .8583 → **.8640**
+#     ablation from the shipped default: **+119** harmful `Double` — the single largest of the
+#     adopted rules. Interaction with `ADJQVETO` is **-3** (both off 497 vs 500 additive).
+# ★ adopted 2026-09-08
+EHTNITRO = os.environ.get("EHTNITRO", "1") == "1"
+# ══════════════════════════════════════════════════════════════════════════════════════════════
 # ★ `LPCOND` — **condition the prior of the 4-class likelihood on the endpoint internal degrees**
 #   (2026-09-03).
 #   `lp[c] = ln P(c | element pair)`  →  `ln P(c | element pair, (deg_x, deg_y))`. `med` and
@@ -355,8 +394,12 @@ ADJQW = float(os.environ.get("ADJQW", "0"))
 #      — ⑤ demotions were sometimes relieving a cap that ④ had spent.
 # ★ adopted 2026-09-07 (proposal 1)
 ADJQVETO = os.environ.get("ADJQVETO", "1") == "1"
-# ★ `CLUSKEK=1` — decide `is_cluster_frag` on the **Kekule integer** bond orders instead of the
-#   4-class ones (adopted 2026-09-08).
+# ══ Two defect fixes, not options — kept here for the evidence only ═══════════════════════
+#   Both restore an invariant the implementation was breaking. There is no flag: the old
+#   behaviour is not a policy anyone would choose. Reproduce it from git history if needed.
+#
+# ★ `is_cluster_frag` decides on the **Kekule integer** bond orders, not the 4-class ones
+#   (2026-09-08).
 #   Why: the cluster test is `b_int(x) > CAP(el[x])`, and a `Conj` bond counts **1.5**, so a
 #   carbon with three of them reads 4.5 > 4 and an ordinary substituted arene is taken for a
 #   multicentre cage -- its ligand charge then comes from EHT instead of the formal-charge sum.
@@ -371,10 +414,12 @@ ADJQVETO = os.environ.get("ADJQVETO", "1") == "1"
 #     reported ligand charge != Kekule     318 -> 230
 #     cost:  `OS` .8618 -> .8611 (2 structures) · `Sq_L` .8312 unchanged · T1/T3/T4/T5/T6/T8 all
 #            unchanged
-#   ⚠️ The remaining 297 have other causes and are **not** measured yet.
-CLUSKEK = os.environ.get("CLUSKEK", "1") == "1"
-# `CONJW=1` — weight the ⑥ Kekule matching by the **`Double` - `Single` distance likelihood**
-#   (2026-09-08, measuring only, off by default).
+#   ⚠️ The remaining 298 have other causes and are **not** measured yet.
+#   Ablation from the shipped default: harmful `Double` unchanged at 305, so this earns its
+#   place on charge conservation (298 vs 380) and `OS` (.8712 vs .8694), not on the target.
+# ★ The ⑥ Kekule matching is weighted by the **`Double` − `Single` distance likelihood**
+#   (2026-09-08). No flag — `w` is the same dict that carries the `CAPINESS` promise, so a
+#   flag here could not separate the two (see below).
 #   Why: `frag_charge` calls `max_weight_matching(..., maxcardinality=True)` with **no weights**,
 #   so among the several Kekule structures of the same cardinality the one that comes out is
 #   unrelated to the bond lengths. `EMAXAR`'s conjugated fragment is two bonds -- the acyl `C=O`
@@ -392,8 +437,12 @@ CLUSKEK = os.environ.get("CLUSKEK", "1") == "1"
 #     cost: 4-class `Double` .7198 -> .7195 (3 bonds) · `OS` .8611 -> .8607 (1 structure) ·
 #           `Sq_L` .8312 and charge conservation (297) unchanged · violations .0303 -> .0302
 #     train 27,294: `Double` .7071 -> .7072 · `Sq_L` .8237 -> .8235 · `OS` .8500 -> .8498
-# ★ adopted 2026-09-08
-CONJW = os.environ.get("CONJW", "1") == "1"
+#   🔴 **The first ablation of this was invalid** (2026-09-08, caught by codex review). The
+#   ⑥ gate read `if (CONJW or CAPINESS) and w:`, so with `CAPINESS=1` setting `CONJW=0`
+#   left the weighted matching running and every metric came out identical — that was
+#   evidence the switch did nothing, not that the weighting did nothing. Zeroing the
+#   likelihood term while keeping the `-1e6` promise gives the real number:
+#     harmful `Double` errors **305 → 333 (+28)** on holdout 6,793.
 # `CAPINESS=1` — in the ④ cap budget, charge an atom `k` instead of `k+1` for its `Conj` bonds
 #   **when the fragment still has a maximum matching that leaves that atom unmatched**
 #   (2026-09-08, measuring only, off by default).
@@ -438,32 +487,6 @@ CONJW = os.environ.get("CONJW", "1") == "1"
 #      charging 1 gives headroom 2 and the `Triple` goes in.
 # ★ adopted 2026-09-08
 CAPINESS = os.environ.get("CAPINESS", "1") == "1"
-# `EHTNITRO=1` — do not apply the ⑤ EHT fragment-charge target to a fragment holding a **nitro
-#   group** (an N with two terminal O), 2026-09-08, measuring only, off by default.
-#   Why: `EHTCOST` (capping what ⑤ pays) blocks only 15 of the 77 `02_eht_target` failures,
-#   because ⑤ pays a median of 0.82 -- the likelihood barely resists. The fault is the target,
-#   not its price: **the EHT target disagrees with the reference in 72 of 75** of those.
-#   Measured by motif (holdout · 31,412 fragments · reference = CSD labels through
-#   `charge.kekulize`): overall the target is wrong 3.8% of the time, but
-#     nitro-bearing  160 fragments · **43.8% wrong**, one group costing -2 each
-#                    (nitro=2 → d=-4 in 11/12 · nitro=3 → d=-6)
-#     `NO` 100% · `S2` 96.7% · `C2H2` 77.1%   (already skipped by composition)
-#   **142 of the 421 harmful-`Double` targets (33.7%) sit in a nitro fragment, and every one of
-#   them has a wrong target** -- the largest single lever on what remains.
-#   ⚠️ Refitting the three constants is **not** the fix: fitted on train (126,362 fragments) they
-#      move accuracy .9602 → .9631, holdout .9618 → .9632, nitro .5625 → .5875. The constants
-#      come verbatim from xyz2mol_tm `get_proposed_ligand_charge` and are already near-optimal;
-#      the residual is the method (extended Hückel on a bare fragment).
-#   Measured (48 shards · deployment path):
-#     holdout 6,793  harmful `Double` errors **424 → 307** (121 fixed, 4 broken);
-#                    `02_eht_target` **77 → 17** · `01_likelihood` 249 → 193
-#                    `Double` .7272 → **.7317** · `Sq_L` .8372 → **.8398** ·
-#                    `OS` .8672 → **.8712** · violations .0302 unchanged ·
-#                    charge conservation 297 → 298 · T1/T4/T5/T6/T8 unchanged
-#     train 27,294   `Double` .7177 → **.7223** · `Sq_L` .8290 → **.8344** ·
-#                    `OS` .8583 → **.8640** · violations .0307 unchanged
-# ★ adopted 2026-09-08
-EHTNITRO = os.environ.get("EHTNITRO", "1") == "1"
 # `ETAEXO=1` — in the ⑥ Kekule matching, an atom of an **η-coordinated ring** may only pair
 #   **inside that ring** (2026-09-08, measuring only, off by default).
 #   Why (owner): an η⁵-Cp coordinates because its π stays in the ring. A ring carbon that takes
@@ -483,7 +506,7 @@ EHTNITRO = os.environ.get("EHTNITRO", "1") == "1"
 #      there, not in the matching. The flag is left in place so that experiment starts from a
 #      measured baseline rather than from scratch.
 ETAEXO = os.environ.get("ETAEXO", "0") == "1"
-# `CAPDUP=1` — in ④, stop the matching spending **two** capacity units on **one** bond
+# ★ In ④ the matching must not spend **two** capacity units on **one** bond
 #   (2026-09-08, measuring only, off by default. Found by Codex, then measured).
 #   The capacity trick copies an atom with headroom `r` into `r` replicas, and an internal bond
 #   `e=(a,b)` gets a replica edge for **every** `(ia, ib)` pair. When `r[a] = r[b] = 2` the
@@ -509,8 +532,9 @@ ETAEXO = os.environ.get("ETAEXO", "0") == "1"
 #      are scored on different outputs — T3 F1 on `bonds_4class`, the target set on
 #      `bonds_kekule` after the ambiguity, μ-CO and resonance filters.
 # ★ adopted 2026-09-08
-CAPDUP = os.environ.get("CAPDUP", "1") == "1"
+#   `CAPDUP_MAX` bounds the repair loop — an algorithmic safety limit, not a chemical rule.
 CAPDUP_MAX = int(os.environ.get("CAPDUP_MAX", "6"))
+# ══════════════════════════════════════════════════════════════════════════════════════════════
 # `TAUD` — the ④ candidate gate for an internal `Double`. An edge enters the matching when
 #   `g = s[Double] − s[Single] > −TAUD` (default 0.0 = the current `g > 0`).
 #   Why a threshold rather than `LPA`: `LPA` scales the prior of **every** class at once, so

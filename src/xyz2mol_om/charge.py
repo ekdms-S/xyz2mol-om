@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .config import (ALT, CAP, CAPINESS, CLUSKEK, CONJW, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
+from .config import (ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
 
 
 def q_atom(e, b, deg=None, nb=()):
@@ -89,9 +89,10 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None)
             #      be reported at the fragment level.
     G = nx.Graph()
     G.add_nodes_from(atoms)
-    if (CONJW or CAPINESS) and w:
-        # `CONJW` — same cardinality, but among those prefer the assignment the bond lengths
-        #   prefer. `w[e]` is `score[Double] - score[Single]` from the ③ likelihood.
+    if w:
+        # Same cardinality, but among those prefer the assignment the bond lengths prefer
+        #   (`CONJW`: `w[e]` is `score[Double] − score[Single]` from the ③ likelihood) and
+        #   never pair an atom the ④ budget promised to leave unmatched (`CAPINESS`: `−1e6`).
         G.add_edges_from((a, b, {"weight": w.get((min(a, b), max(a, b)), 0.0)}) for a, b in edges)
     else:
         G.add_edges_from(edges)
@@ -265,12 +266,13 @@ def parse_os(m, nm):
 def is_cluster_frag(G, el, cls, comp, orders=None):
     """Is the fragment a cluster (multicenter skeleton)? — the rule above.
 
-    With `CLUSKEK=1` and `orders` (the Kekule integers from `kekulize`) the sum uses those
-    instead of the 4-class values, so a `Conj` bond counts 1 or 2 rather than 1.5 — see the
-    `CLUSKEK` comment in `config`.
+    With `orders` (the Kekule integers from `kekulize`) the sum uses those instead of the
+    4-class values, so a `Conj` bond counts 1 or 2 rather than 1.5. That is not optional —
+    counting 1.5 made a carbon with three `Conj` bonds read 4.5 > 4 and took ordinary arenes
+    for cages; see the `is_cluster_frag` note in `config`.
     """
     for x in comp:
-        if CLUSKEK and orders is not None:
+        if orders is not None:
             b = sum(orders.get((min(x, w), max(x, w)), 1) for w in G[x])
         else:
             b = sum(ORD4[cls.get((min(x, w), max(x, w)), 0)] for w in G[x])

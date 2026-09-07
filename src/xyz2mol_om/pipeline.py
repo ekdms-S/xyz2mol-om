@@ -53,6 +53,33 @@ def _adjq_pairs(G, el, e, db, bs, qn, deg, nbrs):
     return max(0, cnt(q2) - cnt(qn))
 
 
+def _is_nitro(G, el, x):
+    """`x` is the N of a nitro/nitrite group — N carrying **exactly two** terminal O.
+
+    Exactly two, not at least two: three terminal O is nitrate, and the EHT target is **right**
+    for nitrate (0 of 75 holdout fragments wrong) while it is wrong for 54 of 64 `R–NO2` and
+    13 of 13 free `NO2-`. See the `EHTNITRO` comment in `config`.
+    """
+    return el[x] == "N" and sum(1 for y in G[x] if el[y] == "O" and G.degree(y) == 1) == 2
+
+
+def _eht_untrusted(G, el, comp):
+    """Why ⑤ must not use the EHT fragment-charge target for this fragment — or `None`.
+
+    One rule with three conditions, all of the same kind: *for this class of fragment the
+    bare-fragment EHT charge is not a target worth chasing.* Each condition's evidence is in
+    the `EHTMINFRAG` / `EHTSKIP` / `EHTNITRO` comments in `config`; the reason code is returned
+    so the caller (and a probe) can tell them apart.
+    """
+    if len(comp) < EHTMINFRAG:
+        return "small"
+    if EHTSKIP and "".join(sorted(el[x] for x in comp)) in EHTSKIP:
+        return "composition"
+    if EHTNITRO and any(_is_nitro(G, el, x) for x in comp):
+        return "nitro"
+    return None
+
+
 def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None,
                    w_out=None):
     """★ Adopted option `D_eht` — all stages of [design doc] §3 `1c`.
@@ -68,7 +95,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     `coord` set of coordinating atoms — **waives the under-valence penalty** in the conjugation
             search (M–L absorbs it)
     `w_out` optional dict — filled with `{edge: score[Double] − score[Single]}`, the tie-break
-            weight the ⑥ Kekule matching uses under `CONJW`. The return signature is unchanged
+            weight the ⑥ Kekule matching breaks ties with. The return signature is unchanged
             because `predict_T3_EHT` is part of the public API.
 
     ⚠️ **Haptic M–L bonds must not go into `bml`** — a haptic bond gets no order and is shared
@@ -140,6 +167,9 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         Gj = nx.Graph()
         Gj.add_edges_from(conj)
         conj = {e for e in conj if Gj.degree(e[0]) > 1 or Gj.degree(e[1]) > 1}
+    # `w` carries two things into ⑥: the `score[Double] − score[Single]` tie-break (this line)
+    #   and the `CAPINESS` promise (`−1e6`, added below). Both are unconditional — the
+    #   tie-break was measured at 28 harmful `Double` on holdout (see `config`).
     w = {e: v.get(1, 0.0) - v.get(0, 0.0) for e, v in sc.items()}
     # ④ hard valence-cap constraint (M–L up to Triple) — a matching reduction, not the
     #   exact maximum; see `_solve_cap` and the `CAPMILP` comment in `config`
@@ -182,15 +212,8 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         tgt = q_eht.get(min(comp))
         if tgt is None:
             continue
-        if len(comp) < EHTMINFRAG:
-            continue  # do not trust the EHT target on small fragments (see `EHTMINFRAG` above)
-        if EHTSKIP and "".join(sorted(el[x] for x in comp)) in EHTSKIP:
-            continue  # for this composition the EHT target is systematically wrong (`EHTSKIP`)
-        if EHTNITRO and any(
-            el[x] == "N" and sum(1 for y in G[x] if el[y] == "O" and G.degree(y) == 1) >= 2
-            for x in comp
-        ):
-            continue  # a nitro group costs the EHT target -2 apiece (`EHTNITRO`)
+        if _eht_untrusted(G, el, comp):
+            continue  # ⑤ does not chase a target it has no reason to trust (`_eht_untrusted`)
         edges = [e for e in cls if e[0] in comp and cls[e] != 3 and e in sc]
         snap = {e: cls[e] for e in edges}
         cost = 0.0
@@ -401,7 +424,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
       `hap`     {(m,x)}                                            haptic M–L bonds
       `ml_pred` [(m,x)]                                            T4 bonds with agostic removed
       `btag`    {x: "3c2e" | "dative"}                             T7 bridge tags (pass-1 based)
-      `w`       {(i,j): score[Double] − score[Single]}              ⑥ Kekule tie-break (`CONJW`)
+      `w`       {(i,j): score[Double] − score[Single]}              ⑥ Kekule matching tie-break
 
     Why 2 passes: a haptic M–L bond **gets no order and spends no budget** ([design doc] §3 5a).
     But whether a bond is haptic can only be decided once T3 (the π fragments) is known. So the

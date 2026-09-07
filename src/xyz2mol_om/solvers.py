@@ -13,7 +13,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (CAP, CAPDUP, CAPDUP_MAX, CAPINESS, CAPMILP, CAPMILP_MAX, ORD4,
+from .config import (CAP, CAPDUP_MAX, CAPINESS, CAPMILP, CAPMILP_MAX, ORD4,
                      R6SWAP, TAUD, VTGT)
 from .charge import _qfrag, frag_charge, q_atom
 
@@ -209,7 +209,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
         use[e[1]] += 1.0
     if CAPMILP:
         # ④ 를 정확히 푼다. 목적함수·제약은 아래 매칭판과 같고, 순차 `Triple` 확정과 복제 간선
-        #   환원(= `CAPDUP` 이 수리하던 것)이 사라진다. 못 풀면 매칭판으로 되돌아간다.
+        #   환원(= 위 복제 간선 수리가 상대하던 것)이 사라진다. 못 풀면 매칭판으로 되돌아간다.
         _r = _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, use)
         if _r is not None:
             return _r
@@ -223,12 +223,12 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
             out[e] = 2
             use[e[0]] += 2
             use[e[1]] += 2
-    # 🔴 `CAPDUP` — the capacity replicas let **one** bond take **two** units (see the `CAPDUP`
-    #   comment in `config`): with `r[a] = r[b] = 2` the matching can hold `(a,0)-(b,0)` and
-    #   `(a,1)-(b,1)` at once, double-counting `g` and spending two units for a single `Double`.
-    #   The repair is a re-run: whatever a round selected is fixed at **one** unit, its ends are
-    #   charged once, and the unit that was being wasted is offered to the other bonds.
-    #   With `CAPDUP=0` the loop runs exactly once and reproduces the old behaviour.
+    # 🔴 The capacity replicas let **one** bond take **two** units: with `r[a] = r[b] = 2` the
+    #   matching can hold `(a,0)-(b,0)` and `(a,1)-(b,1)` at once, double-counting `g` and
+    #   spending two units for a single `Double`. That is a broken reduction, not a tunable
+    #   policy, so the repair is unconditional: whatever a round selected is fixed at **one**
+    #   unit, its ends are charged once, and the wasted unit is offered to the other bonds.
+    #   The loop stops when a round selects no duplicate (or after `CAPDUP_MAX` rounds).
     mlout = {}
     if ml_sc:
         for key, sm in ml_sc.items():
@@ -238,7 +238,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
             #   died with a KeyError on such pairs.
             mlout[key] = min(sm)
     fixed_int, fixed_ml, spent = set(), collections.Counter(), collections.Counter()
-    for _rd in range(CAPDUP_MAX if CAPDUP else 1):
+    for _rd in range(CAPDUP_MAX):
         r = {}
         for x in G.nodes:
             v = int(np.floor(CAP.get(el[x], 4) - use[x] - spent[x] + 1e-9))
@@ -295,7 +295,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
         for key, c in mlc.items():
             fixed_ml[key] += c
             spent[key[1]] += c
-        if not (CAPDUP and dup):
+        if not dup:
             break
     for key, c in fixed_ml.items():
         mlout[key] = min(c, 2)
