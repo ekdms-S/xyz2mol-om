@@ -455,6 +455,51 @@ CONJW = os.environ.get("CONJW", "1") == "1"
 #      charging 1 gives headroom 2 and the `Triple` goes in.
 # ★ adopted 2026-09-08
 CAPINESS = os.environ.get("CAPINESS", "1") == "1"
+# `EHTNITRO=1` — do not apply the ⑤ EHT fragment-charge target to a fragment holding a **nitro
+#   group** (an N with two terminal O), 2026-09-08, measuring only, off by default.
+#   Why: `EHTCOST` (capping what ⑤ pays) blocks only 15 of the 77 `02_eht_target` failures,
+#   because ⑤ pays a median of 0.82 -- the likelihood barely resists. The fault is the target,
+#   not its price: **the EHT target disagrees with the reference in 72 of 75** of those.
+#   Measured by motif (holdout · 31,412 fragments · reference = CSD labels through
+#   `charge.kekulize`): overall the target is wrong 3.8% of the time, but
+#     nitro-bearing  160 fragments · **43.8% wrong**, one group costing -2 each
+#                    (nitro=2 → d=-4 in 11/12 · nitro=3 → d=-6)
+#     `NO` 100% · `S2` 96.7% · `C2H2` 77.1%   (already skipped by composition)
+#   **142 of the 421 harmful-`Double` targets (33.7%) sit in a nitro fragment, and every one of
+#   them has a wrong target** -- the largest single lever on what remains.
+#   ⚠️ Refitting the three constants is **not** the fix: fitted on train (126,362 fragments) they
+#      move accuracy .9602 → .9631, holdout .9618 → .9632, nitro .5625 → .5875. The constants
+#      come verbatim from xyz2mol_tm `get_proposed_ligand_charge` and are already near-optimal;
+#      the residual is the method (extended Hückel on a bare fragment).
+#   Measured (48 shards · deployment path):
+#     holdout 6,793  harmful `Double` errors **424 → 307** (121 fixed, 4 broken);
+#                    `02_eht_target` **77 → 17** · `01_likelihood` 249 → 193
+#                    `Double` .7272 → **.7317** · `Sq_L` .8372 → **.8398** ·
+#                    `OS` .8672 → **.8712** · violations .0302 unchanged ·
+#                    charge conservation 297 → 298 · T1/T4/T5/T6/T8 unchanged
+#     train 27,294   `Double` .7177 → **.7223** · `Sq_L` .8290 → **.8344** ·
+#                    `OS` .8583 → **.8640** · violations .0307 unchanged
+# ★ adopted 2026-09-08
+EHTNITRO = os.environ.get("EHTNITRO", "1") == "1"
+# `ETAEXO=1` — in the ⑥ Kekule matching, an atom of an **η-coordinated ring** may only pair
+#   **inside that ring** (2026-09-08, measuring only, off by default).
+#   Why (owner): an η⁵-Cp coordinates because its π stays in the ring. A ring carbon that takes
+#   an exocyclic double becomes a fulvene-type sp² centre and the ring can no longer bind η.
+#   `FEDDID`: the chain alternation is shifted one bond, so `C12=C14` puts Cp carbon C14's π
+#   outside the ring; the reference keeps `C10=C12` and leaves C14 as the ring carbanion.
+#   Implemented like the `CAPINESS` promise -- `−1e6` on the offending edges, `maxcardinality`
+#   untouched, so the count of double bonds cannot change.
+#   Scope measured first: only **10 of the 424** harmful-`Double` targets sit in such a fragment
+#   and the rule fixes **1**, but across holdout **147 of 1,749** η structures (8.4%) emit one.
+#   ⛔ **Measured and rejected as a ⑥ rule (2026-09-08).** It is very nearly non-binding: the
+#      scoring CSVs are byte-identical across all 48 shards, every metric matches to four
+#      decimals, and the η census moves **147 → 145** — two structures.
+#      The reason is where the offending bond is decided: this constraint can only touch edges
+#      the ⑥ matching owns, i.e. `Conj` edges, and 145 of the 147 keep their exocyclic double
+#      because it was already fixed at ③/④. A rule that actually reaches them has to live
+#      there, not in the matching. The flag is left in place so that experiment starts from a
+#      measured baseline rather than from scratch.
+ETAEXO = os.environ.get("ETAEXO", "0") == "1"
 # 🔴 `LNORM=1` — include the **normalization term `−log(2·scl)`** of the Laplace log posterior
 #   (2026-09-03).
 #   The current formula omits that term, so **a class with narrow spread gets no reward.** `C=O`

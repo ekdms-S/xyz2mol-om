@@ -12,7 +12,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (ADJQVETO, ADJQW, BML3C_COST, CAPINESS, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
+from .config import (ADJQVETO, ADJQW, BML3C_COST, CAPINESS, EHTNITRO, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from .charge import _qfrag, atom_bond_sums, q_atom
@@ -185,6 +185,11 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             continue  # do not trust the EHT target on small fragments (see `EHTMINFRAG` above)
         if EHTSKIP and "".join(sorted(el[x] for x in comp)) in EHTSKIP:
             continue  # for this composition the EHT target is systematically wrong (`EHTSKIP`)
+        if EHTNITRO and any(
+            el[x] == "N" and sum(1 for y in G[x] if el[y] == "O" and G.degree(y) == 1) >= 2
+            for x in comp
+        ):
+            continue  # a nitro group costs the EHT target -2 apiece (`EHTNITRO`)
         edges = [e for e in cls if e[0] in comp and cls[e] != 3 and e in sc]
         snap = {e: cls[e] for e in edges}
         cost = 0.0
@@ -479,4 +484,17 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                         hap_by_m[m].add(x)
     for e in hap:  # haptic bonds get no order
         mlout.pop(e, None)
+    if ETAEXO and hap:
+        # `ETAEXO` — an η-coordinated ring keeps its π inside the ring. Applied **here**, after
+        #   the final haptic set is known (⑤ runs earlier, inside pass 2, so it does not see
+        #   this — the constraint is on the ⑥ output converter and the ligand charge that reads
+        #   the same matching).
+        hx = {x for _m, x in hap}
+        eta_ring = [set(r_) for r_ in nx.cycle_basis(G) if any(v in hx for v in r_)]
+        if eta_ring:
+            for e, v in cls.items():
+                if v != 3 or not (e[0] in hx or e[1] in hx):
+                    continue
+                if not any(e[0] in r_ and e[1] in r_ for r_ in eta_ring):
+                    w[e] = w.get(e, 0.0) - 1e6
     return cls, mlout, hap, ml_pred, btag, w
