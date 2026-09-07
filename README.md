@@ -130,7 +130,7 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 |---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
 | T2 conjugation call | F1 | **0.9583** | — | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9893 / .7191 / .9828 / .9583** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9893 / .7117 / .9762 / .9583** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
 | T4 M–L·M–M bond existence | F1 | **0.9905** | 56,510 bonds | all bonded .5276 |
 | T5 haptic call | F1 | **0.9769** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | **0.9858** | 4,221 ligands | all `k=0` .8704 |
