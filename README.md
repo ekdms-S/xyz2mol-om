@@ -149,10 +149,16 @@ tmQMg-L charges cover 23% of them, and only 41% of the CSD names carry a roman n
 
 `b_int(X) + b_ML(X) > CAP(X)` for a non-metal X (Kekulé count · 3c2e and B excluded).
 
+`b_ML` is the budget the (4) constraint actually spends: **1.0 per non-haptic M–L bond**.
+
 | Evaluation | Pool | Violating structures | Reference-label baseline |
 |---|---|---|---|
 | holdout | 6,793 | **2.99%** | 0.68% |
-| train CV | 26,075 | 2.71% *(2026-09-03)* | 0.40% |
+| train CV | 26,075 | 2.71% *(2026-09-03, older scorer)* | 0.40% |
+
+⚠️ Before 2026-09-07 this row read 2.54%. Nothing regressed: that number excused a **larger** set
+of atoms from the check (1,642 vs 1,101), because the 3c2e rule it used no longer exists in the
+code. Scored with that older definition, the current output gives 2.52%.
 
 ⚠️ The baseline is not 0 — the CSD reference labels themselves violate on 0.4–0.7%.
 
