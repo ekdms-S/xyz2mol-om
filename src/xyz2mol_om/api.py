@@ -183,7 +183,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   assembled differently per caller, and that diverged from the scorer in **four places**
     #   (measured 2026-09-03 · [design doc] §6.5). Now only `ml_raw` and `wbo` are passed in.
     q_eht = eht_frag_charges(el, xyz, G)
-    cls, mlout, hap, ml_pred, btag = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
+    cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
     # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
     # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
     # 🔴 Before 2026-09-06 this loop had no 3c2e term at all, so ⑥ could undo what ④ allowed.
@@ -191,7 +191,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     bml = bml_budget([p for p in ml_pred if p not in hap], three_c)
 
     # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge
-    orders, frag_q = kekulize(G, el, cls, dict(bml))
+    orders, frag_q = kekulize(G, el, cls, dict(bml), w)
 
     # ⑦ M–M bonds (those T4 called with a metal at both ends) — the order is left at 1 because
     #   no distance boundary is implemented yet
@@ -228,7 +228,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         # 🔴 For a cluster fragment (carborane and the like) the formal-charge sum cannot be
         #    trusted — use the EHT fragment charge. For the rule and its evidence see the
         #    `charge.is_cluster_frag` comment (2026-09-03).
-        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders))
+        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w))
         q_all[key] = qL
         coord = sorted({x for _m, x in ml_raw if x in cs})
         coord_of[key] = coord

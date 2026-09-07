@@ -53,7 +53,8 @@ def _adjq_pairs(G, el, e, db, bs, qn, deg, nbrs):
     return max(0, cnt(q2) - cnt(qn))
 
 
-def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None):
+def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None,
+                   w_out=None):
     """★ Adopted option `D_eht` — all stages of [design doc] §3 `1c`.
     Returns `(internal classes, M–L classes)`.
 
@@ -66,6 +67,9 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             scores4 entry is a 5-tuple
     `coord` set of coordinating atoms — **waives the under-valence penalty** in the conjugation
             search (M–L absorbs it)
+    `w_out` optional dict — filled with `{edge: score[Double] − score[Single]}`, the tie-break
+            weight the ⑥ Kekule matching uses under `CONJW`. The return signature is unchanged
+            because `predict_T3_EHT` is part of the public API.
 
     ⚠️ **Haptic M–L bonds must not go into `bml`** — a haptic bond gets no order and is shared
        across the π system, so it is not attributed to an atom ([design doc] §3 `5a`). Including
@@ -136,6 +140,10 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         Gj = nx.Graph()
         Gj.add_edges_from(conj)
         conj = {e for e in conj if Gj.degree(e[0]) > 1 or Gj.degree(e[1]) > 1}
+    w = {e: v.get(1, 0.0) - v.get(0, 0.0) for e, v in sc.items()}
+    if w_out is not None:
+        w_out.clear()
+        w_out.update(w)
     # ④ hard valence-cap constraint — exact solution (M–L up to Triple)
     cls, mlout = _solve_cap(G, el, sc, conj, bml, ml_sc, ml_max=2)
     # ⑤ EHT fragment-charge target
@@ -152,7 +160,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         snap = {e: cls[e] for e in edges}
         cost = 0.0
         for _ in range(12):
-            d = tgt - round(_qfrag(G, el, cls, comp))
+            d = tgt - round(_qfrag(G, el, cls, comp, w))
             if d == 0 or abs(d) % 2 == 1:
                 break
             use = collections.defaultdict(float, _kek_val(G, el, cls))
@@ -162,7 +170,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             #   (the candidate scan below only shifts two atoms of them).
             bs = qn = DEGa = NBa = None
             if ADJQW > 0.0 or ADJQVETO:
-                bs, DEGa, NBa = atom_bond_sums(G, el, cls, comp)
+                bs, DEGa, NBa = atom_bond_sums(G, el, cls, comp, w)
                 qn = {v: q_atom(el[v], bs[v], DEGa[v], NBa[v]) for v in comp}
             best = None
             for e in edges:
@@ -352,12 +360,13 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
     the haptic set** end to end.
 
-    Returns `(cls, mlout, hap, ml_pred, btag)`
+    Returns `(cls, mlout, hap, ml_pred, btag, w)`
       `cls`     {(i,j): 0 Single · 1 Double · 2 Triple · 3 Conj}   internal bonds
       `mlout`   {(m,x): class}                                     M–L orders (haptic excluded)
       `hap`     {(m,x)}                                            haptic M–L bonds
       `ml_pred` [(m,x)]                                            T4 bonds with agostic removed
       `btag`    {x: "3c2e" | "dative"}                             T7 bridge tags (pass-1 based)
+      `w`       {(i,j): score[Double] − score[Single]}              ⑥ Kekule tie-break (`CONJW`)
 
     Why 2 passes: a haptic M–L bond **gets no order and spends no budget** ([design doc] §3 5a).
     But whether a bond is haptic can only be decided once T3 (the π fragments) is known. So the
@@ -402,7 +411,8 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     else:
         ml_sc = ml_order_scores_dist(el, keep, xyz)
     # pass 2 — this is the output
-    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop)
+    w = {}
+    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, w_out=w)
     # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**
     #      (measured 2026-09-03: fragment neighbors F1 .9810 · all internal neighbors .9803 —
     #      precision is higher for fragment neighbors).
@@ -440,4 +450,4 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                         hap_by_m[m].add(x)
     for e in hap:  # haptic bonds get no order
         mlout.pop(e, None)
-    return cls, mlout, hap, ml_pred, btag
+    return cls, mlout, hap, ml_pred, btag, w

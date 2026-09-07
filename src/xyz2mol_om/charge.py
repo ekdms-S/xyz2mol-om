@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .config import (ALT, CAP, CLUSKEK, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
+from .config import (ALT, CAP, CLUSKEK, CONJW, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
 
 
 def q_atom(e, b, deg=None, nb=()):
@@ -57,7 +57,7 @@ def q_atom(e, b, deg=None, nb=()):
         return -1  # nitro (two N=O) — 10 electrons.            octet formula +1
     return VAL.get(e, 4) + b - FULL.get(e, 8)
 
-def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
+def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None):
     """Charge of one conjugated fragment — rule (b).
 
     monocyclic all-carbon **`CmHm`** → Hückel `z = m − (4n+2)`
@@ -89,7 +89,12 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
             #      be reported at the fragment level.
     G = nx.Graph()
     G.add_nodes_from(atoms)
-    G.add_edges_from(edges)
+    if CONJW and w:
+        # `CONJW` — same cardinality, but among those prefer the assignment the bond lengths
+        #   prefer. `w[e]` is `score[Double] - score[Single]` from the ③ likelihood.
+        G.add_edges_from((a, b, {"weight": w.get((min(a, b), max(a, b)), 0.0)}) for a, b in edges)
+    else:
+        G.add_edges_from(edges)
     match = nx.max_weight_matching(G, maxcardinality=True)
     md = {}
     for a, b in match:
@@ -106,7 +111,7 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
         q += q_atom(el[v], b, None if deg is None else deg.get(v), (nbrs or {}).get(v, ()))
     return q
 
-def atom_bond_sums(G, el, cls, comp):
+def atom_bond_sums(G, el, cls, comp, w=None):
     """Per-atom **internal** bond-order sum for one fragment, resolved through the *same* Kekule
     matching the output converter uses (2026-09-07, for `ADJQW`).
 
@@ -136,7 +141,7 @@ def atom_bond_sums(G, el, cls, comp):
             for v in cm
         }
         out = {}
-        frag_charge(el, list(cm), sub, outer, DEG, NB, out=out)
+        frag_charge(el, list(cm), sub, outer, DEG, NB, out=out, w=w)
         md.update(out)
     bs = {}
     for v in comp:
@@ -145,7 +150,7 @@ def atom_bond_sums(G, el, cls, comp):
         )
     return bs, DEG, NB
 
-def _qfrag(G, el, cls, comp):
+def _qfrag(G, el, cls, comp, w=None):
     """Charge of one fragment — the same q rule as in the main text (conjugated fragments go
     through `frag_charge`)."""
     pc = {e for e, v in cls.items() if v == 3 and e[0] in comp}
@@ -165,7 +170,7 @@ def _qfrag(G, el, cls, comp):
             )
             for v in cm
         }
-        q += frag_charge(el, list(cm), sub, outer, DEG, NB)
+        q += frag_charge(el, list(cm), sub, outer, DEG, NB, w=w)
     for v in comp:
         if v in ca:
             continue
@@ -174,7 +179,7 @@ def _qfrag(G, el, cls, comp):
         )
     return q
 
-def kekulize(G, el, cls, bml=None):
+def kekulize(G, el, cls, bml=None, w=None):
     """⑥ **output converter** — turn the 4-class prediction (`Conj` included) back into integer
     S/D/T (2026-09-02).
 
@@ -219,7 +224,7 @@ def kekulize(G, el, cls, bml=None):
             for v in cm
         }
         out = {}
-        q = frag_charge(el, list(cm), sub, outer, DEG, NB, out=out)
+        q = frag_charge(el, list(cm), sub, outer, DEG, NB, out=out, w=w)
         for e, o in out.items():
             orders[e] = int(o)
         # if the skeleton charge and the fragment charge disagree (even-ring dianion), report it
@@ -274,11 +279,11 @@ def is_cluster_frag(G, el, cls, comp, orders=None):
     return False
 
 
-def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None):
+def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None):
     """Fragment charge — the **EHT fragment charge** for a cluster, otherwise the formal-charge
     sum (`_qfrag`)."""
     if is_cluster_frag(G, el, cls, comp, orders):
         q = (q_eht or {}).get(min(comp))
         if q is not None:
             return float(q)
-    return _qfrag(G, el, cls, comp)
+    return _qfrag(G, el, cls, comp, w)

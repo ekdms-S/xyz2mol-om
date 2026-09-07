@@ -390,6 +390,27 @@ ADJQVETO = os.environ.get("ADJQVETO", "1") == "1"
 #            unchanged
 #   ⚠️ The remaining 297 have other causes and are **not** measured yet.
 CLUSKEK = os.environ.get("CLUSKEK", "1") == "1"
+# `CONJW=1` — weight the ⑥ Kekule matching by the **`Double` - `Single` distance likelihood**
+#   (2026-09-08, measuring only, off by default).
+#   Why: `frag_charge` calls `max_weight_matching(..., maxcardinality=True)` with **no weights**,
+#   so among the several Kekule structures of the same cardinality the one that comes out is
+#   unrelated to the bond lengths. `EMAXAR`'s conjugated fragment is two bonds -- the acyl `C=O`
+#   (1.234 A) and the exocyclic `C-C` (1.440 A) -- and the unweighted matching took the `C-C`,
+#   producing `O-` plus a ring carbanion.
+#   The cardinality is unchanged (`maxcardinality=True` still holds), so this only breaks ties.
+#   Measured (holdout 6,793 · 48 shards). 🔴 **Read the right metric**: T3 F1 scores
+#   `bonds_4class`, and this changes only the stage *after* it, so T3 cannot see the gain. The
+#   metric that moves is the harmful-`Double` target, which is defined on `bonds_kekule`:
+#     harmful `Double` errors      563 -> **505**  (71 fixed · 13 newly broken)
+#       of which `03_overconj`     112 -> **51**   · `02_eht_target` 74 -> 77
+#     `PUDLEG` N3-C29 and `LEKJOB` C18-C20 now come out `Double`; `EMAXAR` does not (its
+#       fragment scores the ring bond higher, +1.431 vs +0.949) and neither does `EJUJUP`
+#       (blocked at ④, not ⑥).
+#     cost: 4-class `Double` .7198 -> .7195 (3 bonds) · `OS` .8611 -> .8607 (1 structure) ·
+#           `Sq_L` .8312 and charge conservation (297) unchanged · violations .0303 -> .0302
+#     train 27,294: `Double` .7071 -> .7072 · `Sq_L` .8237 -> .8235 · `OS` .8500 -> .8498
+# ★ adopted 2026-09-08
+CONJW = os.environ.get("CONJW", "1") == "1"
 # 🔴 `LNORM=1` — include the **normalization term `−log(2·scl)`** of the Laplace log posterior
 #   (2026-09-03).
 #   The current formula omits that term, so **a class with narrow spread gets no reward.** `C=O`
