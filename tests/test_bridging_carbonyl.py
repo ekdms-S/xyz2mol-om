@@ -6,18 +6,19 @@ What is pinned: `b_use` counts pass-1 bond **orders**, but a bridging pi accepto
 reproduces the 2026-09-06 branch answer (`3c2e` + `C#O`), which the CSD labels contradict:
 mu2 CO is `Double` 311/318, terminal CO is `Triple` 19,808/21,318 (train, distance-filtered).
 
-🔴 **Known defect, pinned as xfail** — with `C=O` and two M-C bonds the ionic cut gives
-   `q_L = -2`, so this molecule comes out Co(+2) while Co2(CO)8 is **Co(0)**. Fixing that is a
-   `charge.q_atom` job (a bridging pi acceptor donates one pair in total, not one per metal);
-   raising the bond order to `C#O` "fixes" the oxidation state only by breaking the octet and
-   losing the bond labels.
+The charge follows the **mu-L** convention (`charge.q_atom`, the `piacc` branch): only the
+first M-C bond is a pair donated by the ligand, the second is the metal's backbonding pair, so
+`q_L = 0` and this molecule is Co(0). Measured against CSD `chemical_name` roman numerals:
+mu-CO structures **0/21 -> 17/21**, control (no mu-CO) 353/400 = 0.882.
+
+⚠️ Bond order and charge come from **different** formalisms on purpose - ketonic (mu-X2) for
+the bond, mu-L for the charge - because that is what the two reference labels use. See
+PIPELINE.md.
 
 Structure: Co2(CO)8, the C2v bridged isomer, relaxed with GFN2-xTB (Co-Co 2.514 A · experiment
 2.52). **Not a CSD structure** — it is embedded here so the test needs no data file. `wbo` is
 not passed; for this molecule the distance fallback gives the same answer.
 """
-
-import pytest
 
 from xyz2mol_om import pipeline, predict
 
@@ -77,9 +78,12 @@ def test_terminal_co_is_unaffected():
         assert all(d["bridge"] is None for d in lg["ml_bonds"].values())
 
 
-@pytest.mark.xfail(strict=True, reason="ionic cut charges a ketonic bridge q_L = -2 - open, see the module docstring")
 def test_oxidation_state_is_zero():
-    assert [m["oxidation"] for m in _run()["metals"]] == [0, 0], "Co2(CO)8 is Co(0)"
+    r = _run()
+    assert [m["oxidation"] for m in r["metals"]] == [0, 0], "Co2(CO)8 is Co(0)"
+    for lg in _bridging(r):
+        assert lg["charge"] == 0, "a bridging CO is a neutral 2e donor, like a terminal one"
+        assert lg["smiles"] == "O=[C:1]", "ketonic C=O, and the carbon carries no formal charge"
 
 
 def test_the_correction_is_what_keeps_the_double(monkeypatch):

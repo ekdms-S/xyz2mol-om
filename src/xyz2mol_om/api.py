@@ -55,7 +55,6 @@ Return structure (dict)
    `bonds_kekule`.**
 """
 
-
 # ruff: noqa: E501
 from __future__ import annotations
 
@@ -87,7 +86,9 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
     for m in mets:
         for x in idx:
             d = float(np.linalg.norm(xyz[x] - xyz[m]))
-            tb, wv = dbond.get((el[m], el[x]), (c1g * (RCOV.get(el[x], 1.6) + RCOV.get(el[m], 1.6)), 0.0))
+            tb, wv = dbond.get(
+                (el[m], el[x]), (c1g * (RCOV.get(el[x], 1.6) + RCOV.get(el[m], 1.6)), 0.0)
+            )
             if d < tb and (wbo or {}).get((m, x), 1.0) > wv:
                 raw.append((m, x))
     return raw
@@ -115,8 +116,9 @@ def _drop_agostic(el, G, ml_raw):
     return out
 
 
-def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=None,
-            complex_atom_map=False):
+def predict(
+    elements, coords, total_charge=None, wbo=None, scores4=None, dint=None, complex_atom_map=False
+):
     """`xyz` → bonds · orders · charges · oxidation states. See the module docstring for the
     arguments and the return value."""
     el = list(elements)
@@ -183,7 +185,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   assembled differently per caller, and that diverged from the scorer in **four places**
     #   (measured 2026-09-03 · [design doc] §6.5). Now only `ml_raw` and `wbo` are passed in.
     q_eht = eht_frag_charges(el, xyz, G)
-    cls, mlout, hap, ml_pred, btag = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
+    cls, mlout, hap, ml_pred, btag, piacc = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
     # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
     # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
     # 🔴 Before 2026-09-06 this loop had no 3c2e term at all, so ⑥ could undo what ④ allowed.
@@ -228,7 +230,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         # 🔴 For a cluster fragment (carborane and the like) the formal-charge sum cannot be
         #    trusted — use the EHT fragment charge. For the rule and its evidence see the
         #    `charge.is_cluster_frag` comment (2026-09-03).
-        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht))
+        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, piacc))
         q_all[key] = qL
         coord = sorted({x for _m, x in ml_raw if x in cs})
         coord_of[key] = coord
@@ -236,8 +238,17 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         qat = {}
         for x in comp:
             bsum = sum(bk.get((min(x, w), max(x, w)), 1) for w in G[x])
-            qat[x] = int(round(q_atom(el[x], float(bsum), G.degree(x),
-                                      tuple(sorted(el[w] for w in G[x])))))
+            qat[x] = int(
+                round(
+                    q_atom(
+                        el[x],
+                        float(bsum),
+                        G.degree(x),
+                        tuple(sorted(el[w] for w in G[x])),
+                        x in piacc,
+                    )
+                )
+            )
         qat_all.update(qat)
         smi, _map = ligand_smiles(el, comp, bk, qat, coord)
         ok, why = False, "SMILES generation failed"
@@ -267,20 +278,22 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         #    **η2** (truth η5 · measured 2026-09-03).
         for m in {m0 for m0, x0 in hap if x0 in cs}:
             eta_out[m] = sum(1 for m0, x0 in hap if m0 == m and x0 in cs)
-        ligands.append({
-            "index": li,
-            "atoms": comp,
-            "bonds_4class": b4,
-            "bonds_kekule": bk,
-            "smiles": smi,
-            "smiles_ok": ok,
-            "smiles_note": why,          # failure reason ("" if it passed)
-            "coordinating": coord,
-            "ml_bonds": mlb_out,
-            "eta": eta_out,
-            "charge": qL,
-            "residual_charge": frag_q.get(key),
-        })
+        ligands.append(
+            {
+                "index": li,
+                "atoms": comp,
+                "bonds_4class": b4,
+                "bonds_kekule": bk,
+                "smiles": smi,
+                "smiles_ok": ok,
+                "smiles_note": why,  # failure reason ("" if it passed)
+                "coordinating": coord,
+                "ml_bonds": mlb_out,
+                "eta": eta_out,
+                "charge": qL,
+                "residual_charge": frag_q.get(key),
+            }
+        )
 
     os_metal = {}
     if total_charge is not None and mets:

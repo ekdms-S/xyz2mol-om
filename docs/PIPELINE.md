@@ -153,12 +153,32 @@ that are not yet contaminated by the metal budget (see 5″).
 
          ⚠️ Only C–O is measured solidly — C–N is 25/39 and C–S is n = 4.
          ⚠️ **μ₃ (3+ metals) does not occur in this data.** The formula extrapolates there.
-         🔴 **It does not fix the oxidation state.** A ketonic `C=O` with two M–C bonds gives
-            `q_L = −2` under the ionic cut, so Co₂(CO)₈ comes out Co(+2) while it is Co(0).
-            That is a `charge.q_atom` job — a bridging π acceptor donates **one** pair in total,
-            not one per metal — and it is **open**. Raising the bond order to `C≡O` instead
-            "fixes" the oxidation state only by breaking the octet and losing the bond labels
-            (μ₂ `Double` 311/318 above).
+         **The charge takes the same correction** (`charge.q_atom`, the `piacc` branch ·
+         2026-09-07). The octet formula assumes `lp = 4 − b`, i.e. **two** lone pairs on a `C=O`
+         carbon; a ketonic bridge carbon has four bonds and no room for two. Only the first M–C
+         bond is a pair donated by the ligand — the second is the metal's backbonding pair drawn
+         as a σ bond — so these atoms get `q = 0`, the ligand is the **neutral 2e donor** it is
+         under the μ-L description, and Co₂(CO)₈ comes out **Co(0)**.
+
+           measured (CSD `chemical_name` roman numerals · same parser, same pipeline)
+             μ-CO structures    without the rule **0/21**  ·  with it **17/21**
+             control (no μ-CO)  **353/400 = 0.882**   ← the rule restores them to the baseline
+           measured (CSD 2,116 · deployed path): 27 structures change `Σq_L`; the ⑤ EHT target
+             follows and 2 bonds improve (`Single` .9883→.9884 · `Double` .6972→.6975);
+             `Σq_L` 301/374 unchanged — μ-CO structures have **no charge reference at all**
+             (0 of 322 are covered by tmQMg-L).
+
+         🔴 **This mixes two formalisms, deliberately.** The literature offers them as a pair
+         (Green, Green & Parkin, *Chem. Commun.* **2012**, 48, 11481): with π-backbonding the
+         bridge is **μ-X₂**, two 2c–2e bonds, ketonic `C=O`, each metal receiving one electron
+         (⇒ ionic cut `CO²⁻`); without backbonding it is **μ-L**, a single 3c–2e bond, neutral.
+         We take the **bond order from μ-X₂** and the **charge from μ-L**, because that is what
+         our two reference labels use — CSD `bond_type` writes μ₂-CO `Double` (311/318) and the
+         CSD naming counts CO as neutral (17/21). No single formalism reproduces both.
+         ⚠️ Measured, for the record: every metal in the 322 μ-CO structures shows the C–O
+            elongation of real backbonding (μ₂ − terminal = +0.011 to +0.031 Å, 16 elements),
+            and **no d⁰ early metal appears at all** — so the naming convention is not tracking
+            backbonding, it is a convention.
 
          `cls` (the pass-1 classes) is a required argument: pass 2 needs this tag to build its
          budget, so the orders have to come from the pass that has no metal budget.

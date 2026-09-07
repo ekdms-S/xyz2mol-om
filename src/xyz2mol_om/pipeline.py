@@ -12,10 +12,30 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (BML3C_COST, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA,
-                     ORD4, PIACC_BRIDGE, PIACC_NB,
-                     LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
-                     VALENCE_3C,)
+from .config import (
+    BML3C_COST,
+    CAP,
+    EHTCOST,
+    EHTMINFRAG,
+    EHTSKIP,
+    LNORM_ON,
+    LNORM_SKIP_CONJ,
+    LPA,
+    ORD4,
+    PIACC_BRIDGE,
+    PIACC_NB,
+    LPCOND,
+    LPCOND_NOCONJ,
+    R2CONJ,
+    R5SOLO,
+    ROPW,
+    TAU_P,
+    USE_ROP,
+    R7MIN,
+    R7RING,
+    THETA_HAPTIC,
+    VALENCE_3C,
+)
 from .charge import _qfrag
 from .conjugation import conj_forbidden, lp_donor, rule_a_ok
 from .eht import eht_frag_charges
@@ -25,7 +45,9 @@ from .solvers import _kek_val, _solve_cap, _solve_sc, r6_swap
 from .ml_order import load_b_ml_mayer, ml_order_scores, ml_order_scores_dist
 
 
-def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None):
+def predict_T3_EHT(
+    el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None, piacc=frozenset()
+):
     """★ Adopted option `D_eht` — all stages of [design doc] §3 `1c`.
     Returns `(internal classes, M–L classes)`.
 
@@ -124,7 +146,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         snap = {e: cls[e] for e in edges}
         cost = 0.0
         for _ in range(12):
-            d = tgt - round(_qfrag(G, el, cls, comp))
+            d = tgt - round(_qfrag(G, el, cls, comp, piacc))
             if d == 0 or abs(d) % 2 == 1:
                 break
             use = collections.defaultdict(float, _kek_val(G, el, cls))
@@ -223,6 +245,16 @@ def piacc_relief(el, G, cls, x, n_ml):
     if ORD4[cls.get((min(x, y), max(x, y)), 0)] < 2.0:
         return 0.0
     return float(n_ml - 1)
+
+
+def piacc_bridges(el, G, cls, ml_pred):
+    """The bridging pi-acceptor donor atoms — `{x}` where `piacc_relief` applies.
+
+    Same predicate as the T7 correction, exposed because the **charge** needs it too: for these
+    atoms only the first M-L bond is a pair donated by the ligand (`charge.q_atom`).
+    """
+    nml = collections.Counter(x for _m, x in ml_pred)
+    return frozenset(x for x in nml if piacc_relief(el, G, cls, x, nml[x]) > 0.0)
 
 
 def is_3c2e(el0, b_use, n_center):
@@ -344,8 +376,9 @@ def _closest_mid(xyz, x, m, cand):
     return min(cand, key=lambda q: float(np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m])))
 
 
-def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
-                  q_eht=None, rop=None):
+def predict_T3_T5(
+    el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None, q_eht=None, rop=None
+):
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
     the haptic set** end to end.
 
@@ -387,6 +420,9 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     #      still assigns orders to them.
     btag = bridge_tags(el, G, ml_pred, cls0)
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
+    # The bridging pi acceptors are needed by the **charge** as well (`charge.q_atom`), and the
+    # (5) EHT target has to use the same convention or it will chase a different number.
+    piacc = piacc_bridges(el, G, cls0, ml_pred)
     bml = bml_budget(keep, three_c)  # M–L baseline = Single, 3c2e = one pair
     # 🔴 With no `wbo`, M–L orders come from the **distance fallback** (2026-09-03).
     #   Without Mayer, T8 emits `Single` for every bond (`Double` F1 **0.0000** · measured over
@@ -399,7 +435,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     else:
         ml_sc = ml_order_scores_dist(el, keep, xyz)
     # pass 2 — this is the output
-    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop)
+    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, piacc)
     # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**
     #      (measured 2026-09-03: fragment neighbors F1 .9810 · all internal neighbors .9803 —
     #      precision is higher for fragment neighbors).
@@ -419,7 +455,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     if R7RING:
         mlset = set(ml_pred)
         donors = {x for x in G if lp_donor(el[x], G.degree(x))}
-        for r5 in (nx.cycle_basis(G) if donors else []):
+        for r5 in nx.cycle_basis(G) if donors else []:
             if len(r5) != 5:
                 continue
             din = [x for x in r5 if x in donors]
@@ -437,4 +473,4 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                         hap_by_m[m].add(x)
     for e in hap:  # haptic bonds get no order
         mlout.pop(e, None)
-    return cls, mlout, hap, ml_pred, btag
+    return cls, mlout, hap, ml_pred, btag, piacc
