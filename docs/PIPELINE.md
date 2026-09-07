@@ -39,7 +39,7 @@ two passes — they are what pass 2's budget is made of.
              ┌─────────────────────────┴─────────────────────────┐
              ↓                                                   ↓
    5. [T5] provisional haptic                        5″. [T7] `bridge_tags`
-          angle only (θ < 81.02°)                          3c2e / dative
+          angle only (θ < 81.02°)                          3c2e / dative (π-acceptor relief)
           spends 0 budget                                  reads pass-1 **orders**
              │                                             3c2e spends `BML3C_COST` in total
              └─────────────────────────┬─────────────────────────┘
@@ -108,7 +108,8 @@ that are not yet contaminated by the metal budget (see 5″).
 5″. [T7] bridge tag — the **type** of an existing M–L bond, `pipeline.bridge_tags`
 
            n_center(X) = n_ML(X) + (internal neighbours of X whose element is B·Al)
-           b_use(X)    = b_int(X) + n_ML(X)        b_int from the **pass-1** Kekule orders
+           b_use(X)    = b_int(X) + n_ML(X) − relief(X)   b_int from the **pass-1** Kekule orders
+           relief(X)   = n_ML(X) − 1  if X is a bridging π acceptor, else 0   (see below)
            bridge(X) ⟺ n_center >= 2
            3c2e(X)   ⟺ bridge AND el ∈ {H,C,Si,B} AND b_use > VALENCE_3C[el] (H 1 · C·Si 4 · B 3)
            dative(X) ⟺ bridge AND the above is false
@@ -124,11 +125,40 @@ that are not yet contaminated by the metal budget (see 5″).
 
            μ-H       M–H–M         b_use 0+2 = 2 > 1  →  3c2e
            μ-CH₃     M–CH₃–M       b_use 3+2 = 5 > 4  →  3c2e
-           μ-CO      M–CO–M        b_use 3+2 = 5 > 4  →  3c2e    (C≡O · a C=O would give 4)
+           μ-CO      M–CO–M        b_use 3−1+2 = 4    →  dative (π acceptor · ketonic C=O)
+           μ-OMe     M–OCH₃–M      the methyl C has a **single** C–O ⇒ no relief; 1+0 = 1 → no tag
            B–H···M   borohydride   n_center = M 1 + neighbour B 1 · b_use 2 > 1  →  3c2e
            μ-CR₂     bridging carbene   b_use 2+2 = 4  →  dative (genuinely two 2c2e)
            μ-Cl      M–Cl–M        Cl ∉ VALENCE_3C    →  dative (3c4e)
            terminal  M–L           n_center 1         →  no tag
+
+         **π-acceptor relief** (`config.PIACC_BRIDGE`, on by default · 2026-09-07)
+
+           applies ⟺ n_ML ≥ 2 AND el[X] = C AND X has exactly one internal neighbour Y
+                     AND el[Y] ∈ {O,N,S} AND the pass-1 order of X–Y ≥ 2      (CO · CN · CS · RNC)
+
+         Pass 1 runs with **no metal budget**, so for these ligands it returns the *free* order
+         (`C≡O`), not the coordinated one. Every metal past the first turns one π bond into a σ
+         bond by backbonding, so the free order is one too high per extra metal — subtract it
+         before the comparison. Without the relief the rule fires on a ligand that is not
+         electron-deficient at all, and the freed budget lets the distance likelihood (which
+         prefers `Triple` at 1.166 Å) break the octet.
+
+         measured (CSD labels · train · C donor with one heteroatom neighbour, multiple bond by
+         distance) — the label drops by exactly one order at the second metal:
+
+           C–O   terminal `Triple` 19,808/21,318 (d 1.147 Å)  →  μ₂ **`Double` 311/318** (1.168)
+           C–N   terminal `Triple`  1,307/1,580  (1.153)      →  μ₂ **`Double` 25/39**   (1.205)
+           C–S   terminal `Triple`     10/17                  →  μ₂ **`Double` 3/4**
+
+         ⚠️ Only C–O is measured solidly — C–N is 25/39 and C–S is n = 4.
+         ⚠️ **μ₃ (3+ metals) does not occur in this data.** The formula extrapolates there.
+         🔴 **It does not fix the oxidation state.** A ketonic `C=O` with two M–C bonds gives
+            `q_L = −2` under the ionic cut, so Co₂(CO)₈ comes out Co(+2) while it is Co(0).
+            That is a `charge.q_atom` job — a bridging π acceptor donates **one** pair in total,
+            not one per metal — and it is **open**. Raising the bond order to `C≡O` instead
+            "fixes" the oxidation state only by breaking the octet and losing the bond labels
+            (μ₂ `Double` 311/318 above).
 
          `cls` (the pass-1 classes) is a required argument: pass 2 needs this tag to build its
          budget, so the orders have to come from the pass that has no metal budget.

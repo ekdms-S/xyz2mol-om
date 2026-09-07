@@ -267,6 +267,27 @@ BMLSKIP3C = os.environ.get("BMLSKIP3C", "0") == "1"  # off by default
 #   values  1.0 = one pair (default) · 0.0 = release the budget (`BMLSKIP3C`) · <0 = one per M–L bond
 #   ⚠️ **Not measured against the CSD reference labels yet.** Do that before merging to master.
 BML3C_COST = 0.0 if BMLSKIP3C else float(os.environ.get("BML3C_COST", "1"))
+# ★ `PIACC_BRIDGE` — the **bridging pi-acceptor correction** to the T7 quantity `b_use`
+#   (2026-09-07). A C donor whose only internal neighbour is O, N or S and whose pass-1 bond to
+#   it is multiple (CO, CN, CS, RNC) **loses one unit of internal order per extra metal**: each
+#   additional metal turns one pi bond into a sigma bond by backbonding, so
+#       b_use(X) = b_int(pass-1) - (n_ML - 1) + n_ML = b_int(pass-1) + 1     (n_ML >= 2)
+#   mu2-CO therefore scores 3 + 1 = 4 <= CAP(C) and stays **dative** (ketonic `C=O` + two 2c2e
+#   M-C bonds), while mu-H and mu-CH3 are untouched.
+#   🔴 **Why** — pass 1 runs with no metal budget, so it returns the **free-ligand** order
+#     (`C#O`). For a pi acceptor that order is not the coordinated one, and reading it raw makes
+#     the T7 rule fire on a ligand that is not electron-deficient at all.
+#   measured (CSD reference labels · train · C donor with one heteroatom neighbour, multiple by
+#   distance): the label drops by exactly one order at the second metal
+#       C-O  terminal `Triple` 19,808/21,318 (d 1.147 A)  ->  mu2 **`Double` 311/318** (1.168)
+#       C-N  terminal `Triple`  1,307/1,580  (1.153)      ->  mu2 **`Double` 25/39** (1.205)
+#       C-S  terminal `Triple`     10/17                  ->  mu2 **`Double` 3/4**
+#   ⚠️ The C-N evidence is thin (25/39 = 64%) and C-S is n=4. Only C-O is measured solidly.
+#   ⚠️ **mu3 (3+ metals) does not occur in this data** — the formula extrapolates there, untested.
+#   ⚠️ **This does not fix the oxidation state.** With `C=O` + two M-C bonds the ionic cut gives
+#      `q_L = -2` (Co2(CO)8 -> Co(+2), not Co(0)). That is a `charge.q_atom` issue and is open.
+PIACC_BRIDGE = os.environ.get("PIACC_BRIDGE", "1") == "1"  # ★ adopted 2026-09-07
+PIACC_NB = {"O", "N", "S"}  # the heteroatom the pi-acceptor donor carbon is multiply bonded to
 # ★ T7 ([design doc] §3.0 5c) — the closed-shell budget (bonds + lone pairs) of a bridging atom.
 #   A `b_use` above this value is taken as 3c2e. H 1 · C·Si 4 · B 3. An element not in this
 #   table is not a 3c2e candidate (= if it bridges, it is `dative`).
