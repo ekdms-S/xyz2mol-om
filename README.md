@@ -126,10 +126,6 @@ tmQMg-L `q_ligand`, and the roman numeral in the CSD `chemical_name` for the oxi
 ⚠️ Fit and evaluation both use CSD experimental structures **relaxed with GFN2-xTB**.
 Coordinates from another source (raw CSD, DFT, a force field) are off-distribution.
 
-Measured **2026-09-07** by running this package (`predict`) over the holdout — one scorer for
-every row, so the numbers below are what the shipped code does, not what a separate
-reimplementation did.
-
 | Task | Metric | Value | Pool | Trivial baseline |
 |---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
@@ -142,23 +138,18 @@ reimplementation did.
 | T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8295** | 1,161 structures | ceiling 83.4% |
 | T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8586** | 2,779 structures | ceiling 85.6% |
 
-The pools differ per task because the references do: `bond_type` covers every structure,
-tmQMg-L charges cover 23% of them, and only 41% of the CSD names carry a roman numeral.
+The pool differs per task because the references do: `bond_type` covers every structure,
+tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%.
 
 ### Valence violations — chemical validity of the output
 
 `b_int(X) + b_ML(X) > CAP(X)` for a non-metal X (Kekulé count · 3c2e and B excluded).
 
-`b_ML` is the budget the (4) constraint actually spends: **1.0 per non-haptic M–L bond**.
+`b_ML` is what the (4) constraint spends: **1.0 per non-haptic M–L bond**.
 
-| Evaluation | Pool | Violating structures | Reference-label baseline |
-|---|---|---|---|
-| holdout | 6,793 | **2.99%** | 0.68% |
-| train CV | 26,075 | 2.71% *(2026-09-03, older scorer)* | 0.40% |
-
-⚠️ Before 2026-09-07 this row read 2.54%. Nothing regressed: that number excused a **larger** set
-of atoms from the check (1,642 vs 1,101), because the 3c2e rule it used no longer exists in the
-code. Scored with that older definition, the current output gives 2.52%.
+| Pool | Violating structures | Reference-label baseline |
+|---|---|---|
+| holdout 6,793 | **2.99%** | 0.68% |
 
 ⚠️ The baseline is not 0 — the CSD reference labels themselves violate on 0.4–0.7%.
 
@@ -179,8 +170,7 @@ The `b_int`-only columns are the fair comparison (every tool can produce that) �
 in all three pools. ⚠️ **Do not compare the `b_int`+`b_ML` column across tools**: xyz2mol_tm
 emits no M–L order, so it must be read as all-dative and every η⁵-Cp over-valences five
 carbons at once (81% of its violations are at haptic sites); OpenBabel's low figure comes from
-missing a third of the M–L bonds (T4 recall 0.66), not from getting them right. Full breakdown:
-`ognm-bh-workspace/docs/backlog/tm-bond-remaining.md` §5.2-H-2.
+missing a third of the M–L bonds (T4 recall 0.66), not from getting them right.
 
 ## ⚠️ Limits
 
@@ -188,9 +178,7 @@ missing a third of the M–L bonds (T4 recall 0.66), not from getting them right
 - **M–M orders are not produced** — only bond existence is given and the order is left at `1` (the `[Re₂Cl₈]²⁻` of example ⑤ is in fact a quadruple bond).
 - **3c2e and clusters** are outside the two-center formalism — a ligand with a bridging H is **deliberately** rejected by the SMILES round-trip check, and the fragment charge of a carborane cage uses the EHT value.
 
-The decision rules, their derivation, and the measurement history live outside the library —
-`ognm-bh-workspace/docs/backlog/tm-bond-remaining.md` (design) ·
-`docs/analysis/2026-09-03-t3-tuning-history.md` (adoption history) · `docs/PIPELINE.md` in this repository.
+Every decision rule, with its thresholds, is in [docs/PIPELINE.md](docs/PIPELINE.md).
 
 ## License · Provenance
 
