@@ -411,6 +411,50 @@ CLUSKEK = os.environ.get("CLUSKEK", "1") == "1"
 #     train 27,294: `Double` .7071 -> .7072 · `Sq_L` .8237 -> .8235 · `OS` .8500 -> .8498
 # ★ adopted 2026-09-08
 CONJW = os.environ.get("CONJW", "1") == "1"
+# `CAPINESS=1` — in the ④ cap budget, charge an atom `k` instead of `k+1` for its `Conj` bonds
+#   **when the fragment still has a maximum matching that leaves that atom unmatched**
+#   (2026-09-08, measuring only, off by default).
+#   The `k+1` rule reads "k conjugated bonds, one of which is the pi bond". That is right for an
+#   atom the Kekule matching *pairs up*, and one too many for an atom it leaves over -- and an
+#   odd fragment always leaves one over. The over-charge is what blocks a legitimate double bond
+#   somewhere else on that atom:
+#     `EJUJUP` C7: `Conj` 1 -> 2.0 + O 1.0 + C15 1.0 = 4.0 = CAP  ⇒ headroom 0, and `C7=C15`
+#       (1.330 A, `D−S` margin +8.38) never becomes a candidate edge. C7 sits on a 7-atom
+#       fragment with max matching 3, so a maximum matching leaving C7 unmatched exists.
+#     `EMAXAR` C13: same shape, blocking `C13=C14` (1.388 A).
+#   Test: atom x is inessential in fragment F  ⟺  |M(F − x)| == |M(F)|. Fragments with a perfect
+#   matching have no such atom and are skipped, so the extra matchings are only run where the
+#   deficiency is non-zero.
+#   ⚠️ This is the **feasibility** form Codex asked for, not a blanket relaxation: headroom is
+#      granted only where an unmatched assignment actually exists. It is still not a guarantee --
+#      ⑥ picks its own matching and may pair x up anyway. Watch the valence-violation rate.
+#   Three guards, all necessary (each was measured after it was missing):
+#     ① **at most `deficiency` grants per fragment** — a fragment leaves exactly
+#        `|F| − 2·|M(F)|` atoms over, so granting more is a promise it cannot keep. Without this,
+#        42 atoms newly broke the cap, **every one** in a fragment of deficiency 1 that had
+#        granted 2-9 atoms.
+#     ② **demand covers M–L too** — `r[x]` gates an internal `Double` *and* an M–L order raise.
+#        Ranking on internal bonds alone sent the whole T8 `Triple` gain (.639 → .734) back to
+#        baseline.
+#     ③ **the promise is carried into ⑥** as `−1e6` on the granted atom's `Conj` edges, so the
+#        Kekule matching leaves it unmatched (`maxcardinality=True` keeps the cardinality, and
+#        `_inessential` already proved such a matching exists). Without this, 33 atoms broke the
+#        cap — all of them in fragments of deficiency 1 with exactly 1 grant, i.e. keepable.
+#   Measured (48 shards · deployment path):
+#     holdout 6,793  `Double` .7195 → **.7272** · `Single` .9896 → .9898 · `Triple` .9765 → .9770
+#                    T8 `Double` .7400 → **.7479** · T8 `Triple` .6391 → **.7343**
+#                    `Sq_L` .8312 → **.8372** · `OS` .8607 → **.8672**
+#                    valence violations .0302 → **.0302** (flat) · charge conservation 297 → 298
+#                    harmful `Double` errors 505 → **424** (83 fixed, 2 broken);
+#                    `01_likelihood` 320 → 249
+#     train 27,294   `Double` .7072 → **.7177** · T8 `Triple` .6998 → **.7784**
+#                    `Sq_L` .8235 → **.8290** · `OS` .8498 → **.8583** · violations .0309 → .0307
+#   🔴 The T8 `Triple` jump is **one narrow systematic error**: all 20 recovered bonds are
+#      carbynes `M≡C` (Mo 5 · W 6 · Re 4 · Os 3 · Ru 2) whose carbon holds exactly one `Conj`
+#      bond. `AYEVAB` W0≡C1: `use` = 2 (`Conj` 1) + 1.0 (M–L) = 3.0 ⇒ headroom 1 ⇒ `Double` only;
+#      charging 1 gives headroom 2 and the `Triple` goes in.
+# ★ adopted 2026-09-08
+CAPINESS = os.environ.get("CAPINESS", "1") == "1"
 # 🔴 `LNORM=1` — include the **normalization term `−log(2·scl)`** of the Laplace log posterior
 #   (2026-09-03).
 #   The current formula omits that term, so **a class with narrow spread gets no reward.** `C=O`

@@ -13,7 +13,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import CAP, ORD4, R6SWAP, VTGT
+from .config import CAP, CAPINESS, ORD4, R6SWAP, VTGT
 from .charge import _qfrag, frag_charge, q_atom
 
 
@@ -31,7 +31,45 @@ def _kek_val(G, el, cls):
             bn[e[1]] += ORD4[v]
     return {x: bn[x] + (nk[x] + 1 if nk[x] else 0) for x in set(bn) | set(nk)}
 
-def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2):
+def _inessential(conj):
+    """Per `Conj` fragment, the atoms a maximum matching can leave **unmatched**, and how many of
+    them may be left unmatched **at once** (`CAPINESS`).
+
+    `x` is inessential in fragment `F`  ⟺  `|M(F − x)| == |M(F)|`. Such an `x` does not have to
+    take a π bond, so the ④ budget may charge it `k` rather than `k+1` (see the `CAPINESS`
+    comment in `config`).
+
+    🔴 **The count matters, not just the membership.** A fragment leaves exactly
+    `deficiency = |F| − 2·|M(F)|` atoms over, so granting headroom to more than that many is a
+    promise it cannot keep — and the extra ones then break the cap. Measured (holdout, before
+    this cap): **every one of the 42 atoms that newly violated** sat in a fragment with
+    deficiency 1 that had granted headroom to 2-9 atoms.
+
+    Returns `[(fragment atoms that are inessential, deficiency), ...]`; the caller picks which
+    `deficiency` of them to actually grant.
+    A fragment with a perfect matching has none — removing any vertex drops the cardinality — so
+    those are skipped and the per-vertex matchings run only where the deficiency is non-zero.
+    """
+    Gc = nx.Graph()
+    Gc.add_edges_from(conj)
+    out = []
+    for cm in nx.connected_components(Gc):
+        F = Gc.subgraph(cm)
+        n = F.number_of_nodes()
+        m0 = len(nx.max_weight_matching(F, maxcardinality=True))
+        if 2 * m0 == n:                      # perfect matching — nobody can be left over
+            continue
+        ok = set()
+        for x in cm:
+            H = F.subgraph([v for v in cm if v != x])
+            if len(nx.max_weight_matching(H, maxcardinality=True)) == m0:
+                ok.add(x)
+        if ok:
+            out.append((ok, n - 2 * m0))
+    return out
+
+
+def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
     """**Exact solution** enforcing the cap only — the maximum-likelihood assignment among those
     that satisfy the cap (Blossom, polynomial time).
 
@@ -45,9 +83,43 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2):
         k_of[e[0]] += 1
         k_of[e[1]] += 1
     nonc = [e for a, b in G.edges for e in [(min(a, b), max(a, b))] if e not in conj]
+    iness = set()
+    if CAPINESS and conj:
+        # 🔴 Only `deficiency` atoms per fragment can be left unmatched at once, so grant that
+        #   many — the ones with the most to gain, i.e. whose blocked non-`Conj` bond has the
+        #   largest `Double − Single` margin. Ties and atoms with nothing to gain are dropped.
+        for ok, defic in _inessential(conj):
+            need = []
+            for x in ok:
+                # 🔴 The headroom `r[x]` gates **both** an internal `Double` and an M–L order
+                #   raise, so the demand has to look at both — scoring internal bonds only sent
+                #   the whole T8 `Triple` gain (F1 .639 → .734) back to baseline.
+                cands = [
+                    sc[e].get(1, -1e9) - sc[e].get(0, 0.0)
+                    for y in G[x]
+                    for e in [(min(x, y), max(x, y))]
+                    if e not in conj and e in sc
+                ]
+                if ml_sc:
+                    cands += [
+                        sm[1] - sm[0]
+                        for (_m, x_), sm in ml_sc.items()
+                        if x_ == x and 1 in sm and 0 in sm
+                    ]
+                g = max(cands, default=-1e9)
+                if g > 0:
+                    need.append((g, x))
+            need.sort(reverse=True)
+            iness.update(x for _g, x in need[:defic])
+    if iness_out is not None:
+        iness_out.clear()
+        iness_out.update(iness)
     use = collections.defaultdict(float)
     for x in G.nodes:
-        use[x] = (k_of[x] + 1 if k_of[x] else 0.0) + bml.get(x, 0.0)
+        # `k+1` assumes the Kekule matching pairs `x` up. `CAPINESS` charges `k` instead where a
+        #   maximum matching leaving `x` unmatched exists.
+        k = k_of[x]
+        use[x] = (k + (0.0 if x in iness else 1.0) if k else 0.0) + bml.get(x, 0.0)
     for e in nonc:
         use[e[0]] += 1.0
         use[e[1]] += 1.0

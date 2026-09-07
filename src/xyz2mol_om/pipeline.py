@@ -12,7 +12,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (ADJQVETO, ADJQW, BML3C_COST, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
+from .config import (ADJQVETO, ADJQW, BML3C_COST, CAPINESS, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from .charge import _qfrag, atom_bond_sums, q_atom
@@ -141,11 +141,40 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         Gj.add_edges_from(conj)
         conj = {e for e in conj if Gj.degree(e[0]) > 1 or Gj.degree(e[1]) > 1}
     w = {e: v.get(1, 0.0) - v.get(0, 0.0) for e, v in sc.items()}
+    # ④ hard valence-cap constraint — exact solution (M–L up to Triple)
+    iness = set()
+    cls, mlout = _solve_cap(G, el, sc, conj, bml, ml_sc, ml_max=2, iness_out=iness)
+    if CAPINESS and iness:
+        # 🔴 `CAPINESS` gave these atoms headroom **on the promise that ⑥ leaves them unmatched**.
+        #   ⑥ runs its own matching and will happily pair one up, and then the cap it was granted
+        #   against is broken — measured: valence violations +0.7%p on train before this coupling.
+        #   So the promise is carried into ⑥ as a large negative weight on every edge touching an
+        #   atom that is now **at capacity**. `maxcardinality=True` still holds, so this cannot
+        #   shrink the matching — and a maximum matching leaving the atom out is exactly what the
+        #   `_inessential` test verified exists.
+        k_of = collections.Counter()
+        for e in cls:
+            if cls[e] == 3:
+                k_of[e[0]] += 1
+                k_of[e[1]] += 1
+        for x in iness:
+            u = bml.get(x, 0.0) + sum(
+                ORD4[cls[(min(x, y), max(x, y))]]
+                for y in G[x]
+                if cls.get((min(x, y), max(x, y))) != 3
+            )
+            if u + k_of[x] + 1 > CAP.get(el[x], 4) + 1e-9:
+                for y in G[x]:
+                    e = (min(x, y), max(x, y))
+                    if cls.get(e) == 3:
+                        w[e] = w.get(e, 0.0) - 1e6
+    # 🔴 sync **after** the `CAPINESS` penalty — filling `w_out` before it meant ⑥ (which runs in
+    #   `api.predict` on the returned dict) never saw the penalty, and the granted atom got paired
+    #   up anyway. Measured: 33 atoms newly violated the cap, every one of them a granted atom in
+    #   a fragment with deficiency 1 and exactly 1 grant, i.e. a promise that *was* keepable.
     if w_out is not None:
         w_out.clear()
         w_out.update(w)
-    # ④ hard valence-cap constraint — exact solution (M–L up to Triple)
-    cls, mlout = _solve_cap(G, el, sc, conj, bml, ml_sc, ml_max=2)
     # ⑤ EHT fragment-charge target
     for comp0 in nx.connected_components(G):
         comp = set(comp0)

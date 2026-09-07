@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .config import (ALT, CAP, CLUSKEK, CONJW, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
+from .config import (ALT, CAP, CAPINESS, CLUSKEK, CONJW, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
 
 
 def q_atom(e, b, deg=None, nb=()):
@@ -89,7 +89,7 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None)
             #      be reported at the fragment level.
     G = nx.Graph()
     G.add_nodes_from(atoms)
-    if CONJW and w:
+    if (CONJW or CAPINESS) and w:
         # `CONJW` — same cardinality, but among those prefer the assignment the bond lengths
         #   prefer. `w[e]` is `score[Double] - score[Single]` from the ③ likelihood.
         G.add_edges_from((a, b, {"weight": w.get((min(a, b), max(a, b)), 0.0)}) for a, b in edges)
