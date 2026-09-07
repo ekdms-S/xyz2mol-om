@@ -12,16 +12,45 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (BML3C_COST, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA,
+from .config import (ADJQVETO, ADJQW, BML3C_COST, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
-from .charge import _qfrag
+from .charge import _qfrag, atom_bond_sums, q_atom
 from .conjugation import conj_forbidden, lp_donor, rule_a_ok
 from .eht import eht_frag_charges
 from .geometry import plane_rms
 from .likelihood import deg_cell
 from .solvers import _kek_val, _solve_cap, _solve_sc, r6_swap
 from .ml_order import load_b_ml_mayer, ml_order_scores, ml_order_scores_dist
+
+
+def _sgn(q):
+    return (q > 1e-9) - (q < -1e-9)
+
+
+def _adjq_pairs(G, el, e, db, bs, qn, deg, nbrs):
+    """`ADJQW` (proposal 1) — how many **adjacent same-sign nonzero formal-charge pairs** the
+    move `e: order += db` adds (2026-09-07).
+
+    Only the two endpoints of `e` change charge (see `atom_bond_sums`), so only the bonds
+    touching them can gain or lose such a pair — the count runs over exactly those bonds, with
+    `e` itself counted once.
+    Returns `max(0, after − before)`: this is a **penalty, not a reward** — a move that removes
+    a same-sign pair is not paid a bonus, so the baseline (`ADJQW=0`) is a strict subset.
+    """
+    a, b = e
+    q2 = dict(qn)
+    for v in (a, b):
+        q2[v] = q_atom(el[v], bs[v] + db, deg[v], nbrs[v])
+    ed = {(min(v, w), max(v, w)) for v in (a, b) for w in G[v]}
+    def cnt(q):
+        n = 0
+        for u, v in ed:
+            su = _sgn(q.get(u, 0.0))
+            if su and su == _sgn(q.get(v, 0.0)):
+                n += 1
+        return n
+    return max(0, cnt(q2) - cnt(qn))
 
 
 def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None):
@@ -129,6 +158,12 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             use = collections.defaultdict(float, _kek_val(G, el, cls))
             for x in comp:
                 use[x] += bml.get(x, 0.0)
+            # `ADJQW` — charges of the fragment as it stands, recomputed once per ±1 step
+            #   (the candidate scan below only shifts two atoms of them).
+            bs = qn = DEGa = NBa = None
+            if ADJQW > 0.0 or ADJQVETO:
+                bs, DEGa, NBa = atom_bond_sums(G, el, cls, comp)
+                qn = {v: q_atom(el[v], bs[v], DEGa[v], NBa[v]) for v in comp}
             best = None
             for e in edges:
                 c0 = cls[e]
@@ -141,6 +176,11 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
                         continue
                     c1 = c0 - 1
                 g = sc[e].get(c1, -1e9) - sc[e].get(c0, 0.0)
+                if bs is not None:
+                    adj = _adjq_pairs(G, el, e, ORD4[c1] - ORD4[c0], bs, qn, DEGa, NBa)
+                    if adj and ADJQVETO:
+                        continue  # rejected — ⑤ takes the next-best move, or gives up
+                    g -= ADJQW * adj
                 if best is None or g > best[0]:
                     best = (g, e, c1)
             if best is None:

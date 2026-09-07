@@ -106,6 +106,45 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None):
         q += q_atom(el[v], b, None if deg is None else deg.get(v), (nbrs or {}).get(v, ()))
     return q
 
+def atom_bond_sums(G, el, cls, comp):
+    """Per-atom **internal** bond-order sum for one fragment, resolved through the *same* Kekule
+    matching the output converter uses (2026-09-07, for `ADJQW`).
+
+    Returns `(bsum, deg, nbrs)` so a caller can get the formal charge of atom `v` as
+    `q_atom(el[v], bsum[v], deg[v], nbrs[v])` — exactly what `_qfrag` sums up, but kept per atom.
+
+    ⚠️ M–L bonds are **not** counted (the formal charge of a ligand atom is written from its
+       internal bonds only — `bml` is dative and stays out, as in `_qfrag`).
+    ⚠️ The matching runs on the `Conj` subgraph alone, so the order of a **non-`Conj`** bond does
+       not change it. That is what makes the `ADJQW` candidate scan cheap: a ±1 move on a
+       non-`Conj` bond shifts `bsum` at its two endpoints and nowhere else.
+    """
+    pc = {e for e, v in cls.items() if v == 3 and e[0] in comp}
+    Gc = nx.Graph()
+    Gc.add_edges_from(pc)
+    DEG = {v: G.degree(v) for v in comp}
+    NB = {v: tuple(sorted(el[w] for w in G[v])) for v in comp}
+    md = {}
+    for cm in nx.connected_components(Gc) if pc else []:
+        sub = [(a, b) for a, b in Gc.subgraph(cm).edges]
+        outer = {
+            v: sum(
+                0.0 if (min(v, w), max(v, w)) in pc else ORD4[cls.get((min(v, w), max(v, w)), 0)]
+                for w in G[v]
+                if w not in cm
+            )
+            for v in cm
+        }
+        out = {}
+        frag_charge(el, list(cm), sub, outer, DEG, NB, out=out)
+        md.update(out)
+    bs = {}
+    for v in comp:
+        bs[v] = sum(
+            md.get((min(v, w), max(v, w)), ORD4[cls.get((min(v, w), max(v, w)), 0)]) for w in G[v]
+        )
+    return bs, DEG, NB
+
 def _qfrag(G, el, cls, comp):
     """Charge of one fragment — the same q rule as in the main text (conjugated fragments go
     through `frag_charge`)."""
