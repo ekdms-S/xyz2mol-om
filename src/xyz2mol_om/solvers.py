@@ -13,7 +13,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import CAP, CAPINESS, ORD4, R6SWAP, VTGT
+from .config import CAP, CAPDUP, CAPDUP_MAX, CAPINESS, ORD4, R6SWAP, TAUD, VTGT
 from .charge import _qfrag, frag_charge, q_atom
 
 
@@ -133,55 +133,82 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
             out[e] = 2
             use[e[0]] += 2
             use[e[1]] += 2
-    r = {}
-    for x in G.nodes:
-        v = int(np.floor(CAP.get(el[x], 4) - use[x] + 1e-9))
-        if v > 0:
-            r[x] = min(v, 2)
-    H = nx.Graph()
-    for e in nonc:  # ② Double — exact maximum weight matching within the headroom
-        if e in out:
-            continue
-        s3 = sc.get(e)
-        if not s3 or 1 not in s3 or 0 not in s3:
-            continue
-        g = s3[1] - s3[0]
-        if g <= 0 or r.get(e[0], 0) < 1 or r.get(e[1], 0) < 1:
-            continue
-        for ia in range(r[e[0]]):
-            for ib in range(r[e[1]]):
-                H.add_edge((e[0], ia), (e[1], ib), weight=g, e=e)
+    # 🔴 `CAPDUP` — the capacity replicas let **one** bond take **two** units (see the `CAPDUP`
+    #   comment in `config`): with `r[a] = r[b] = 2` the matching can hold `(a,0)-(b,0)` and
+    #   `(a,1)-(b,1)` at once, double-counting `g` and spending two units for a single `Double`.
+    #   The repair is a re-run: whatever a round selected is fixed at **one** unit, its ends are
+    #   charged once, and the unit that was being wasted is offered to the other bonds.
+    #   With `CAPDUP=0` the loop runs exactly once and reproduces the old behaviour.
     mlout = {}
     if ml_sc:
         for key, sm in ml_sc.items():
-            m_, x_ = key
             # 🔴 The baseline is **the lowest class that exists for that pair** (fixed
             #   2026-09-03). The old version pinned it to 0, which emitted `Single` for pairs
             #   whose T8 constant is `Double`/`Triple`, and it read `sm[0]` unconditionally and
             #   died with a KeyError on such pairs.
-            base = min(sm)
-            mlout[key] = base
-            if 1 not in sm or base != 0 or r.get(x_, 0) < 1:
+            mlout[key] = min(sm)
+    fixed_int, fixed_ml, spent = set(), collections.Counter(), collections.Counter()
+    for _rd in range(CAPDUP_MAX if CAPDUP else 1):
+        r = {}
+        for x in G.nodes:
+            v = int(np.floor(CAP.get(el[x], 4) - use[x] - spent[x] + 1e-9))
+            if v > 0:
+                r[x] = min(v, 2)
+        H = nx.Graph()
+        for e in nonc:  # ② Double — maximum weight matching within the headroom
+            if e in out or e in fixed_int:
                 continue
-            incs = [sm[1] - sm[0]]
-            if ml_max >= 2 and 2 in sm:
-                incs.append(sm[2] - sm[1])
-            for u, g in enumerate(incs):
-                if g <= 0:
-                    break
-                du = ("_mlu", m_, x_, u)
-                for ia in range(r[x_]):
-                    H.add_edge((x_, ia), du, weight=g, e=("ML", key))
-    if H.number_of_edges():
-        cnt = collections.Counter()
+            s3 = sc.get(e)
+            if not s3 or 1 not in s3 or 0 not in s3:
+                continue
+            # 🔴 `TAUD` shifts the **weight**, not just the gate. Widening the gate alone does
+            #   nothing: `max_weight_matching` never takes a negative edge, so an edge admitted
+            #   with `g <= 0` is simply ignored (measured — τ = 0.5/1/2 were byte-identical to
+            #   τ = 0). The cost-sensitive form is `g + τ > 0`, i.e. `τ = log(C_FN/C_FP)`.
+            g = s3[1] - s3[0] + TAUD
+            if g <= 0 or r.get(e[0], 0) < 1 or r.get(e[1], 0) < 1:
+                continue
+            for ia in range(r[e[0]]):
+                for ib in range(r[e[1]]):
+                    H.add_edge((e[0], ia), (e[1], ib), weight=g, e=e)
+        if ml_sc:
+            for key, sm in ml_sc.items():
+                m_, x_ = key
+                if 1 not in sm or min(sm) != 0 or r.get(x_, 0) < 1:
+                    continue
+                incs = [sm[1] - sm[0]]
+                if ml_max >= 2 and 2 in sm:
+                    incs.append(sm[2] - sm[1])
+                for u, g in enumerate(incs):
+                    if g <= 0:
+                        break
+                    if u < fixed_ml[key]:       # already committed in an earlier round
+                        continue
+                    du = ("_mlu", m_, x_, u)
+                    for ia in range(r[x_]):
+                        H.add_edge((x_, ia), du, weight=g, e=("ML", key))
+        if not H.number_of_edges():
+            break
+        cnt, mlc = collections.Counter(), collections.Counter()
         for u, v in nx.max_weight_matching(H, maxcardinality=False):
             tg = H[u][v]["e"]
             if isinstance(tg, tuple) and tg and tg[0] == "ML":
-                cnt[tg[1]] += 1
+                mlc[tg[1]] += 1
             else:
-                out[tg] = 1
-        for key, c in cnt.items():
-            mlout[key] = min(c, 2)
+                cnt[tg] += 1
+        dup = any(c >= 2 for c in cnt.values())
+        for e in cnt:                            # one bond spends **one** unit
+            out[e] = 1
+            fixed_int.add(e)
+            spent[e[0]] += 1
+            spent[e[1]] += 1
+        for key, c in mlc.items():
+            fixed_ml[key] += c
+            spent[key[1]] += c
+        if not (CAPDUP and dup):
+            break
+    for key, c in fixed_ml.items():
+        mlout[key] = min(c, 2)
     for e in nonc:
         out.setdefault(e, 0)
     return out, mlout

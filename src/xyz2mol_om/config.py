@@ -500,6 +500,57 @@ EHTNITRO = os.environ.get("EHTNITRO", "1") == "1"
 #      there, not in the matching. The flag is left in place so that experiment starts from a
 #      measured baseline rather than from scratch.
 ETAEXO = os.environ.get("ETAEXO", "0") == "1"
+# `CAPDUP=1` — in ④, stop the matching spending **two** capacity units on **one** bond
+#   (2026-09-08, measuring only, off by default. Found by Codex, then measured).
+#   The capacity trick copies an atom with headroom `r` into `r` replicas, and an internal bond
+#   `e=(a,b)` gets a replica edge for **every** `(ia, ib)` pair. When `r[a] = r[b] = 2` the
+#   matching can take `(a,0)-(b,0)` **and** `(a,1)-(b,1)`: two disjoint pairs, one physical bond.
+#   Then `g` is counted twice in the objective (so `e` can crowd out another bond) and two units
+#   of headroom are spent at each end — while the output records `out[e] = 1`, a single `Double`.
+#   The docstring's "exact maximum-likelihood assignment" does not hold there.
+#   Measured (holdout 6,793): **96** such double-selections out of 15,538 matched internal bonds
+#   (0.6%), in 5,822 ④ matchings (`260908_solvecap_dup.py`).
+#   The repair re-runs the matching: any bond the previous round selected is fixed at **one**
+#   unit, its ends' headroom is charged once, and the freed unit is offered to the other bonds.
+#   It stops when a round produces no double-selection (or after `CAPDUP_MAX` rounds).
+#   Measured (48/12 shards · deployment path):
+#     holdout 6,793  T3 `Double` .7317 → **.7417** · `Single` .9899 → .9901 · `Triple`/`Conj`
+#                    unchanged · correct internal bonds **+131** (`Double`→`Double` +139)
+#                    `Sq_L` .8398 · `OS` .8712 · violations .0302 — **all three unchanged**
+#                    charge conservation 297 → 298 · harmful `Double` errors 308 → 305
+#     train 27,294   `Double` .7223 → **.7327** · everything else unchanged
+#   ⚠️ T8 pays a little: holdout `Double` .7479 → .7461 · `Triple` .7343 → .7317 (−8 correct M–L
+#      bonds). Freeing the wasted unit changes what the M–L order optimization competes for.
+#      Not decomposed.
+#   ⚠️ The 4-class gain is 10x the harmful-error gain (+131 bonds vs −3 targets) because the two
+#      are scored on different outputs — T3 F1 on `bonds_4class`, the target set on
+#      `bonds_kekule` after the ambiguity, μ-CO and resonance filters.
+# ★ adopted 2026-09-08
+CAPDUP = os.environ.get("CAPDUP", "1") == "1"
+CAPDUP_MAX = int(os.environ.get("CAPDUP_MAX", "6"))
+# `TAUD` — the ④ candidate gate for an internal `Double`. An edge enters the matching when
+#   `g = s[Double] − s[Single] > −TAUD` (default 0.0 = the current `g > 0`).
+#   Why a threshold rather than `LPA`: `LPA` scales the prior of **every** class at once, so
+#   flattening it to help `Double` also removes the `Conj` and `Triple` priors -- the reason
+#   `LPCOND_NOCONJ` exists at all. `TAUD` moves only the `Double`↔`Single` decision boundary,
+#   which is the standard cost-sensitive form `g > log(C_FP/C_FN)`.
+#   The block it targets: 116 of the 308 remaining harmful `Double` errors are bonds where
+#   `Single` outscores `Double`, so ④ never creates the candidate edge at all -- no cap, matching
+#   or EHT rule can reach them. In 73 of 112 the distance alone is nearer the `Double` median.
+#   🔴 This is a **fitted** parameter, unlike every rule adopted so far. Fit on train, confirm on
+#   holdout, and read `Single`/`Conj`/`Triple` F1, `Sq_L`, `OS` and valence violations with it --
+#   raising `Double` recall necessarily costs `Single` precision.
+#   ⛔ **Measured and rejected (2026-09-08).** Swept on train 27,294 over `CAPDUP=1`:
+#     τ    0     0.5    1      2      3
+#     D  .7327  .7333 .7311  .7285  .7260      ← peaks at +0.0006, inside fold noise, then falls
+#     OS .8640  .8655 .8664  .8675  .8674      ← rises, but bought with `Double`
+#     `Sq_L` and violations flat throughout.
+#   The gate was never the obstacle. A first attempt that only widened the gate changed
+#   **nothing at all** (τ = 0.5/1/2 byte-identical) because `max_weight_matching` never takes a
+#   negative edge; the weight has to move too, and this is the corrected form. It still does not
+#   work: τ lifts every `Double` candidate at once, so the true ones gain no ground on the false
+#   ones inside the matching. The 116-case block is not a threshold problem.
+TAUD = float(os.environ.get("TAUD", "0"))
 # 🔴 `LNORM=1` — include the **normalization term `−log(2·scl)`** of the Laplace log posterior
 #   (2026-09-03).
 #   The current formula omits that term, so **a class with narrow spread gets no reward.** `C=O`
