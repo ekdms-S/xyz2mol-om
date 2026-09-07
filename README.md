@@ -120,22 +120,30 @@ To save a result yourself use `save_json(r, path)`, and to read it back `load_js
 
 ## Performance
 
-holdout **6,456 structures** (not used in the fit) · reference labels: CSD `bond_type` + tmQMg-L `q_ligand`.
+holdout **6,793 structures** (not used in the fit) · reference labels: CSD `bond_type`,
+tmQMg-L `q_ligand`, and the roman numeral in the CSD `chemical_name` for the oxidation state.
 
 ⚠️ Fit and evaluation both use CSD experimental structures **relaxed with GFN2-xTB**.
 Coordinates from another source (raw CSD, DFT, a force field) are off-distribution.
 
-| Task | Metric | Value | Trivial baseline |
-|---|---|---|---|
-| T1 ligand internal bond existence | F1 | **0.9998** | all bonded .7306 |
-| T2 conjugation call | F1 | **0.9583** | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9894 / .7187 / .9826 / .9583** | all `Single` .9097 / 0 / 0 |
-| T4 M–L·M–M bond existence | F1 | **0.9904** | all bonded .5276 |
-| T5 haptic call | F1 | **0.9768** | all haptic .6766 |
-| T6 η^k (exact match per ligand) | accuracy | **0.9858** | all `k=0` .8704 |
-| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9931 / .7398 / .6336** | — |
-| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8338** | ceiling 83.4% |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8464** | ceiling 85.6% |
+Measured **2026-09-07** by running this package (`predict`) over the holdout — one scorer for
+every row, so the numbers below are what the shipped code does, not what a separate
+reimplementation did.
+
+| Task | Metric | Value | Pool | Trivial baseline |
+|---|---|---|---|---|
+| T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
+| T2 conjugation call | F1 | **0.9583** | — | — |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9893 / .7191 / .9828 / .9583** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
+| T4 M–L·M–M bond existence | F1 | **0.9905** | 56,510 bonds | all bonded .5276 |
+| T5 haptic call | F1 | **0.9769** | 15,331 M–L bonds | all haptic .6766 |
+| T6 η^k (exact match per ligand) | accuracy | **0.9858** | 4,221 ligands | all `k=0` .8704 |
+| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7400 / .6391** | 39,547 bonds | — |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8295** | 1,161 structures | ceiling 83.4% |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8586** | 2,779 structures | ceiling 85.6% |
+
+The pools differ per task because the references do: `bond_type` covers every structure,
+tmQMg-L charges cover 23% of them, and only 41% of the CSD names carry a roman numeral.
 
 ### Valence violations — chemical validity of the output
 
@@ -143,8 +151,8 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 
 | Evaluation | Pool | Violating structures | Reference-label baseline |
 |---|---|---|---|
-| holdout | 6,456 | **2.54%** | 0.68% |
-| train CV | 26,075 | **2.71%** | 0.40% |
+| holdout | 6,793 | **2.99%** | 0.68% |
+| train CV | 26,075 | 2.71% *(2026-09-03)* | 0.40% |
 
 ⚠️ The baseline is not 0 — the CSD reference labels themselves violate on 0.4–0.7%.
 
