@@ -13,7 +13,8 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import CAP, CAPDUP, CAPDUP_MAX, CAPINESS, ORD4, R6SWAP, TAUD, VTGT
+from .config import (CAP, CAPDUP, CAPDUP_MAX, CAPINESS, CAPMILP, CAPMILP_MAX, ORD4,
+                     R6SWAP, TAUD, VTGT)
 from .charge import _qfrag, frag_charge, q_atom
 
 
@@ -67,6 +68,81 @@ def _inessential(conj):
         if ok:
             out.append((ok, n - 2 * m0))
     return out
+
+
+MILP_STAT = collections.Counter()   # {"solved", "fallback_size", "fallback_fail"} — 진단용
+
+
+def _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, base):
+    """④ 를 **정확히** 푼다 (`CAPMILP`). 목적함수·제약은 매칭판과 같다 — 근사만 걷어낸 것이다.
+
+    `base[a]` = 그 원자가 이미 쓴 양 (`Conj` 는 `k+1`, `CAPINESS` 적용, 비-`Conj` 는 기본 1.0,
+    `b_ML` 포함). 여기에 `Double` 은 +1, `Triple` 은 +2, M–L 증분은 +1 씩 얹힌다.
+
+    반환 `(out, mlout)` · 못 풀면 `None` (호출부가 매칭판으로 되돌아간다).
+    ⚠️ `scipy` 는 여기서만 import 한다 — 플래그를 끄면 의존성이 아니다.
+    """
+    import numpy as _np
+    from scipy.optimize import Bounds, LinearConstraint, milp
+
+    nonc = [e for a, b in G.edges for e in [(min(a, b), max(a, b))] if e not in conj]
+    ed = [e for e in nonc if e in sc and 0 in sc[e]]
+    mls = [(k, sm) for k, sm in (ml_sc or {}).items() if 1 in sm and min(sm) == 0]
+    nv = 2 * len(ed) + 2 * len(mls)
+    if nv == 0 or nv > CAPMILP_MAX:
+        MILP_STAT["fallback_size"] += 1
+        return None
+    NEG = -1e6
+    obj = _np.zeros(nv)
+    for i, e in enumerate(ed):
+        obj[2 * i] = sc[e].get(1, NEG) - sc[e][0]
+        obj[2 * i + 1] = sc[e].get(2, NEG) - sc[e][0]
+    off = 2 * len(ed)
+    for j, (_k, sm) in enumerate(mls):
+        obj[off + 2 * j] = sm[1] - sm[0]
+        obj[off + 2 * j + 1] = (sm[2] - sm[1]) if (ml_max >= 2 and 2 in sm) else NEG
+    A, lo, hi = [], [], []
+    for i in range(len(ed)):                      # Double 과 Triple 은 배타
+        row = _np.zeros(nv); row[2 * i] = row[2 * i + 1] = 1
+        A.append(row); lo.append(-_np.inf); hi.append(1)
+    for j in range(len(mls)):                     # 둘째 증분은 첫째 없이는 불가
+        row = _np.zeros(nv); row[off + 2 * j] = -1; row[off + 2 * j + 1] = 1
+        A.append(row); lo.append(-_np.inf); hi.append(0)
+    at, mlat = collections.defaultdict(list), collections.defaultdict(list)
+    for i, e in enumerate(ed):
+        at[e[0]].append(i); at[e[1]].append(i)
+    for j, (k, _sm) in enumerate(mls):
+        mlat[k[1]].append(j)
+    for a in set(at) | set(mlat):                 # 원자가 상한
+        cap = CAP.get(el[a])
+        if cap is None:
+            continue
+        row = _np.zeros(nv)
+        for i in at[a]:
+            row[2 * i] += 1; row[2 * i + 1] += 2
+        for j in mlat[a]:
+            row[off + 2 * j] += 1; row[off + 2 * j + 1] += 1
+        A.append(row); lo.append(-_np.inf); hi.append(cap - base[a])
+    try:
+        res = milp(c=-obj, constraints=LinearConstraint(_np.array(A), lo, hi),
+                   integrality=_np.ones(nv), bounds=Bounds(0, 1))
+    except Exception:
+        MILP_STAT["fallback_fail"] += 1
+        return None
+    if not res.success or res.x is None:
+        MILP_STAT["fallback_fail"] += 1
+        return None
+    x = _np.round(res.x).astype(int)
+    out = {e: 3 for e in conj}
+    for i, e in enumerate(ed):
+        out[e] = 2 if x[2 * i + 1] else (1 if x[2 * i] else 0)
+    for e in nonc:
+        out.setdefault(e, 0)
+    mlout = {k: min(sm) for k, sm in (ml_sc or {}).items()} if ml_sc else {}
+    for j, (k, _sm) in enumerate(mls):
+        mlout[k] = int(x[off + 2 * j]) + int(x[off + 2 * j + 1])
+    MILP_STAT["solved"] += 1
+    return out, mlout
 
 
 def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
@@ -123,6 +199,12 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
     for e in nonc:
         use[e[0]] += 1.0
         use[e[1]] += 1.0
+    if CAPMILP:
+        # ④ 를 정확히 푼다. 목적함수·제약은 아래 매칭판과 같고, 순차 `Triple` 확정과 복제 간선
+        #   환원(= `CAPDUP` 이 수리하던 것)이 사라진다. 못 풀면 매칭판으로 되돌아간다.
+        _r = _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, use)
+        if _r is not None:
+            return _r
     out = {e: 3 for e in conj}
     for e in nonc:  # ① Triple — only where the likelihood argmax is Triple and both ends have
         #                        headroom of at least 2

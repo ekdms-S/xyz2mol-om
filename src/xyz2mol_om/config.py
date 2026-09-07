@@ -551,6 +551,41 @@ CAPDUP_MAX = int(os.environ.get("CAPDUP_MAX", "6"))
 #   work: τ lifts every `Double` candidate at once, so the true ones gain no ground on the false
 #   ones inside the matching. The 116-case block is not a threshold problem.
 TAUD = float(os.environ.get("TAUD", "0"))
+# `CAPMILP=1` — solve ④ **exactly** instead of through the matching reduction (2026-09-08,
+#   measuring only, off by default).
+#   Why: the present ④ confirms `Triple` first -- local argmax with headroom 2 -- spends the
+#   capacity, and only then matches `Double`/M–L, so it never weighs one `Triple` against
+#   several `Double`s. Measured by solving the **same objective under the same constraints**
+#   exactly and comparing: **113 of 12,245** ④ calls on holdout (0.92%) are not optimal, and the
+#   objective lost is median **4.58** · mean 5.90 · max 23.07. A typical `D−S` margin is 0.8-8,
+#   so a median loss of 4.58 is a whole bond decision.
+#   The formulation is the current one written out, nothing added:
+#     y[e,1], y[e,2] ∈ {0,1}   e is `Double` / `Triple` (both 0 = `Single`), y[e,1]+y[e,2] ≤ 1
+#     z[key,u] ∈ {0,1}         M–L increment u, z[key,1] ≤ z[key,0]
+#     max Σ (s[D]−s[S])·y1 + (s[T]−s[S])·y2 + Σ (sm1−sm0)·z0 + (sm2−sm1)·z1
+#     s.t. use_base[a] + Σ_{e∋a}(y[e,1] + 2·y[e,2]) + Σ_{x=a}(z0+z1) ≤ CAP[a]
+#   `CAPDUP` becomes unnecessary here -- the capacity is a constraint, not replicated vertices,
+#   so one bond cannot take two units by construction.
+#   ⚠️ `scipy` is imported **lazily**, only when this flag is on, so the package keeps declaring
+#      just numpy · networkx · rdkit.
+#   ⚠️ Above `CAPMILP_MAX` variables it falls back to the matching: measured on 600 holdout
+#      structures, **89.75% solved · 9.00% too large · 1.25% solver failure**.
+#   ⛔ **Measured and left off (2026-09-08).** It does what it claims -- the ④ metrics rise, and
+#   `Triple` rises by more than any other change so far -- but the **deployment output gets
+#   worse**:
+#     holdout 6,793  T3 `Double` .7417 → **.7490** · `Triple` .9770 → **.9805** · `Single` .9901
+#                    → .9902 · T8 `Double` .7461 → .7471
+#                    `Sq_L` .8398 → **.8372** · `OS` .8712 → .8708 · violations .0302 unchanged
+#                    harmful `Double` errors **305 → 313** (1 fixed, 9 newly broken)
+#     train 27,294   `Double` .7327 → **.7414** · `Triple` .9777 → **.9818**
+#                    `Sq_L` .8344 → **.8330** · `OS` .8640 unchanged · violations .0307 → .0306
+#   🔴 This is the sharpest evidence for Codex's structural point: the stages do not share an
+#      objective, so solving ④ **better** hands ⑤ a different starting point and the pipeline
+#      ends **worse**. Stage-local exactness is not the lever. Adopting it would need ⑤/⑥ to be
+#      re-tuned against it, which is the joint-inference redesign, not this flag.
+CAPMILP = os.environ.get("CAPMILP", "0") == "1"
+CAPMILP_MAX = int(os.environ.get("CAPMILP_MAX", "1200"))
+
 # 🔴 `LNORM=1` — include the **normalization term `−log(2·scl)`** of the Laplace log posterior
 #   (2026-09-03).
 #   The current formula omits that term, so **a class with narrow spread gets no reward.** `C=O`
