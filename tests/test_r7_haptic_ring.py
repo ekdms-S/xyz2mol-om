@@ -22,7 +22,7 @@ from __future__ import annotations
 import numpy as np
 
 import xyz2mol_om.rules.pipeline as pipeline
-from xyz2mol_om import predict
+from xyz2mol_om import all_fragments, all_metals, predict
 
 # `HOQNOQ` (from CSD · `ref_xtb2` geometry)
 EL = [
@@ -97,7 +97,7 @@ RING_C = (4, 5, 7, 9)
 
 
 def _thienyl(r):
-    (L,) = [x for x in r["ligands"] if S_IDX in x["atoms"]]
+    (L,) = [x for x in all_fragments(r) if S_IDX in x["atoms"]]
     return L
 
 
@@ -129,7 +129,7 @@ def test_r7_does_not_touch_bond_orders():
     """🔴 R7 waives **only T5's π-fragment membership condition** - the T3 4-class assignment
     must stay identical."""
     on, off = _run(True), _run(False)
-    for a, b in zip(on["ligands"], off["ligands"]):
+    for a, b in zip(all_fragments(on), all_fragments(off)):
         assert a["bonds_4class"] == b["bonds_4class"], f"R7 changed T3 - fragment {a['index']}"
         assert a["bonds_kekule"] == b["bonds_kekule"], f"R7 changed Kekule - fragment {a['index']}"
         assert a["charge"] == b["charge"], f"R7 changed the ligand charge - fragment {a['index']}"

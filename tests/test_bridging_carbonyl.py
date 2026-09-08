@@ -10,7 +10,7 @@ Structure: Co2(CO)8, the C2v bridged isomer, relaxed with GFN2-xTB (Co-Co 2.514 
 not passed; for this molecule the distance fallback gives the same answer.
 """
 
-from xyz2mol_om import predict
+from xyz2mol_om import all_fragments, all_metals, predict
 from xyz2mol_om.rules import pipeline
 
 # Co2(CO)8 (C2v, bridged) · GFN2-xTB optimized
@@ -43,7 +43,7 @@ def _run():
 
 
 def _bridging(r):
-    return [lg for lg in r["ligands"] if len({m for m, _ in lg["ml_bonds"]}) >= 2]
+    return [lg for lg in all_fragments(r) if len({m for m, _ in lg["ml_bonds"]}) >= 2]
 
 
 def test_mu_co_is_tagged_3c2e():
@@ -62,12 +62,12 @@ def test_mu_co_keeps_its_triple_bond_and_stays_neutral():
 
 
 def test_oxidation_state_is_zero():
-    assert [m["oxidation"] for m in _run()["metals"]] == [0, 0], "Co2(CO)8 is Co(0)"
+    assert [m["oxidation"] for m in all_metals(_run())] == [0, 0], "Co2(CO)8 is Co(0)"
 
 
 def test_terminal_co_is_unaffected():
     r = _run()
-    term = [lg for lg in r["ligands"] if len({m for m, _ in lg["ml_bonds"]}) == 1]
+    term = [lg for lg in all_fragments(r) if len({m for m, _ in lg["ml_bonds"]}) == 1]
     assert len(term) == 6
     for lg in term:
         assert list(lg["bonds_4class"].values()) == ["Triple"]
@@ -87,4 +87,4 @@ def test_per_bond_cost_reproduces_the_old_answer(monkeypatch):
         assert {d["bridge"] for d in lg["ml_bonds"].values()} == {"3c2e"}
         assert list(lg["bonds_4class"].values()) == ["Double"]
         assert lg["charge"] == -2
-    assert [m["oxidation"] for m in r["metals"]] == [2, 2]
+    assert [m["oxidation"] for m in all_metals(r)] == [2, 2]

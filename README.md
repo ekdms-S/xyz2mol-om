@@ -57,42 +57,62 @@ metal degrades and the output is far more often chemically impossible (holdout 6
 
 ## Output
 
-```python
-r["metals"]  == [{"index": 0, "element": "Mo", "oxidation": 6,
-                  "oxidation_is_exact": True,   # False = an even split, see below
-                  "mm_bonds": {}}]
+**A molecule is the top level.** The input may hold several — an IRC endpoint where the product has
+separated, a salt with its counter-ion, a solvate — so the result is a list of them, each carrying
+its own metals, fragments, charge and SMILES.
 
-r["ligands"] == [
-  {"index": 0, "atoms": [1],
-   "bonds_4class": {},         # {(i,j): "Single"|"Double"|"Triple"|"Conj"}
-   "bonds_kekule": {},         # {(i,j): 1|2|3}
-   "smiles": "[N-3:1]", "smiles_ok": True, "smiles_note": "",
-   "coordinating": [1],
-   "ml_bonds": {(0, 1): {"type": "sigma",   # sigma | haptic | bridge
-                         "order": 3,        # None if haptic
-                         "bridge": None}},  # if bridging, "3c2e" | "dative"
-   "eta": {},                  # {metal: k} — counted **per ligand**, so a bridged
-                               #   (ansa) metallocene is one η¹⁰, not η⁵:η⁵
-   "charge": -3,               # ligand charge q_L
-   "residual_charge": None},   # residual charge not expressible by the skeleton
-  … ]
+```python
+r["total_charge"] == -1          # what you passed in, unchanged
 
 r["molecules"] == [
-  {"index": 0, "atoms": [0, 1, …], "metals": [0], "ligands": [0, 1, 2, 3],
-   "charge": 0,           # this molecule's charge
-   "charge_is_exact": True},   # False when it had to be guessed
-  … ]
+  {"index": 0,
+   "atoms": [0, 1, …],           # input atom indices
+   "charge": -1,                 # this molecule's charge
+   "charge_is_exact": True,      # False when it had to be guessed (see below)
 
-r["complex_smiles"] == "[H][O-]->[Mo+6](<-[N-3])(<-[Cl-])(<-[Cl-])<-[Cl-]"
+   "metals": [
+     {"index": 0, "element": "Mo", "oxidation": 6,
+      "oxidation_is_exact": True,      # False = an even split, see below
+      "mm_bonds": {}}],
+
+   "fragments": [                # connected components of the internal bonds
+     {"index": 0, "atoms": [1],
+      "bonds_4class": {},        # {(i,j): "Single"|"Double"|"Triple"|"Conj"}
+      "bonds_kekule": {},        # {(i,j): 1|2|3}
+      "smiles": "[N-3:1]", "smiles_ok": True, "smiles_note": "",
+      "coordinating": [1],
+      "ml_bonds": {(0, 1): {"type": "sigma",   # sigma | haptic | bridge
+                            "order": 3,        # None if haptic
+                            "bridge": None}},  # if bridging, "3c2e" | "dative"
+      "eta": {},                 # {metal: k} — counted **per ligand**, so a bridged
+                                 #   (ansa) metallocene is one η¹⁰, not η⁵:η⁵
+      "charge": -3,              # this fragment's charge
+      "residual_charge": None},  # charge the skeleton cannot express
+     … ],
+
+   "smiles": "[H][O-]->[Mo+6](<-[N-3])(<-[Cl-])(<-[Cl-])<-[Cl-]",
+   "smiles_ok": True, "smiles_note": "",
+   "atom_order": [...]},         # SMILES atom order, in input indices
+  … ]
+```
+
+A **fragment** is a connected component of the internal bonds. Most are ligands — `ml_bonds` says
+what they coordinate — but a molecule with no metal has exactly one fragment that coordinates
+nothing, and that is how a free organic molecule appears.
+
+To walk the whole result without nesting loops:
+
+```python
+from xyz2mol_om import all_metals, all_fragments
+all_metals(r)      # every metal record, across molecules
+all_fragments(r)   # every fragment record, across molecules
 ```
 
 ### More than one molecule in the input
 
-An input may hold several disconnected molecules — an IRC endpoint where the product has
-separated, a salt with its counter-ion, a solvate. `r["molecules"]` groups them: connected
-components over **all** bonds (internal, M–L and M–M), so each entry is one molecule with its own
-metals, ligands and charge. Anything touching none of those — a free counter-ion, a departed
-fragment — is a molecule of its own. `complex_smiles` separates them with `.` as SMILES does.
+Molecules are the connected components over **all** bonds — internal, M–L and M–M. Anything
+touching none of them (a free counter-ion, a departed fragment) is a molecule of its own, and each
+molecule gets its own SMILES rather than one dot-joined string.
 
 🔴 **This is not only for tidiness.** The oxidation state is `(charge − Σ q_L) / n_metals`; run
 over the whole input it averages one molecule's charge into another molecule's metals. `CpTiCl₃`
@@ -102,17 +122,17 @@ passing. The state is now solved **inside** each molecule.
 
 | the input holds | what you get |
 |---|---|
-| one molecule | as before |
+| one molecule | one entry in `molecules`, exact |
 | one metal-bearing molecule + any number of metal-free ones | **exact** — a metal-free molecule's charge is its formal-charge sum, and the rest belongs to the metal-bearing one. This is the IRC-endpoint case |
-| two or more metal-bearing molecules | the remainder is split **evenly** over all their metals and marked `oxidation_is_exact: False`, with the same warning in `complex_smiles_note`. It is right when the molecules are symmetric (5 of the 7 holdout structures that land here) and silently wrong otherwise, so check the flag — or pass one molecule at a time |
+| two or more metal-bearing molecules | the remainder is split **evenly** over all their metals and marked `oxidation_is_exact: False`, with the same warning in the molecule's `smiles_note`. It is right when the molecules are symmetric (5 of the 7 holdout structures that land here) and silently wrong otherwise, so check the flag — or pass one molecule at a time |
 
 ### SMILES format
 
 | | Convention |
 |---|---|
-| Ligand SMILES | atom map `[X:n]` on the coordinating atoms · our orders and charges are pinned as they are |
-| Complex SMILES | M–L are **all dative arrows** (`->`) · metal formal charge = **oxidation state** |
-| Order | collapsed in the complex SMILES — the real value is `ml_bonds[(m,x)]["order"]` |
+| Fragment SMILES | atom map `[X:n]` on the coordinating atoms · our orders and charges are pinned as they are |
+| Molecule SMILES | M–L are **all dative arrows** (`->`) · metal formal charge = **oxidation state** |
+| Order | collapsed in the molecule SMILES — the real value is `ml_bonds[(m,x)]["order"]` |
 | Validation | `smiles_ok` = whether the round-trip check (order · charge · H · multiset) passed · the reason for failure is in `smiles_note` |
 
 ### Complex reassembly
@@ -133,7 +153,7 @@ input_idx = sorted(lg["coordinating"])[at.GetAtomMapNum() - 1]
 
 ⚠️ The map `[X:n]` in a ligand SMILES is **not the input index** — it is the n-th entry of the sorted `coordinating` list.
 ⚠️ Implicit hydrogens are not used — read with `sanitize=False` and sanitize with KEKULIZE and SETAROMATICITY removed.
-⚠️ `complex_smiles` collapses the M–L orders (the real value is in `ml_bonds[…]["order"]`). Atom correspondence: `complex_atom_order`.
+⚠️ a molecule's `smiles` collapses the M–L orders (the real value is in `ml_bonds[…]["order"]`). Atom correspondence: the molecule's `atom_order`.
 
 ## Examples — `examples/`
 

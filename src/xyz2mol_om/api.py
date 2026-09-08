@@ -128,6 +128,16 @@ def _drop_agostic(el, G, ml_raw):
     return out
 
 
+def all_metals(r):
+    """Every metal record in the result, across all molecules — order is molecule then index."""
+    return [m for mol in r["molecules"] for m in mol["metals"]]
+
+
+def all_fragments(r):
+    """Every fragment record in the result, across all molecules."""
+    return [fr for mol in r["molecules"] for fr in mol["fragments"]]
+
+
 def _molecule_of(el, cls, ml_pred, mm):
     """`{atom: molecule index}` — connected components over **all** bonds, M–L and M–M included.
 
@@ -245,7 +255,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # **pass-1** internal orders, which only that function has, and reusing its result is what
     # guarantees the output tag and the ④·⑥ budget cannot diverge.
     coord_of = collections.defaultdict(set)  # fragment representative -> coordinating atoms
-    ligands = []
+    fragments = []
     q_all = {}
     qat_all = {}  # all per-atom formal charges — used by the complex SMILES
     for li, comp0 in enumerate(nx.connected_components(G)):
@@ -296,8 +306,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         #    **η2** (truth η5 · measured 2026-09-03).
         for m in {m0 for m0, x0 in hap if x0 in cs}:
             eta_out[m] = sum(1 for m0, x0 in hap if m0 == m and x0 in cs)
-        ligands.append({
-            "index": li,
+        fragments.append({
             "atoms": comp,
             "bonds_4class": b4,
             "bonds_kekule": bk,
@@ -326,7 +335,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "index": mi,
             "atoms": atoms,
             "metals": [m for m in mets if m in aset],
-            "ligands": [lg["index"] for lg in ligands if lg["atoms"][0] in aset],
+            "fragments": [fr["atoms"][0] for fr in fragments if fr["atoms"][0] in aset],
         })
 
     # A metal-free molecule's charge is its ligands' formal-charge sum — nothing is unknown there.
@@ -335,10 +344,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # molecule, and nothing in the input says how to divide the remainder, so the oxidation state
     # is left as `None` rather than guessed.
     os_metal, os_exact = {}, True
-    q_of_lig = {lg["index"]: lg["charge"] for lg in ligands}
+    q_of_frag = {fr["atoms"][0]: fr["charge"] for fr in fragments}
     for mol in molecules:
         mol["charge"] = (None if mol["metals"]
-                         else sum(q_of_lig[i] for i in mol["ligands"]))
+                         else sum(q_of_frag[i] for i in mol["fragments"]))
         mol["charge_is_exact"] = not mol["metals"]
     with_metal = [m for m in molecules if m["metals"]]
     if total_charge is not None and with_metal:
@@ -346,7 +355,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         if len(with_metal) == 1:
             mol = with_metal[0]
             mol["charge"], mol["charge_is_exact"] = rest, True
-            num = rest - sum(q_of_lig[i] for i in mol["ligands"])
+            num = rest - sum(q_of_frag[i] for i in mol["fragments"])
             if num % len(mol["metals"]) == 0:
                 os_metal = dict.fromkeys(mol["metals"], num // len(mol["metals"]))
         else:
@@ -359,7 +368,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             #   it is wrong it is wrong silently (CpTiCl3 + [Os(CO)3Cl3]- gives Ti(III)/Os(III),
             #   the sum still correct and every check passing).
             allm = [x for m in with_metal for x in m["metals"]]
-            num = rest - sum(q_of_lig[i] for m in with_metal for i in m["ligands"])
+            num = rest - sum(q_of_frag[i] for m in with_metal for i in m["fragments"])
             if num % len(allm) == 0:
                 os_metal = dict.fromkeys(allm, num // len(allm))
                 os_exact = False
@@ -370,49 +379,65 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   A metal's formal charge = its **oxidation state**. Without `total_charge` the oxidation
     #   state cannot be found, so it is not built (stamping 0 would emit a SMILES whose total
     #   charge is wrong — better absent than silently wrong).
-    cx_smi, cx_ok, cx_note, cx_order = None, False, "", []
-    if not mets:
-        cx_note = "no metal - use ligand SMILES"
-    elif not os_metal:
-        cx_note = (
-            "oxidation state undetermined - total_charge not given, or the remainder is not "
-            "divisible by the number of metals"
-        )
-    else:
-        qcx = dict(qat_all)
-        qcx.update(os_metal)
-        cx_smi, cx_order = complex_smiles(
-            el, list(range(len(el))), orders, qcx, ml_pred, mm, with_map=complex_atom_map
-        )
-        if cx_smi is None:
-            cx_note = "complex SMILES generation failed"
+    # -- per-molecule SMILES. Each molecule gets its own — M–L bonds as dative arrows, the metal's
+    #   formal charge stamped with its oxidation state. Without an oxidation state a metal-bearing
+    #   molecule gets none (stamping 0 would emit a SMILES whose total charge is wrong — better
+    #   absent than silently wrong); a metal-free molecule needs none.
+    frag_by_key = {fr["atoms"][0]: fr for fr in fragments}
+    out_mols = []
+    for mol in molecules:
+        frs = [frag_by_key[k] for k in mol["fragments"]]
+        aset = set(mol["atoms"])
+        smi = note = None
+        ok, order = False, []
+        if not mol["metals"]:
+            # one connected component, so its fragment SMILES is the molecule's
+            smi, ok, note = frs[0]["smiles"], frs[0]["smiles_ok"], frs[0]["smiles_note"]
+        elif not os_metal:
+            note = ("oxidation state undetermined - total_charge not given, or the remainder is "
+                    "not divisible by the number of metals")
         else:
-            cx_ok, cx_note = verify_complex(
-                cx_smi, el, list(range(len(el))), orders, qcx, ml_pred, mm, total_charge
-            )
-        # 🔴 said **after** the round-trip check, which overwrites `cx_note` on success. The
-        #   SMILES can be self-consistent and still carry a guessed oxidation state.
-        if not os_exact:
-            warn = ("oxidation state is an even split - the input holds several metal-bearing "
-                    "molecules and nothing says how total_charge divides between them")
-            cx_note = f"{cx_note}; {warn}" if cx_note else warn
+            qcx = {a: q for a, q in qat_all.items() if a in aset}
+            qcx.update({m: os_metal[m] for m in mol["metals"] if m in os_metal})
+            sub_ml = [(m, x) for m, x in ml_pred if m in aset]
+            sub_mm = {e: v for e, v in mm.items() if e[0] in aset}
+            sub_or = {e: v for e, v in orders.items() if e[0] in aset}
+            smi, order = complex_smiles(el, mol["atoms"], sub_or, qcx, sub_ml, sub_mm,
+                                        with_map=complex_atom_map)
+            if smi is None:
+                note = "SMILES generation failed"
+            else:
+                ok, note = verify_complex(smi, el, mol["atoms"], sub_or, qcx, sub_ml, sub_mm,
+                                          mol["charge"])
+            if not os_exact:
+                warn = ("oxidation state is an even split - the input holds several metal-bearing "
+                        "molecules and nothing says how total_charge divides between them")
+                note = f"{note}; {warn}" if note else warn
+        for fr in frs:
+            fr.pop("charge_key", None)
+        out_mols.append({
+            "index": mol["index"],
+            "atoms": mol["atoms"],
+            "charge": mol["charge"],
+            "charge_is_exact": mol["charge_is_exact"],
+            "metals": [
+                {
+                    "index": m,
+                    "element": el[m],
+                    "oxidation": os_metal.get(m),
+                    "oxidation_is_exact": os_exact if os_metal.get(m) is not None else None,
+                    "mm_bonds": {e: v for e, v in mm.items() if m in e},
+                }
+                for m in mol["metals"]
+            ],
+            "fragments": [dict(fr, index=n) for n, fr in enumerate(frs)],
+            "smiles": smi,
+            "smiles_ok": ok,
+            "smiles_note": note or "",
+            "atom_order": order,
+        })
 
     return {
-        "complex_smiles": cx_smi,
-        "complex_smiles_ok": cx_ok,
-        "complex_smiles_note": cx_note,
-        "complex_atom_order": cx_order,
-        "metals": [
-            {
-                "index": m,
-                "element": el[m],
-                "oxidation": os_metal.get(m),
-                "oxidation_is_exact": os_exact if os_metal.get(m) is not None else None,
-                "mm_bonds": {k: v for k, v in mm.items() if m in k},
-            }
-            for m in mets
-        ],
-        "ligands": ligands,
-        "molecules": molecules,
+        "molecules": out_mols,
         "total_charge": total_charge,
     }

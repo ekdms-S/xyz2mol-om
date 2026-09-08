@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from rdkit import Chem, RDLogger
 
-from xyz2mol_om import assemble_complex, load_json
+from xyz2mol_om import all_fragments, all_metals, assemble_complex, load_json
 
 RDLogger.DisableLog("rdApp.*")
 EX = sorted(glob.glob(str(Path(__file__).resolve().parents[1] / "examples" / "*.result.json")))
@@ -26,9 +26,9 @@ def _canon(smi):
 def test_assemble_matches_complex_smiles(f):
     r = load_json(f)
     mol, amap = assemble_complex(r)
-    assert Chem.MolToSmiles(mol) == _canon(r["complex_smiles"])
-    for met in r["metals"]:               # metals and coordinating atoms must be in the map
+    assert Chem.MolToSmiles(mol) == _canon(r["molecules"][0]["smiles"])
+    for met in all_metals(r):               # metals and coordinating atoms must be in the map
         assert met["index"] in amap
-    for lg in r["ligands"]:
+    for lg in all_fragments(r):
         for x in lg["coordinating"]:
             assert x in amap

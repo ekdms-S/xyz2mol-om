@@ -20,7 +20,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
 
-from xyz2mol_om import predict, save_json  # noqa: E402
+from xyz2mol_om import all_fragments, all_metals, predict, save_json  # noqa: E402
 
 
 def read_xyz(p: Path):
@@ -45,11 +45,12 @@ def main(argv: list[str]) -> None:
         wbo = {tuple(int(t) for t in k.split(",")): v for k, v in meta["wbo"].items()}
         r = predict(el, xyz, total_charge=meta["total_charge"], wbo=wbo if use_wbo else None)
         out = save_json(r, f.with_suffix(".result.json"))
-        eta = [max(lg["eta"].values()) for lg in r["ligands"] if lg.get("eta")]
-        tags = sorted({d["bridge"] or d["type"] for lg in r["ligands"] for d in lg["ml_bonds"].values()})
+        frs = all_fragments(r)
+        eta = [max(lg["eta"].values()) for lg in frs if lg.get("eta")]
+        tags = sorted({d["bridge"] or d["type"] for lg in frs for d in lg["ml_bonds"].values()})
         print(
             f"{f.name:28} → {out.name:32} "
-            f"metals {len(r['metals'])} · ligands {len(r['ligands'])}"
+            f"molecules {len(r['molecules'])} · metals {len(all_metals(r))} · fragments {len(frs)}"
             f" · M–L {','.join(tags)}" + (f" · η{max(eta)}" if eta else "")
         )
 

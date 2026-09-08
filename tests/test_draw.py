@@ -3,7 +3,7 @@
 The figure is the only place a reader sees the answer whole, so a bond the drawing silently drops
 is worse than a wrong number: it looks like a clean result. Two such gaps are pinned here.
 
-  1. **M–M bonds are drawn.** `mm_bonds` sits on `result["metals"]`, not on a ligand, and the
+  1. **M–M bonds are drawn.** `mm_bonds` sits on `all_metals(result)`, not on a ligand, and the
      first version of the drawing code never read that key — `[Re₂Cl₈]²⁻` came out as two
      unconnected metals.
   2. **The projection scan counts M–L bonds as bonds.** Its clutter score needs a length scale
@@ -60,16 +60,21 @@ def test_draw_emits_the_mm_bond(tmp_path, monkeypatch):
     el = ["Re", "Re", "Cl", "Cl"]
     xyz = np.array([[-1.1, 0, 0], [1.1, 0, 0], [-3.4, 0, 0], [3.4, 0, 0]], dtype=float)
     result = {
-        "metals": [
-            {"index": 0, "element": "Re", "oxidation": 3, "mm_bonds": {"0,1": 1}},
-            {"index": 1, "element": "Re", "oxidation": 3, "mm_bonds": {"0,1": 1}},
-        ],
-        "ligands": [
-            {"index": 0, "atoms": [2], "coordinating": [2], "bonds_kekule": {}, "eta": {},
-             "charge": -1, "ml_bonds": {(0, 2): {"type": "sigma", "order": 1, "bridge": None}}},
-            {"index": 1, "atoms": [3], "coordinating": [3], "bonds_kekule": {}, "eta": {},
-             "charge": -1, "ml_bonds": {(1, 3): {"type": "sigma", "order": 1, "bridge": None}}},
-        ],
+        "molecules": [{
+            "index": 0, "atoms": [0, 1, 2, 3], "charge": -2, "charge_is_exact": True,
+            "metals": [
+                {"index": 0, "element": "Re", "oxidation": 3, "mm_bonds": {"0,1": 1}},
+                {"index": 1, "element": "Re", "oxidation": 3, "mm_bonds": {"0,1": 1}},
+            ],
+            "fragments": [
+                {"index": 0, "atoms": [2], "coordinating": [2], "bonds_kekule": {}, "eta": {},
+                 "charge": -1,
+                 "ml_bonds": {(0, 2): {"type": "sigma", "order": 1, "bridge": None}}},
+                {"index": 1, "atoms": [3], "coordinating": [3], "bonds_kekule": {}, "eta": {},
+                 "charge": -1,
+                 "ml_bonds": {(1, 3): {"type": "sigma", "order": 1, "bridge": None}}},
+            ],
+        }],
     }
 
     # keep the axes `draw` builds so its contents can be inspected after it closes the figure
@@ -103,15 +108,19 @@ def test_draw_emits_the_mm_bond(tmp_path, monkeypatch):
 
 def test_draw_is_reproducible_with_a_given_projection(tmp_path):
     """Passing a projection back in must be accepted — that is what pairs two figures."""
-    from xyz2mol_om import draw
+    from xyz2mol_om import all_fragments, all_metals, draw
 
     el = ["Ti", "Cl"]
     xyz = np.array([[0.0, 0, 0], [2.3, 0, 0]])
     result = {
-        "metals": [{"index": 0, "element": "Ti", "oxidation": 4, "mm_bonds": {}}],
-        "ligands": [{"index": 0, "atoms": [1], "coordinating": [1], "bonds_kekule": {},
-                     "eta": {}, "charge": -1,
-                     "ml_bonds": {(0, 1): {"type": "sigma", "order": 1, "bridge": None}}}],
+        "molecules": [{
+            "index": 0, "atoms": [0, 1], "charge": -1, "charge_is_exact": True,
+            "metals": [{"index": 0, "element": "Ti", "oxidation": 4, "mm_bonds": {}}],
+            "fragments": [{"index": 0, "atoms": [1], "coordinating": [1], "bonds_kekule": {},
+                           "eta": {}, "charge": -1,
+                           "ml_bonds": {(0, 1): {"type": "sigma", "order": 1,
+                                                 "bridge": None}}}],
+        }],
     }
     p1 = draw(el, xyz, result, tmp_path / "a.png", title="a")
     p2 = draw(el, xyz, result, tmp_path / "b.png", title="b", projection=p1)

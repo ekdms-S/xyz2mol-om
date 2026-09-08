@@ -140,13 +140,13 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
     el, xyz = list(elements), np.asarray(coords, dtype=float)
 
     ml, kek = {}, {}
-    for lg in result["ligands"]:
+    for lg in (fr for mol in result["molecules"] for fr in mol["fragments"]):
         kek.update(lg.get("bonds_kekule") or {})
         ml.update(lg["ml_bonds"])
-    met = {m["index"]: m for m in result["metals"]}
+    met = {m["index"]: m for mol in result["molecules"] for m in mol["metals"]}
     # M–M bonds are reported per metal, keyed "i,j" — collect them once
     mm = {}
-    for m in result["metals"]:
+    for m in (x for mol in result["molecules"] for x in mol["metals"]):
         for key, order in (m.get("mm_bonds") or {}).items():
             a, b = (key if isinstance(key, tuple) else tuple(int(t) for t in str(key).split(",")))
             mm[(min(a, b), max(a, b))] = order
@@ -265,7 +265,7 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
         subtitle = " · ".join(
             f"q{lg['index']}={lg['charge']:+d}"
             + (f" η{max(lg['eta'].values())}" if lg.get("eta") else "")
-            for lg in result["ligands"]
+            for mol in result["molecules"] for lg in mol["fragments"]
         )
     ax.text(
         (xa + xb) / 2, yb + my + band * 0.55, f"{title}\n{subtitle}",

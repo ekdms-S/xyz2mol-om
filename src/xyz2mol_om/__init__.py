@@ -8,7 +8,7 @@
 What is used (decision rules and formulas) and the performance figures are in `docs/PIPELINE.md`.
 """
 
-from .api import predict
+from .api import all_fragments, all_metals, predict
 from .charge import eht_frag_charges, frag_charge, kekulize, q_atom
 from .config import METALS, METALS_HARD, RCOV
 from .geometry import load_dint, read_xyz
@@ -20,6 +20,9 @@ from .rules import (deg_cell, fit_scores4, load_b_ml_mayer, load_scores4, ml_ord
 __version__ = "0.1.0"
 __all__ = [
     "predict",
+    # walk the nested result — every metal / every fragment, across molecules
+    "all_metals",
+    "all_fragments",
     # small helpers a caller needs to feed `predict` — reading an xyz file and
     # asking which elements this pipeline treats as metals (`METALS` includes B, `METALS_HARD`
     # does not · `RCOV` are the covalent radii the connectivity uses)

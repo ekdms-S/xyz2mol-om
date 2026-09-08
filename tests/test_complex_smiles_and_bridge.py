@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from xyz2mol_om import predict
+from xyz2mol_om import all_fragments, all_metals, predict
 from xyz2mol_om.rules.pipeline import bridge_tags
 
 EL = ["Mo", "N", "O", "H", "Cl", "Cl", "Cl"]
@@ -32,9 +32,10 @@ WBO.update({(j, i): w for (i, j), w in list(WBO.items())})
 
 def test_complex_smiles_dative_and_oxidation():
     r = predict(EL, XYZ, total_charge=-1, wbo=WBO)
-    smi = r["complex_smiles"]
-    assert smi, f"no complex SMILES - {r['complex_smiles_note']}"
-    assert r["complex_smiles_ok"], f"round-trip check failed - {r['complex_smiles_note']}"
+    mol = r["molecules"][0]
+    smi = mol["smiles"]
+    assert smi, f"no complex SMILES - {mol['smiles_note']}"
+    assert mol["smiles_ok"], f"round-trip check failed - {mol['smiles_note']}"
     # all five M–L bonds are dative arrows
     assert smi.count("->") + smi.count("<-") == 5, smi
     # the **oxidation state** is written on the metal
@@ -42,28 +43,28 @@ def test_complex_smiles_dative_and_oxidation():
     # formal charges of the anionic ligands are visible too
     assert "[N-3]" in smi and "[Cl-]" in smi, smi
     # the output order lets us map back to the xyz atoms
-    assert sorted(r["complex_atom_order"]) == list(range(len(EL)))
-    assert [EL[i] for i in r["complex_atom_order"]].count("Cl") == 3
+    assert sorted(r["molecules"][0]["atom_order"]) == list(range(len(EL)))
+    assert [EL[i] for i in r["molecules"][0]["atom_order"]].count("Cl") == 3
 
 
 def test_complex_smiles_needs_total_charge():
     """Without `total_charge` there is no oxidation state, so **nothing is produced**
     (rather than being silently wrong)."""
     r = predict(EL, XYZ, wbo=WBO)
-    assert r["complex_smiles"] is None
-    assert "oxidation state" in r["complex_smiles_note"]
+    assert r["molecules"][0]["smiles"] is None
+    assert "oxidation state" in r["molecules"][0]["smiles_note"]
 
 
 def test_ml_bonds_have_bridge_key():
     r = predict(EL, XYZ, total_charge=-1, wbo=WBO)
-    for lig in r["ligands"]:
+    for lig in all_fragments(r):
         for _e, d in lig["ml_bonds"].items():
             assert set(d) == {"type", "order", "bridge"}, d
             assert d["type"] in ("sigma", "haptic", "bridge")
             assert d["bridge"] in (None, "3c2e", "dative")
     # every coordination here is terminal, so there are no bridges
     assert all(
-        d["bridge"] is None for lig in r["ligands"] for d in lig["ml_bonds"].values()
+        d["bridge"] is None for lig in all_fragments(r) for d in lig["ml_bonds"].values()
     )
 
 

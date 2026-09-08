@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from xyz2mol_om import predict
+from xyz2mol_om import all_fragments, all_metals, predict
 
 EL = ["Mo", "N", "O", "H", "Cl", "Cl", "Cl"]
 XYZ = np.array(
@@ -32,12 +32,12 @@ WBO.update({(j, i): w for (i, j), w in list(WBO.items())})
 
 def test_mo_nitrido():
     r = predict(EL, XYZ, total_charge=-1, wbo=WBO)
-    assert len(r["metals"]) == 1
-    m = r["metals"][0]
+    assert len(all_metals(r)) == 1
+    m = all_metals(r)[0]
     assert m["element"] == "Mo"
     assert m["oxidation"] == 6, f"OS(Mo) must be +6 - got {m['oxidation']}"
 
-    ligs = {tuple(L["atoms"]): L for L in r["ligands"]}
+    ligs = {tuple(L["atoms"]): L for L in all_fragments(r)}
     assert len(ligs) == 5, f"expected 5 ligands - got {len(ligs)}"
 
     nit = ligs[(1,)]
@@ -53,7 +53,7 @@ def test_mo_nitrido():
     for a in (4, 5, 6):
         assert ligs[(a,)]["charge"] == -1
 
-    for L in r["ligands"]:
+    for L in all_fragments(r):
         assert L["smiles"], "SMILES must be produced"
         assert L["smiles_ok"], f"SMILES round-trip failed: {L['smiles']} - {L['smiles_note']}"
 
@@ -68,7 +68,7 @@ def test_no_spurious_hh():
     d = 1.09 / np.sqrt(3)
     xyz = np.array([[0, 0, 0], [d, d, d], [d, -d, -d], [-d, d, -d], [-d, -d, d]], dtype=float)
     r = predict(el, xyz, total_charge=0)
-    (L,) = r["ligands"]
+    (L,) = all_fragments(r)
     hh = [(i, j) for (i, j) in L["bonds_kekule"] if el[i] == "H" and el[j] == "H"]
     assert not hh, f"spurious H–H bond appeared: {hh}"
     assert len(L["bonds_kekule"]) == 4, f"CH4 has 4 bonds - {L['bonds_kekule']}"

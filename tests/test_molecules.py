@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from xyz2mol_om import predict, read_xyz
+from xyz2mol_om import all_fragments, all_metals, predict, read_xyz
 
 EX = Path(__file__).resolve().parent.parent / "examples"
 CH4 = (["C", "H", "H", "H", "H"],
@@ -38,9 +38,10 @@ def test_single_molecule_is_one_molecule():
     r = predict(el, xyz, total_charge=q, wbo=wbo)
     assert len(r["molecules"]) == 1
     mol = r["molecules"][0]
-    assert mol["metals"] == [0] and mol["charge"] == 0
-    assert sorted(mol["ligands"]) == [lg["index"] for lg in r["ligands"]]
-    assert r["metals"][0]["oxidation"] == 4
+    assert [m["index"] for m in mol["metals"]] == [0]
+    assert mol["charge"] == 0 and mol["charge_is_exact"]
+    assert len(mol["fragments"]) == 4          # Cp- and three Cl-
+    assert mol["metals"][0]["oxidation"] == 4
 
 
 def test_complex_plus_a_detached_fragment_keeps_the_right_oxidation_state():
@@ -56,10 +57,12 @@ def test_complex_plus_a_detached_fragment_keeps_the_right_oxidation_state():
     assert len(metal_mol) == 1 and len(free_mol) == 1
     assert len(free_mol[0]["atoms"]) == 5 and free_mol[0]["charge"] == 0
     # the free fragment's charge must not leak into the metal
-    assert r["metals"][0]["oxidation"] == 4
-    assert r["metals"][0]["oxidation_is_exact"] is True
+    assert metal_mol[0]["metals"][0]["oxidation"] == 4
+    assert metal_mol[0]["metals"][0]["oxidation_is_exact"] is True
     assert metal_mol[0]["charge"] == 0 and metal_mol[0]["charge_is_exact"]
-    assert r["complex_smiles_ok"] and "." in r["complex_smiles"]
+    # each molecule carries its own SMILES — no dot-joined string any more
+    assert all(m["smiles_ok"] for m in r["molecules"])
+    assert "." not in metal_mol[0]["smiles"] and "." not in free_mol[0]["smiles"]
 
 
 def test_two_metal_molecules_flag_the_oxidation_state_as_an_even_split():
@@ -81,8 +84,8 @@ def test_two_metal_molecules_flag_the_oxidation_state_as_an_even_split():
     assert len(r["molecules"]) == 2
     assert all(m["metals"] for m in r["molecules"])
     # the even split answers Ti(III)/Os(III) here — the truth is Ti(IV) and Os(II)
-    assert [m["oxidation"] for m in r["metals"]] == [3, 3]
+    assert [m["oxidation"] for m in all_metals(r)] == [3, 3]
     # so it must not be presented as exact
-    assert [m["oxidation_is_exact"] for m in r["metals"]] == [False, False]
+    assert [m["oxidation_is_exact"] for m in all_metals(r)] == [False, False]
     assert all(m["charge"] is None and not m["charge_is_exact"] for m in r["molecules"])
-    assert "even split" in r["complex_smiles_note"]
+    assert all("even split" in m["smiles_note"] for m in r["molecules"])

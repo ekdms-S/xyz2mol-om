@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from xyz2mol_om import predict
+from xyz2mol_om import all_fragments, all_metals, predict
 
 EL = [
     "Cr", "O", "O", "N", "C", "C", "C", "C", "C", "C", "C", "C", "C", "H", "H", "H", "H", "H",
@@ -93,7 +93,7 @@ WBO = {
 
 
 def _ring_ligand(r):
-    return max(r["ligands"], key=lambda lg: len(lg["bonds_4class"]))
+    return max(all_fragments(r), key=lambda lg: len(lg["bonds_4class"]))
 
 
 def test_ring_keeps_double_bonds():

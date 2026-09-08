@@ -25,37 +25,34 @@ def _s2k(d):
     return {tuple(int(t) for t in k.split(",")) if "," in k else k: v for k, v in d.items()}
 
 
+def _conv_molecule(mol, kf, ef):
+    """One molecule, with its bond keys and eta keys mapped by `kf` / `ef`."""
+    out = dict(mol)
+    out["metals"] = [{**m, "mm_bonds": kf(m.get("mm_bonds") or {})} for m in mol.get("metals", [])]
+    frs = []
+    for fr in mol.get("fragments", []):
+        g = dict(fr)
+        for key in _BOND_KEYED:
+            if key in g and isinstance(g[key], dict):
+                g[key] = kf(g[key])
+        if isinstance(g.get("eta"), dict):
+            g["eta"] = {ef(k): v for k, v in g["eta"].items()}
+        frs.append(g)
+    out["fragments"] = frs
+    return out
+
+
 def to_jsonable(r: dict) -> dict:
     """A **JSON-serializable** copy with tuple keys turned into `"i,j"`."""
     out = dict(r)
-    out["metals"] = [{**m, "mm_bonds": _k2s(m.get("mm_bonds") or {})} for m in r.get("metals", [])]
-    ligs = []
-    for lg in r.get("ligands", []):
-        g = dict(lg)
-        for key in _BOND_KEYED:
-            if key in g and isinstance(g[key], dict):
-                g[key] = _k2s(g[key])
-        if isinstance(g.get("eta"), dict):
-            g["eta"] = {str(k): v for k, v in g["eta"].items()}
-        ligs.append(g)
-    out["ligands"] = ligs
+    out["molecules"] = [_conv_molecule(m, _k2s, str) for m in r.get("molecules", [])]
     return out
 
 
 def from_jsonable(r: dict) -> dict:
     """Inverse of `to_jsonable` — turns bond keys back into `(i, j)` tuples."""
     out = dict(r)
-    out["metals"] = [{**m, "mm_bonds": _s2k(m.get("mm_bonds") or {})} for m in r.get("metals", [])]
-    ligs = []
-    for lg in r.get("ligands", []):
-        g = dict(lg)
-        for key in _BOND_KEYED:
-            if key in g and isinstance(g[key], dict):
-                g[key] = _s2k(g[key])
-        if isinstance(g.get("eta"), dict):
-            g["eta"] = {int(k): v for k, v in g["eta"].items()}
-        ligs.append(g)
-    out["ligands"] = ligs
+    out["molecules"] = [_conv_molecule(m, _s2k, int) for m in r.get("molecules", [])]
     return out
 
 
