@@ -129,25 +129,27 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | Task | Metric | Value | Pool | Trivial baseline |
 |---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
-| T2 conjugation call | F1 | **0.9583** | — | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9901 / .7420 / .9770 / .9583** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
+| T2 conjugation call | F1 | **0.9611** | — | — |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9904 / .7682 / .9769 / .9611** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
 | T4 M–L·M–M bond existence | F1 | **0.9905** | 56,510 bonds | all bonded .5276 |
 | T5 haptic call | F1 | **0.9777** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | **0.9863** | 4,221 ligands | all `k=0` .8704 |
-| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7461 / .7317** | 39,540 bonds | — |
-| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8398** | 1,161 structures | reference-order 0.8528 |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8715** | 2,779 structures | reference-order 0.8698 |
+| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7456 / .7317** | 39,540 bonds | — |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8519** | 1,161 structures | reference-order 0.8528 |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8831** | 2,779 structures | reference-order 0.8698 |
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%.
 
 ⚠️ **`reference-order` is not an upper bound.** It is what the same charge rule produces when the
 **reference** bond orders are fed to it (CSD labels through `charge.kekulize`), so it measures how
-much of the gap is our notation against tmQMg-L's rather than our bond orders. Its pool is slightly
-smaller (1,155 / 2,643 structures — kekulization of the reference fails on a few), so it must not
-be read against the column to its left. **On the common pool** the comparison is
-`Σq_L` **0.8442 → 0.8528** and `OS` **0.8649 → 0.8725**, i.e. 0.9%p and 0.8%p of headroom left.
-(Re-measured 2026-09-08; the figures previously printed here, 83.4% and 85.6%, were stale.)
+much of the gap is our Lewis notation against tmQMg-L's rather than our bond orders. Its pool is
+slightly smaller (1,155 / 2,635 structures — kekulization of the reference fails on a few), so it
+must not be read against the column to its left. **On the common pool** the pipeline is now
+**above** it: `Σq_L` **0.8563 vs 0.8528** and `OS` **0.8774 vs 0.8725**. What is left of the gap
+to a perfect score is notation, not order prediction.
+(Re-measured 2026-09-08 after the ligand charge moved onto the emitted Kekulé integers;
+the figures previously printed here, 83.4% and 85.6%, were stale.)
 
 ### Valence violations — chemical validity of the output
 

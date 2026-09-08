@@ -50,6 +50,9 @@ def conj_forbidden(G, el, q_frag=None, xyz=None):
                 continue
             if R3MODE == "N" and not all(el[x] == "N" for x in din):
                 continue
+            if R3MODE == "nomix" and {el[x] for x in din} not in ({"N"}, {"O"}, {"S"},
+                                                                  {"P"}, {"Se"}):
+                continue  # a ring mixing N with O/S is a real aromatic azole — leave it Conj
             if R3MODE == "mono" and not (
                 len(din) == 1 and all(el[x] == "C" for x in r_ if x not in din)
             ):

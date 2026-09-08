@@ -14,20 +14,22 @@ is always weighted by the distance likelihood.
 | task | holdout 6,793 | train 27,294 |
 |---|---|---|
 | T1 internal bond existence | .9998 | .9998 |
-| T3 `Single`/`Double`/`Triple`/`Conj` | **.9901 / .7420 / .9770 / .9583** | .9893 / .7334 / .9777 / .9558 |
+| T3 `Single`/`Double`/`Triple`/`Conj` | **.9904 / .7682 / .9769 / .9611** | .9895 / .7586 / .9776 / .9587 |
 | T4 M–L·M–M existence | .9905 | .9918 |
-| T5 haptic | .9777 | .9794 |
-| T6 η^k | .9863 | .9818 |
-| T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7461 / .7317** | .9934 / .7515 / .7728 |
-| T10 `Σq_L` · `OS` | **.8398 · .8715** | .8346 · .8652 |
-| valence-violating structures | .0302 | .0307 |
-| harmful `Double` errors | **305 bonds · 167 structures (2.46%)** | — |
-| emitted charges not summing to the input total | 298 (4.39%) | — |
+| T5 haptic | .9777 | .9793 |
+| T6 η^k | .9863 | .9819 |
+| T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7456 / .7317** | .9934 / .7512 / .7728 |
+| T10 `Σq_L` · `OS` | **.8519 · .8831** | .8495 · .8770 |
+| valence-violating structures | .0303 | .0306 |
+| harmful `Double` errors | **302 bonds · 169 structures (2.49%)** | — |
+| reported ligand charge ≠ the emitted structure's | **214 (3.15%)** | — |
 
-Feeding the **reference** bond orders to the same charge rule gives `Σq_L` .8528 · `OS` .8698 —
-that is the share of the gap owed to our notation rather than our bond orders, **not an upper
-bound**. Its pool is slightly smaller (1,155 / 2,643); on the **common pool** the pair reads
-`Σq_L` .8442 → .8528 and `OS` .8649 → .8725.
+Feeding the **reference** bond orders to the same charge rule gives `Σq_L` .8528 · `OS` .8698.
+On the **common pool** (1,155 / 2,635 structures — kekulizing the reference fails on a few) the
+comparison now reads `Σq_L` **.8563 vs .8528** and `OS` **.8774 vs .8725**: since 2026-09-08 the
+pipeline is **above** that line on both. It was never an upper bound — it measures how much of the
+remaining gap is our Lewis notation against tmQMg-L's rather than our bond orders — and what is
+left of the gap is notation, not order prediction.
 
 🔴 **The numbers further down are from the date they were taken** — they record how a rule was
 adopted, not current performance. Quote this table.
@@ -57,7 +59,7 @@ T3's internal order.
 | `w` | **Mayer bond order** from xtb GFN2 `--sp --wbo`. Used for M–L existence and order, never for internal bonds |
 | haptic · `η^k` | an M–L bond to an atom of a π system (`η⁵`-Cp) rather than to a lone pair. `k` = how many atoms of that π fragment bind the same metal |
 | 3c2e · dative | a bridging atom's tag: **3c2e** = one electron pair shared over three centres (μ-H, μ-CH₃, μ-CO); **dative** = two genuine 2-centre donations (μ-Cl) |
-| `q_L` · `OS(M)` | **ligand charge** (sum of formal charges over the whole ligand) · **metal oxidation state** |
+| `q_L` · `OS(M)` | **ligand charge** — the formal charges of every ligand atom, summed **on the emitted Kekulé integers** · **metal oxidation state**, what is left of the complex charge after the ligands |
 | the veto (⑤) | ⑤ may not create a **new pair of adjacent same-sign formal charges** (no `C⁻ C⁻`). Hard rejection, not a penalty |
 | trust gate (⑤) | fragment classes whose extended-Hückel charge target is not trusted (parity · composition · nitro motif) |
 | harmful `Double` | the deployment error metric: a reference `Double` that the **emitted Kekulé structure** does not call 2, excluding ambiguous Kekulé positions, μ-CO π-acceptors, and charge-transfer resonance |
@@ -246,10 +248,10 @@ OUT  R2       a **lone-pair donor** heteroatom is part of π but its own bonds a
               and keep single bonds. Pyridine-type N (deg 2) donates one p electron and is 1.5.
               Carbon is always a p-electron donor, so it is never covered.
 
-     R3       a 5-ring holding an R2 nitrogen is Kekulé **as a whole**
-              forbid(ring r) ⟺ |r| = 5 AND r holds an R2 donor AND all of them are N
-              R2 only blocks bonds touching the heteroatom; the `C=C` of pyrrole or imidazole is
-              carbon–carbon, so it escapes and leaks into `Conj`.
+     R3       a 5-ring holding an R2 donor is Kekulé **as a whole**
+              forbid(ring r) ⟺ |r| = 5 AND r holds an R2 donor
+              R2 only blocks bonds touching the heteroatom; the `C=C` of pyrrole, furan or
+              thiophene is carbon–carbon, so it escapes and leaks into `Conj`.
 
      R4       an antiaromatic 4n carbocycle is not delocalized
               forbid(ring r) ⟺ |r| ∈ {4, 8} AND all carbon AND out-of-plane rms > τ_plane
@@ -260,10 +262,13 @@ OUT  R2       a **lone-pair donor** heteroatom is part of π but its own bonds a
               forbid(e) ⟺ neither end of e touches another Conj bond
 ```
 
-⚠️ **`R3` is applied to nitrogen donors only, and that scope is a measurement, not a derivation.**
-The same argument holds for furan O and thiophene S, but taking all donors scored worse
-(CV `Σq_L` .7796 vs .7932 for nitrogen-only). The chemical story for excluding O/S is weak; treat
-the scope as fitted.
+⚠️ **`R3` covers every R2 donor, and the cost of that is one motif.** Restricting it to nitrogen
+(the default until 2026-09-08) was never derived — the argument holds for furan O and thiophene S
+just as it does for pyrrole N, and the O-only donor five-rings carry an average of **0.10 aromatic
+bonds out of 5** in the reference, i.e. they really are Kekulé. Widening it costs `Σq_L` 0.0129
+(15 structures) and `OS` 0.0046 (13), and **10 of the 12 structures that get worse are `C₃NO`
+five-rings** (isoxazole · oxazoline) with 3 more `C₃NS` — rings **mixing N with O or S**. Excluding
+just those was not tried; that condition would itself be read off the losses.
 
 **Why R7 exists** (it lives at stage 5′ of the DAG, but its cause is here): once R2·R3 make a
 5-ring Kekulé, that ring has at most two double bonds, so **one atom drops out of the π set** and
@@ -334,11 +339,11 @@ solved inside the same matching.
 The greedy `Triple` pass runs before the matching, so it can spend slack the matching would have
 used better: **113 of 12,245** calls on holdout are suboptimal, median loss 4.58 in likelihood
 units. Solving ④ exactly with a MILP was built and **rejected** — it raised the ④ metrics but made
-the *deployment output* worse (harmful `Double` 305 → 313), because the stages do not share an
+the *deployment output* worse (harmful `Double` 305 → 313, measured before the 09-08 R3 change), because the stages do not share an
 objective.
 
 ⚠️ Only bonds with `score(Double) > score(Single)` are offered to the matching. A bond the
-likelihood scores as `Single` is never even a candidate for promotion — **114 of the 305 remaining
+likelihood scores as `Single` is never even a candidate for promotion — **114 of the 302 remaining
 harmful `Double` errors die here**, before any budget question is asked.
 
 ### ⑤ Fragment electron count — does the charge agree
@@ -427,7 +432,7 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
 
 (b) conjugated fragment charge
         monocyclic all-carbon `CmHm`  →  Hückel:  z = m − (4n+2) minimizing |m − h| (larger h on a tie)
-        otherwise                     →  sum of (a) after Kekulé maximum matching
+        otherwise                     →  sum of (a) over the ⑥ Kekulé integers
 
 (c) 3c2e — the decision itself is **T7 at stage 5″** of the DAG, not here. `charge.py` has no
     3c2e branch: a bridging atom gets exactly the same `q_atom(element, b_int)` as any other.
@@ -441,6 +446,11 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
     **same** ligand SMILES as a terminal one, `[O+]#[C-:1]`.
 
 (d) q_L = sum of the formal charges of **all atoms** of the ligand fragment   ← not only the coordinating atoms
+          🔴 counted on the **emitted Kekulé integers** (⑥), plus the residual ⑥ returns for the
+          charge a skeleton cannot express. Not on the 4-class values: a `Conj` bond is 1.5 there,
+          so an atom with three of them reads `b = 3.5` and picks up `−0.5` that no emitted bond
+          accounts for. This is the same count the per-atom charges in the SMILES already used, so
+          the reported charge and the emitted structure can no longer disagree.
     OS(M) = (q_total − Σ_L q_L) / n_M              ← distributed evenly over the metals
 ```
 
@@ -540,5 +550,7 @@ Global constants — five, and two of them are quoted to more digits than the da
 | `LPCOND_NMIN` | 300 | samples a degree cell needs before its prior is used — a **statistical floor**, not chemistry |
 | 3c2e cost | 1.0 | valence a bridging atom spends in total for its M–L bonds — one shared pair is one bond |
 
-⚠️ `R3`'s scope (nitrogen donors only) and the `CCHH` entry of the ⑤ composition list are the two
-places where the choice is **measured rather than derived**; both are flagged in §T3.
+⚠️ The `CCHH` entry of the ⑤ composition list is the one place where the choice is **measured
+rather than derived** (66.9% target error rate — the weakest of the three); it is flagged in §T3.
+`R3`'s scope was such a place until 2026-09-08 and is no longer: it now covers every R2 donor,
+which is what its own argument implies.

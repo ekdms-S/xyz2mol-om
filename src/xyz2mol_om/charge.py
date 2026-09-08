@@ -281,11 +281,32 @@ def is_cluster_frag(G, el, cls, comp, orders=None):
     return False
 
 
-def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None):
+def _qfrag_kek(G, el, comp, orders, frag_q=None):
+    """Fragment charge counted on the **emitted Kekule integers**.
+
+    Why this and not `_qfrag`: `_qfrag` sums `ORD4[cls]`, and a `Conj` bond counts **1.5** there,
+    so an atom with three of them reads `b = 3.5` and picks up a formal charge of `-0.5` that no
+    emitted bond accounts for. The reported ligand charge then disagrees with the structure the
+    user receives -- measured on `MBTZRE01` (benzothiazole-2-thiolate): reported **-3**, emitted
+    structure **-1**, and -1 is the correct chemistry.
+
+    `frag_q` carries the part of the charge the skeleton genuinely cannot express (an even-ring
+    dianion has a perfect matching, so its Kekule structure is neutral while the fragment is -2).
+    """
+    q = sum(v for k, v in (frag_q or {}).items() if k in comp)
+    for v in comp:
+        b = sum(orders.get((min(v, w), max(v, w)), 1.0) for w in G[v])
+        q += q_atom(el[v], float(b), G.degree(v), tuple(sorted(el[w] for w in G[v])))
+    return q
+
+
+def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q=None):
     """Fragment charge — the **EHT fragment charge** for a cluster, otherwise the formal-charge
-    sum (`_qfrag`)."""
+    sum."""
     if is_cluster_frag(G, el, cls, comp, orders):
         q = (q_eht or {}).get(min(comp))
         if q is not None:
             return float(q)
-    return _qfrag(G, el, cls, comp, w)
+    if orders is not None:
+        return _qfrag_kek(G, el, comp, orders, frag_q)
+    return _qfrag(G, el, cls, comp, w)  # only when the caller has no Kekule structure yet

@@ -174,13 +174,41 @@ R2CONJ = os.environ.get("R2CONJ", "1") == "1"
 #    ⚠️ For 5-membered heterocycles that CSD records as `Aromatic` this can go the other way and
 #       produce errors — only a measurement will tell.
 R3RING = os.environ.get("R3RING", "1") == "1"  # ★ adopted 2026-09-02
-# R3 scope — all (any donor) · **N (nitrogen donors only · adopted)** · mono (1 donor + all the
-#   rest carbon)
-#   measured (CV · CVPOOL 26,075 · [design doc] §8 scoring):
-#                                        Double  all .5586 · N .5297 · mono .4226
-#                                        Sq_L    all .7796 · N .7932 · mono .7914
-#   ⇒ N buys 82% of all's gain for 37% of its cost.
-R3MODE = os.environ.get("R3MODE", "N")  # ★ adopted scope = nitrogen donors only
+# R3 scope — **all (any R2 donor · adopted 2026-09-08)** · N (nitrogen only) · mono (1 donor,
+#   the rest carbon)
+#   Why `all`: R3's argument is that R2 leaves the ring's C–C bonds behind, and that is true for
+#   furan O and thiophene S exactly as it is for pyrrole N. Restricting it to N was never derived
+#   — it came from one CV table.
+#   Measured on holdout 6,793 (48 shards · `260907_deploy_full_score.py`). The `Sq_L`/`OS` columns
+#   are given **both ways**, because the ligand charge moved onto the Kekule integers on the same
+#   day and that is what decided this:
+#                                    N (old)        all (adopted)
+#     harmful `Double` errors          305            **302**
+#     T3 `Double`                     .7420          **.7682**   (+223 bonds)
+#     T3 `Conj` · `Single`            .9583 · .9901  .9611 · .9904
+#     valence violations              .0302          .0303
+#     -- charge counted on the 4-class values (the old way) --
+#     `Sq_L` · `OS`                   .8398 · .8715  .8269 · .8669
+#     reported != emitted charge        298            356
+#     -- charge counted on the emitted Kekule integers (current) --
+#     `Sq_L` · `OS`                   .8536 · .8823  **.8519 · .8831**
+#     reported != emitted charge        214            **214**
+#   🔴 **`all` looked expensive only under the old count.** Counting on the Kekule integers, the
+#   `Sq_L` difference shrinks to 2 structures, `OS` comes out *better*, and the reported-vs-emitted
+#   mismatch is identical — while `all` keeps its 223 extra correct `Double` bonds.
+#   Chemistry, not just the metric: the O-only donor five-rings, 458 of them on holdout, carry an
+#   average of **0.10 aromatic bonds out of 5** in the reference — they really are Kekule.
+#   (census: `dev/analysis/scratch/260907_r3_scope.py`)
+#   ⚠️ `nomix` (like `all` but leaving a ring that mixes N with O/S alone) was measured and is
+#      **not** better: harmful `Double` 302, `Sq_L` .8303, reported != emitted 349 under the old
+#      count -- it recovered only 7 of the 58. The earlier finding that the loss sat in `C3NO`
+#      rings was made before the 09-07/08 rules and no longer holds.
+#   ⛔ The older CV numbers that favoured `N` (CVPOOL 26,075, 2026-09-02 scoring: `Double`
+#      all .5586 / N .5297 · `Sq_L` all .7796 / N .7932) predate every rule adopted on 09-07/08.
+R3MODE = os.environ.get("R3MODE", "all")  # ★ adopted scope = every R2 donor (2026-09-08)
+#   `nomix` — like `all`, except a five-ring whose donors are **not all the same element**
+#   (N together with O or S) keeps its `Conj`: an oxazole/thiazole really is aromatic, and
+#   those are exactly the rings `all` gets wrong.
 # 🔴 ROP — the **second dimension** of the T3 likelihood (2026-09-02). Distance cannot separate
 #    Double from Conj in `C–C` (best 1-D threshold F1 0.4473 vs ROP 0.6171 · n = 1,500 ·
 #    in-sample upper bound). All three angle variants (dihedral, bond angle, out-of-plane
@@ -206,6 +234,31 @@ R5SOLO = os.environ.get("R5SOLO", "1") == "1"  # ★ adopted 2026-09-03
 # ★ `QHV` — generalization of the hypervalent charge formula (2026-09-03 · default off · for the
 #   rule see the `q_atom` comment)
 QHV = os.environ.get("QHV", "1") == "1"  # ★ adopted 2026-09-03
+# ★ The reported ligand charge is counted on the **emitted Kekule integers** plus the
+#   residual `kekulize` returns, not on `ORD4[cls]` where a `Conj` bond is 1.5 (adopted
+#   2026-09-08, owner's proposal).
+#   Why: `_qfrag` summed `ORD4[cls]`, so an atom with three `Conj` bonds read `b = 3.5` and picked
+#   up a formal charge of `-0.5` that **no emitted bond accounts for**. The per-atom charges
+#   stamped into the SMILES were already counted from the Kekule integers (`api.predict`), so the
+#   only thing on the 4-class basis was the ligand `charge` field -- which is why
+#   `complex_smiles_ok` kept reporting "charge sum differs".
+#   Worked example `MBTZRE01` (benzothiazole-2-thiolate, the correct charge is -1):
+#       reported -3 · 4-class per-atom sum -2 · emitted Kekule **-1**
+#   Two leaks add up there: atoms 11 and 20 read `b = 3.5` (`-0.5` each), and `frag_charge`'s
+#   matching adds another `-1` for the conjugated component.
+#   `frag_q` is added on top, so the charge a Kekule skeleton genuinely cannot express (an
+#   even-ring dianion has a perfect matching and a neutral skeleton) is still reported.
+#   Measured (holdout 6,793 · 48 shards) -- **no bond decision changes**, T1/T3/T4/T5/T6/T8 and
+#   the valence-violation rate are all identical:
+#       `Sq_L`                     .8398 → **.8536**
+#       `OS`                       .8715 → **.8823**
+#       reported != emitted charge   298 → **214**
+#   For reference, feeding the CSD reference bond orders to the same charge rule gives `Sq_L`
+#   .8528 — this metric was being held down by **how it was counted**, not by our bond orders.
+#   No flag: counting a charge on half-integer valences is not a policy anyone would pick.
+#   ⚠️ ⑤ still calls `_qfrag` (the 4-class count) to ask how far the fragment is from its
+#      EHT target, because at that point no Kekule structure exists yet. That count has
+#      the same -0.5 leak, so ⑤ can chase a delta that is off. **Not yet measured.**
 # ★ `R6SWAP` — **for same-element bonds on one center, distance order and bond-order order must
 #   agree** (2026-09-03).
 #   Sites where **two or more atoms of the same element** hang off one center — nitro
