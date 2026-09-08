@@ -152,6 +152,21 @@ that are not yet contaminated by the metal budget (see 5″).
            ⇒ **X belongs to a π fragment ⟺ X touches a `Double`, `Triple`, or `Conj` bond.**
              🔴 **There is no fragment-size condition.** A lone isolated double bond is a π fragment too.
 
+5†. **η¹ is a σ bond, so it is not haptic** (`rules.pipeline.drop_eta1` · 0 fitted parameters)
+
+           drop(M, X) ⟺ X's **ligand fragment** gives M exactly one haptic atom
+
+         A metal taking a single donor from a π fragment is η¹, which is the classical name for a
+         σ bond — not a face of the π system. The angle test alone can produce it when the metal
+         sits under one atom of a π fragment and no second atom of that fragment coordinates it.
+         On holdout the reference calls **none of those 17 bonds `Pi`** (all `Single`; S 9 · O 7 ·
+         C 1), while every k ≥ 3 is 95–100% right.
+         🔴 Applied to the **pass-1** haptic set too, so the atom that stops being haptic also
+             starts paying its ④ valence unit — otherwise a σ bond would spend 0.
+         ⚠️ Counted **per ligand fragment**, not per connected run of haptic atoms. The
+             connected-component form was measured and is worse: it drops 27 bonds of which 5 are
+             genuinely `Pi`, buying 4 more false positives at the price of 5 true ones.
+
 5*. **η² is a property of the bond, not of each atom** — both ends of a π bond are haptic when
          one end passes the angle test (`rules.pipeline._eta2_pair` · 0 fitted parameters)
 

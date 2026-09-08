@@ -10,7 +10,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (BML3C_COST, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
+from ..config import (BML3C_COST, ETA1SIG, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -324,6 +324,27 @@ def drop_saturated(el, G, ml_raw):
             or G.degree(x) < CAP.get(el[x], 99)]
 
 
+def drop_eta1(hapset, G, el):
+    """η¹ is a σ bond, so it is not haptic (`ETA1SIG`).
+
+    A ligand fragment that gives a metal **exactly one** haptic atom is classically η¹, which is
+    the same thing as a σ bond -- the metal takes one donor, not a face of the π system. The angle
+    test alone can produce it: the metal happens to sit under one atom of a π fragment while no
+    second atom of that fragment coordinates it.
+
+    Measured on the CSD holdout: 17 such M–L bonds, and the reference calls **none** of them `Pi`
+    (all 17 `Single`; S 9 · O 7 · C 1). Every higher k is 95-100% right.
+
+    Applied to the pass-1 set as well as the output, so the atom that stops being haptic also
+    starts paying its valence unit in ④ -- otherwise a sigma bond would be spending 0.
+    """
+    if not ETA1SIG or not hapset:
+        return hapset
+    frag = {x: i for i, c in enumerate(nx.connected_components(G)) for x in c}
+    per = collections.Counter((m, frag.get(x)) for m, x in hapset)
+    return {(m, x) for m, x in hapset if per[(m, frag.get(x))] > 1}
+
+
 def is_3c2e(el0, b_use, n_center):
     """The **raw predicate** of the T7 3c2e decision — shared by `bridge_tags` and the scorer
     (the rule lives in one place).
@@ -507,6 +528,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     #   below, because what it buys is the ④ budget: an M–L bond it turns haptic stops costing a
     #   valence unit, which is exactly what pass 2 needs to raise the π bond.
     hap_pre |= _eta2_pair(el, xyz, G, ml_pred, cls0)
+    hap_pre = drop_eta1(hap_pre, G, el)
     keep = [p for p in ml_pred if p not in hap_pre]
     # 🔴 T7 bridge tags — computed **here**, between the two passes, because pass 2's budget
     #   depends on them. `cls0` (pass-1, metal-free orders) is what makes the bond-order form of
@@ -548,6 +570,11 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
             hap_by_m[m].add(x)
     for m, x in _eta2_pair(el, xyz, G, ml_pred, cls):
         hap.add((m, x))
+        hap_by_m[m].add(x)
+    # η¹ = σ. Dropped **before** R7, which needs at least two haptic ring atoms anyway.
+    hap = drop_eta1(hap, G, el)
+    hap_by_m = collections.defaultdict(set)
+    for m, x in hap:
         hap_by_m[m].add(x)
     # R7 — restore an R2 donor inside a haptic ring as a π candidate (adopted ·
     #      the rule is (`docs/PIPELINE.md`)

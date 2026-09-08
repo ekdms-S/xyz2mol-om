@@ -198,6 +198,15 @@ T8FORM = os.environ.get("T8FORM", "thr")  # M–L order form: `thr` monotone thr
 #   already-saturated carbon, and those contacts used to be reported as bonds. See
 #   `rules.pipeline.drop_saturated` for why the test counts neighbours rather than bond orders.
 SATVETO = os.environ.get("SATVETO", "1") == "1"
+# `ETA1SIG` — a ligand that gives a metal exactly one haptic atom is eta-1, which is another name
+#   for a sigma bond, so the tag is dropped and the bond takes an M-L order like any other.
+#   The CSD reference calls **none** of those 17 holdout bonds `Pi`, while every higher k is
+#   95-100% right. On the holdout: T5 .9778 -> .9783 and valence violations .0205 -> .0185,
+#   with `Sq_L`, T1, T4 and T6 unchanged and `OS` down by one structure.
+#   ⚠️ Counted **per ligand fragment**, not per connected run of haptic atoms. Both were measured:
+#      a connected-component count drops 27 bonds of which 5 really are `Pi`, i.e. it buys 4 more
+#      false positives at the price of 5 true ones.
+ETA1SIG = os.environ.get("ETA1SIG", "1") == "1"
 # `WMIN` — a global Mayer floor for M–L candidates, on top of the per-element-pair `w_veto`.
 #   Measured and rejected. A **haptic** M–C is weak by construction — the π electrons are shared
 #   over five or six carbons, so each individual M–C is small — and a floor cannot tell that from
