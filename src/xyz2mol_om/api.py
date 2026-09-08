@@ -1,7 +1,7 @@
 """Top-level API — `xyz` → bonds · orders · charges · oxidation states, per molecule.
 
     from xyz2mol_om import predict
-    r = predict(elements, coords, total_charge=0, wbo=wbo)
+    r = predict(elements, coords, total_charge=0, wbo=wbo)   # n_unpaired=1 for a doublet
 
 Return structure (dict). **Molecules are the top level**: connected components over all bonds
 (internal, M–L, M–M). An input may hold several — an IRC endpoint where the product separated, a
@@ -46,6 +46,11 @@ salt with its counter-ion — and everything below is solved inside one molecule
           }, ... ],
       }, ... ]
 
+    r["radical"]      = {"n_unpaired", "atom", "site", "note"}
+                        Where the unpaired electron went when `n_unpaired=1`. `site` is
+                        `"organic"` (on `atom`), `"metal"` (the oxidation state carries it, and
+                        nothing else changed), or `None` with `note` giving the reason it was
+                        refused. See `## Limits` in the README.
     r["total_charge"] = the input total charge (unchanged)
 
 Most fragments are ligands — `ml_bonds` says what they coordinate — but a molecule with no metal
@@ -143,9 +148,11 @@ def _molecule_of(el, cls, ml_pred, mm):
 
 
 def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=None,
-            complex_atom_map=False):
+            complex_atom_map=False, n_unpaired=0):
     """`xyz` → bonds · orders · charges · oxidation states. See the module docstring for the
     arguments and the return value."""
+    if n_unpaired not in (0, 1):
+        raise ValueError(f"n_unpaired={n_unpaired!r}: only 0 (closed shell) and 1 are supported")
     el = list(elements)
     xyz = np.asarray(coords, dtype=float)
     if not wbo:
@@ -331,6 +338,53 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "fragments": [fr["atoms"][0] for fr in fragments if fr["atoms"][0] in aset],
         })
 
+    # ── one unpaired electron (`n_unpaired=1`) ────────────────────────────────────────────
+    #   `q_atom` already points at the right atom; what it gets wrong is the **pricing** — an
+    #   unpaired electron is read as a lone pair, so `CH3•` comes out `CH3-`. With a metal in the
+    #   structure that invented `-1` is cancelled by a `+1` on the metal, so the total is right
+    #   while the oxidation state is not: `Cu(I)Cl + CH3•` came out as Cu(II).
+    #
+    #   Placement — candidates are atoms of a **metal-free molecule** carrying a negative charge:
+    #     0 candidates  the electron is on the metal. The oxidation state already carries it, so
+    #                   nothing changes (`site = "metal"`).
+    #     1 candidate   put it there and return that atom's charge to 0. The metal's oxidation
+    #                   state follows, because what is left of `total_charge` is measured against
+    #                   the metal-free molecules.
+    #     2 or more     **refused.** A genuine counter-ion and a radical-read-as-an-anion look the
+    #                   same in the graph, and nothing in the input says which is which.
+    #   The result still comes back, with the closed-shell answer and `radical["note"]` saying why
+    #   — a caller that wants the strict behaviour drops the structure on a non-empty note.
+    radical = {"n_unpaired": n_unpaired, "atom": None, "site": None, "note": ""}
+    if n_unpaired:
+        free_atoms = [a for m in molecules if not m["metals"] for a in m["atoms"]]
+        cand = sorted(a for a in free_atoms if qat_all.get(a, 0) < 0)
+        if not cand:
+            radical["site"] = "metal" if mets else None
+            if not mets:
+                radical["note"] = ("no site for the unpaired electron - no metal, and no atom of "
+                                   "a metal-free molecule carries a negative charge")
+        elif len(cand) == 1:
+            site = cand[0]
+            radical["atom"], radical["site"] = site, "organic"
+            qat_all[site] += 1
+            for fr in fragments:
+                if site in fr["atoms"]:
+                    fr["charge"] += 1
+                    # the fragment SMILES was written with the anionic charge - redo that one
+                    bk = {e: int(o) for e, o in orders.items() if e[0] in set(fr["atoms"])}
+                    qat = {a: qat_all[a] for a in fr["atoms"]}
+                    smi_f, _m = ligand_smiles(el, fr["atoms"], bk, qat, fr["coordinating"],
+                                              radicals={site})
+                    ok_f, why_f = (False, "SMILES generation failed")
+                    if smi_f:
+                        ok_f, why_f = verify_roundtrip(smi_f, el, fr["atoms"], bk, qat)
+                    fr["smiles"], fr["smiles_ok"], fr["smiles_note"] = smi_f, ok_f, why_f
+                    break
+        else:
+            radical["note"] = (f"{len(cand)} candidate sites for the unpaired electron - a genuine "
+                               "anion and a radical read as an anion are the same graph, so the "
+                               "closed-shell answer is returned unchanged")
+
     # A metal-free molecule's charge is its ligands' formal-charge sum — nothing is unknown there.
     # What is left of `total_charge` belongs to the metal-bearing molecules, and with exactly one
     # of those the split is **exact**. With two or more there is one equation and two unknowns per
@@ -391,7 +445,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             #   molecule (reported by flower-om: 779 of them in a 3,000-structure sample).
             qcx = {a: q for a, q in qat_all.items() if a in aset}
             smi, order = complex_smiles(el, mol["atoms"], {e: v for e, v in orders.items() if e[0] in aset},
-                                        qcx, [], {}, with_map=complex_atom_map)
+                                        qcx, [], {}, with_map=complex_atom_map,
+                                        radicals={radical["atom"]} & aset if radical["atom"] is not None else ())
             if smi is None:
                 note = "SMILES generation failed"
             else:
@@ -408,7 +463,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             sub_mm = {e: v for e, v in mm.items() if e[0] in aset}
             sub_or = {e: v for e, v in orders.items() if e[0] in aset}
             smi, order = complex_smiles(el, mol["atoms"], sub_or, qcx, sub_ml, sub_mm,
-                                        with_map=complex_atom_map)
+                                        with_map=complex_atom_map,
+                                        radicals={radical["atom"]} & aset if radical["atom"] is not None else ())
             if smi is None:
                 note = "SMILES generation failed"
             else:
@@ -443,6 +499,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         })
 
     return {
+        "radical": radical,
         "molecules": out_mols,
         "total_charge": total_charge,
     }

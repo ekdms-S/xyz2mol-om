@@ -345,7 +345,20 @@ them well.
 
 ## ⚠️ Limits
 
-- **Radicals are not supported** — there is no way to write an unpaired electron, so the nearest closed-shell answer comes out **without an error**.
+- **One unpaired electron, and only if the input says so.** Pass `n_unpaired=1` (from a
+  multiplicity of 2) and the electron is placed; `n_unpaired=0` is the default and the closed-shell
+  path is bit-for-bit what it always was. `n_unpaired ≥ 2` raises — **diradicals are out of
+  scope**, and so is a carbene's pair on one atom.
+  The site is chosen from the graph: candidates are atoms of a **metal-free molecule** carrying a
+  negative charge, because that is how an unpaired electron is mispriced (`CH₃•` reads as `CH₃⁻`).
+  With **no** candidate the electron sits on the metal, where the oxidation state already carries
+  it and nothing changes. With **exactly one** it goes there and that atom returns to neutral —
+  which is what fixes the metal: `Cu(I)Cl + CH₃•` used to come out as Cu(II) with a `CH₃⁻`, the
+  total charge right and the oxidation state wrong. With **two or more** it is refused, because a
+  genuine counter-ion and a radical-read-as-an-anion are the same graph; the closed-shell answer
+  is returned and `r["radical"]["note"]` says why, so a caller can drop the structure.
+  ⚠️ Without `n_unpaired` a radical still comes out as the nearest closed-shell answer **without
+  an error** — the input has to tell us.
 - **The M–M order is a placeholder, not a prediction.** Whether two metals are bonded *is*
   predicted (`mm_bonds`, by the same distance + Mayer rule as M–L), but the order in that dict is
   the constant `1` — do not read it as "single bond". The `[Re₂Cl₈]²⁻` of example ⑤ is a

@@ -38,7 +38,7 @@ _SANI = (
 )
 
 
-def ligand_smiles(el, atoms, bonds, charges, coord_atoms=(), with_map=True):
+def ligand_smiles(el, atoms, bonds, charges, coord_atoms=(), with_map=True, radicals=()):
     """One ligand fragment -> (SMILES, atom correspondence). Returns `(None, {})` on failure.
 
     `el`          full element list
@@ -47,6 +47,7 @@ def ligand_smiles(el, atoms, bonds, charges, coord_atoms=(), with_map=True):
     `charges`     {i: q}               — our `q_atom` formal charges (integers)
     `coord_atoms` indices of atoms coordinating a metal — marked by SMILES atom map numbers
     `with_map`    whether to attach `[C:1]`-style map numbers to coordinating atoms
+    `radicals`    atoms carrying an unpaired electron — written as `[CH3]`, not `[CH3-]`
 
     ⚠️ **Atom order, formal charge and hydrogen count are all stated and locked** — see the
     module docstring.
@@ -58,6 +59,8 @@ def ligand_smiles(el, atoms, bonds, charges, coord_atoms=(), with_map=True):
         at.SetNoImplicit(True)  # 🔴 no implicit H — the H in the xyz are already real atoms
         at.SetNumExplicitHs(0)
         at.SetFormalCharge(int(round(charges.get(a, 0))))
+        if a in set(radicals):
+            at.SetNumRadicalElectrons(1)
         if with_map and a in set(coord_atoms):
             at.SetAtomMapNum(1 + sorted(coord_atoms).index(a))
         m.AddAtom(at)
@@ -135,7 +138,7 @@ def verify_roundtrip(smi, el, atoms, bonds, charges):
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def complex_smiles(el, atoms, bonds, charges, ml_pairs, mm_bonds=(), with_map=False):
+def complex_smiles(el, atoms, bonds, charges, ml_pairs, mm_bonds=(), with_map=False, radicals=()):
     """The whole complex -> `(SMILES, output atom order)`. Returns `(None, [])` on failure.
 
     `el`        full element list
@@ -146,6 +149,7 @@ def complex_smiles(el, atoms, bonds, charges, ml_pairs, mm_bonds=(), with_map=Fa
     `ml_pairs`  [(m, x)]         — M-L bonds. All written as `x -> m` dative
     `mm_bonds`  {(m1, m2): 1|2|3} — M-M bonds (normal bonds, not dative)
     `with_map`  whether to attach an `[X:i+1]` map number (= input atom index + 1) to every atom
+    `radicals`  atoms carrying an unpaired electron — written as `[CH3]`, not `[CH3-]`
 
     The second return value is **the input atom indices listed in SMILES output order** — the
     order changes under canonicalization, so this is what lets you match SMILES atoms to xyz atoms.
@@ -158,6 +162,8 @@ def complex_smiles(el, atoms, bonds, charges, ml_pairs, mm_bonds=(), with_map=Fa
         at.SetNoImplicit(True)  # 🔴 no implicit H — the H in the xyz are already real atoms
         at.SetNumExplicitHs(0)
         at.SetFormalCharge(int(round(charges.get(a, 0))))
+        if a in set(radicals):
+            at.SetNumRadicalElectrons(1)
         if with_map:
             at.SetAtomMapNum(a + 1)
         m.AddAtom(at)
@@ -191,7 +197,8 @@ def complex_smiles(el, atoms, bonds, charges, ml_pairs, mm_bonds=(), with_map=Fa
     return smi, out
 
 
-def verify_complex(smi, el, atoms, bonds, charges, ml_pairs, mm_bonds=(), total_charge=None):
+def verify_complex(smi, el, atoms, bonds, charges, ml_pairs, mm_bonds=(), total_charge=None,
+                   radicals=()):
     """Round-trip check of the complex SMILES. Returns `(ok, reason)`.
 
     Checked — **(element, formal charge) multiset · normal-bond order multiset · dative count ·

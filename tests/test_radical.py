@@ -1,0 +1,83 @@
+"""🔴 One unpaired electron (`n_unpaired=1`).
+
+`q_atom` already points at the right atom; what it got wrong was the pricing — an unpaired
+electron read as a lone pair, so `CH3•` came out `CH3-`. With a metal present the invented `-1`
+is cancelled by a `+1` on the metal, so the total charge stayed right while the oxidation state
+did not, and no total-based check could see it.
+
+The four cases below are the ones the downstream report named, plus the two refusals.
+"""
+
+# ruff: noqa: E501
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from xyz2mol_om import predict
+
+CH3 = [[0, 0, 0], [1.08, 0, 0], [-0.54, 0.93, 0], [-0.54, -0.93, 0]]
+
+
+def _cu_ch3():
+    """Cu(I)Cl and a methyl radical 12 Å apart — the shape an IRC endpoint takes."""
+    el = ["Cu", "Cl", "C", "H", "H", "H"]
+    xyz = [[0, 0, 0], [2.2, 0, 0]] + [[x, y, z + 12] for x, y, z in CH3]
+    wbo = {(0, x): 0.0 for x in range(1, 6)}
+    wbo[(0, 1)] = 0.9
+    return el, np.array(xyz, float), wbo
+
+
+def test_methyl_radical_is_neutral_with_an_unpaired_electron():
+    r = predict(["C", "H", "H", "H"], np.array(CH3, float), total_charge=0, n_unpaired=1)
+    assert r["radical"]["site"] == "organic" and r["radical"]["atom"] == 0
+    (mol,) = r["molecules"]
+    assert mol["charge"] == 0 and mol["smiles_ok"]
+    assert "-" not in mol["smiles"]  # not the carbanion
+
+
+def test_radical_on_the_ligand_fixes_the_metal_oxidation_state():
+    """The reported defect: `Cu(I)Cl + CH3•` came out as Cu(II) with a `CH3-`."""
+    el, xyz, wbo = _cu_ch3()
+    closed = predict(el, xyz, total_charge=0, wbo=wbo, n_unpaired=0)
+    assert [m["oxidation"] for mol in closed["molecules"] for m in mol["metals"]] == [2]
+    assert min(mol["charge"] for mol in closed["molecules"]) == -1
+
+    r = predict(el, xyz, total_charge=0, wbo=wbo, n_unpaired=1)
+    assert [m["oxidation"] for mol in r["molecules"] for m in mol["metals"]] == [1]
+    assert all(mol["charge"] == 0 for mol in r["molecules"])
+    assert r["radical"]["site"] == "organic"
+
+
+def test_radical_on_the_metal_changes_nothing():
+    """`Cu(II)Cl2 + CH4`: no negative site outside the complex, so the oxidation state keeps it."""
+    el = ["Cu", "Cl", "Cl", "C", "H", "H", "H", "H"]
+    xyz = np.array([[0, 0, 0], [2.2, 0, 0], [-2.2, 0, 0], [0, 0, 12],
+                    [0.63, 0.63, 12.63], [-0.63, -0.63, 12.63],
+                    [0.63, -0.63, 11.37], [-0.63, 0.63, 11.37]], float)  # fmt: skip
+    wbo = {(0, x): 0.0 for x in range(1, 8)}
+    wbo[(0, 1)] = wbo[(0, 2)] = 0.9
+    open_, closed = (predict(el, xyz, total_charge=0, wbo=wbo, n_unpaired=n) for n in (1, 0))
+    assert open_["radical"]["site"] == "metal" and open_["radical"]["atom"] is None
+    for a, b in zip(open_["molecules"], closed["molecules"]):
+        assert (a["charge"], a["smiles"]) == (b["charge"], b["smiles"])
+
+
+def test_two_candidate_sites_are_refused():
+    """A free chloride beside the radical — the graph cannot say which one is which."""
+    el = ["Cu", "Cl", "C", "H", "H", "H", "Cl"]
+    xyz = np.array([[0, 0, 0], [2.2, 0, 0]] + [[x, y, z + 12] for x, y, z in CH3]
+                   + [[0, 0, 25]], float)
+    wbo = {(0, x): 0.0 for x in range(1, 7)}
+    wbo[(0, 1)] = 0.9
+    r = predict(el, xyz, total_charge=-1, wbo=wbo, n_unpaired=1)
+    assert r["radical"]["atom"] is None and "candidate sites" in r["radical"]["note"]
+    # the closed-shell answer comes back untouched, so a caller can drop it on the note
+    closed = predict(el, xyz, total_charge=-1, wbo=wbo, n_unpaired=0)
+    assert [m["charge"] for m in r["molecules"]] == [m["charge"] for m in closed["molecules"]]
+
+
+def test_more_than_one_unpaired_electron_is_refused():
+    """Diradicals are out of scope — two electrons on different atoms cannot be placed."""
+    with pytest.raises(ValueError, match="n_unpaired"):
+        predict(["C", "H", "H", "H"], np.array(CH3, float), total_charge=0, n_unpaired=2)

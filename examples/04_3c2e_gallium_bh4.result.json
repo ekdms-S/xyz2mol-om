@@ -1,4 +1,10 @@
 {
+ "radical": {
+  "n_unpaired": 0,
+  "atom": null,
+  "site": null,
+  "note": ""
+ },
  "molecules": [
   {
    "index": 0,
