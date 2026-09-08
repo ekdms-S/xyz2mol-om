@@ -12,7 +12,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (ADJQVETO, ADJQW, BML3C_COST, CAPINESS, EHTNITRO, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
+from .config import (BML3C_COST, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from .charge import _qfrag, atom_bond_sums, q_atom
@@ -75,7 +75,7 @@ def _eht_untrusted(G, el, comp):
         return "small"
     if EHTSKIP and "".join(sorted(el[x] for x in comp)) in EHTSKIP:
         return "composition"
-    if EHTNITRO and any(_is_nitro(G, el, x) for x in comp):
+    if any(_is_nitro(G, el, x) for x in comp):
         return "nitro"
     return None
 
@@ -175,7 +175,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     #   exact maximum; see `_solve_cap` and the `CAPMILP` comment in `config`
     iness = set()
     cls, mlout = _solve_cap(G, el, sc, conj, bml, ml_sc, ml_max=2, iness_out=iness)
-    if CAPINESS and iness:
+    if iness:
         # 🔴 `CAPINESS` gave these atoms headroom **on the promise that ⑥ leaves them unmatched**.
         #   ⑥ runs its own matching and will happily pair one up, and then the cap it was granted
         #   against is broken — measured: valence violations +0.7%p on train before this coupling.
@@ -224,12 +224,10 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             use = collections.defaultdict(float, _kek_val(G, el, cls))
             for x in comp:
                 use[x] += bml.get(x, 0.0)
-            # `ADJQW` — charges of the fragment as it stands, recomputed once per ±1 step
-            #   (the candidate scan below only shifts two atoms of them).
-            bs = qn = DEGa = NBa = None
-            if ADJQW > 0.0 or ADJQVETO:
-                bs, DEGa, NBa = atom_bond_sums(G, el, cls, comp, w)
-                qn = {v: q_atom(el[v], bs[v], DEGa[v], NBa[v]) for v in comp}
+            # Formal charges of the fragment as it stands, recomputed once per ±1 step (the
+            #   candidate scan below only shifts two atoms of them). The veto reads these.
+            bs, DEGa, NBa = atom_bond_sums(G, el, cls, comp, w)
+            qn = {v: q_atom(el[v], bs[v], DEGa[v], NBa[v]) for v in comp}
             best = None
             for e in edges:
                 c0 = cls[e]
@@ -242,11 +240,12 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
                         continue
                     c1 = c0 - 1
                 g = sc[e].get(c1, -1e9) - sc[e].get(c0, 0.0)
-                if bs is not None:
-                    adj = _adjq_pairs(G, el, e, ORD4[c1] - ORD4[c0], bs, qn, DEGa, NBa)
-                    if adj and ADJQVETO:
-                        continue  # rejected — ⑤ takes the next-best move, or gives up
-                    g -= ADJQW * adj
+                # 🔴 ⑤ may not create a new pair of adjacent same-sign formal charges. A veto,
+                #   not a penalty: with a single candidate a weight only reorders the list and
+                #   the bad move is still taken (measured — `ADJQW=1e9` changed nothing).
+                adj = _adjq_pairs(G, el, e, ORD4[c1] - ORD4[c0], bs, qn, DEGa, NBa)
+                if adj:
+                    continue  # rejected — ⑤ takes the next-best move, or gives up
                 if best is None or g > best[0]:
                     best = (g, e, c1)
             if best is None:

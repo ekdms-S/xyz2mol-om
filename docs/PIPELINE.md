@@ -44,6 +44,27 @@ Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal o
 
 ---
 
+## Terms
+
+Short names used throughout. Task codes `T1`·`T3`… are the benchmark's, stage numbers `①`…`⑥` are
+T3's internal order.
+
+| term | meaning |
+|---|---|
+| `Conj` | a bond carrying part of a **delocalized π system**. Not an integer order — ⑥ resolves it to 1 or 2. Internally it costs `k+1` valence for `k` such bonds on an atom, never 1.5 |
+| `CAP(X)` | X's **valence ceiling** — bonds plus lone pairs it can hold (C 4 · N 5 · S 6 …). Not the neutral-atom valence: this is an ionic cut, so a deficient atom is an anion, not an error |
+| `b_int` · `b_ML` | X's **internal bond-order sum** · **number of M–L bonds** it makes. Different units on purpose (see ④) |
+| `w` | **Mayer bond order** from xtb GFN2 `--sp --wbo`. Used for M–L existence and order, never for internal bonds |
+| haptic · `η^k` | an M–L bond to an atom of a π system (`η⁵`-Cp) rather than to a lone pair. `k` = how many atoms of that π fragment bind the same metal |
+| 3c2e · dative | a bridging atom's tag: **3c2e** = one electron pair shared over three centres (μ-H, μ-CH₃, μ-CO); **dative** = two genuine 2-centre donations (μ-Cl) |
+| `q_L` · `OS(M)` | **ligand charge** (sum of formal charges over the whole ligand) · **metal oxidation state** |
+| the veto (⑤) | ⑤ may not create a **new pair of adjacent same-sign formal charges** (no `C⁻ C⁻`). Hard rejection, not a penalty |
+| trust gate (⑤) | fragment classes whose extended-Hückel charge target is not trusted (parity · composition · nitro motif) |
+| harmful `Double` | the deployment error metric: a reference `Double` that the **emitted Kekulé structure** does not call 2, excluding ambiguous Kekulé positions, μ-CO π-acceptors, and charge-transfer resonance |
+| Rule A · R2…R7 | the named chemistry rules. A · R2 · R3 · R4 · R5 build the conjugation set (§T3 ①②); R7 patches its side effect on haptic detection (DAG 5′) |
+
+---
+
 ## Order (DAG)
 
 🔴 **Read the picture first.** The numbered list under it is a *reference per step*, **not** an
@@ -95,7 +116,7 @@ that are not yet contaminated by the metal budget (see 5″).
 
 ━━ metal-independent ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1.  [T1] internal bond exists ⟺ d(X,Y) < d_int(X,Y)     45 element pairs (data/d_int.csv)
-2.       rings = SSSR                                   no parameters
+2.       rings = `nx.cycle_basis`                       no parameters
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 3.  [T3] 4-class assignment ①→②→③→④→⑤→⑥                see §T3 below
@@ -188,64 +209,79 @@ that are not yet contaminated by the metal budget (see 5″).
 
 ---
 
-## §T3 — internal bond orders within a ligand (six stages)
+## §T3 — internal bond orders within a ligand
 
-This is the core. The other tasks are one threshold each, but T3 has **several layers of constraints**.
+This is the core. Every other task is one threshold; T3 answers **five questions in order**, each
+constraining the next.
 
-### ① Rule A — pin planar rings to `Conj`
+| | question | how |
+|---|---|---|
+| **①②** | which bonds share a **delocalized π system**? | chemistry, 0 fitted parameters |
+| **③** | what order does the **geometry** want? | per-element-pair distance likelihood |
+| **④** | what can the **valence budget** afford? | hard constraint, maximum-weight matching |
+| **⑤** | does the fragment's **electron count** agree? | extended-Hückel fragment charge as a target |
+| **⑥** | emit **integers** | Kekulé matching |
+
+Stages ④–⑥ can each overrule the one before it, so a bond that ③ wants as `Double` may still come
+out `Single`. That is the usual reason for a wrong `Double` — see `failures/README.md`.
+
+### ①② The conjugation set — which bonds are delocalized
+
+A `Conj` bond is one carrying part of a delocalized π system; its order is not an integer until ⑥
+resolves it. One rule puts bonds in, four take them out. **All five are chemistry — 0 fitted
+parameters** apart from the planarity tolerance `τ_plane`.
 
 ```
-pin(e) ⟺ e lies in a ring r and
-         |r| ≥ 5
-         AND  out-of-plane rms(r) ≤ τ_plane = 0.05 Å
-         AND  both end atoms are unsaturated:  deg(X) < CAP(X)
+IN   Rule A   a ring is delocalized if it is planar and its atoms are unsaturated
+              pin(e) ⟺ e lies in a ring r (`nx.cycle_basis`) · |r| ≥ 5
+                       · out-of-plane rms(r) ≤ τ_plane = 0.05 Å
+                       · both ends unsaturated (deg(X) < CAP(X))
+              a pinned bond is **forced** to `Conj`, overriding ③ — but R2·R3·R4 are
+              subtracted from the pinned set first, so an exclusion always wins
+
+OUT  R2       a **lone-pair donor** heteroatom is part of π but its own bonds are order 1
+              forbid(X) ⟺ X ∈ {O,S,Se: deg ≥ 2} ∪ {N,P: deg ≥ 3}  ⇒ no Conj on any bond of X
+              exception ⟺ X = N and its fragment's EHT charge > 0   (pyridinium N⁺)
+              furan O and pyrrole N donate their **own lone pair**, so they contribute 2 electrons
+              and keep single bonds. Pyridine-type N (deg 2) donates one p electron and is 1.5.
+              Carbon is always a p-electron donor, so it is never covered.
+
+     R3       a 5-ring holding an R2 nitrogen is Kekulé **as a whole**
+              forbid(ring r) ⟺ |r| = 5 AND r holds an R2 donor AND all of them are N
+              R2 only blocks bonds touching the heteroatom; the `C=C` of pyrrole or imidazole is
+              carbon–carbon, so it escapes and leaks into `Conj`.
+
+     R4       an antiaromatic 4n carbocycle is not delocalized
+              forbid(ring r) ⟺ |r| ∈ {4, 8} AND all carbon AND out-of-plane rms > τ_plane
+              neutral COT is the tub-shaped D2d form. The planarity test keeps the planar 10π
+              η⁸-COT²⁻ delocalized.
+
+     R5       a **lone** Conj bond is not delocalized — delocalization needs a neighbour
+              forbid(e) ⟺ neither end of e touches another Conj bond
 ```
 
-`rms` is the root mean square distance of the ring atom coordinates to their best-fit plane.
+⚠️ **`R3` is applied to nitrogen donors only, and that scope is a measurement, not a derivation.**
+The same argument holds for furan O and thiophene S, but taking all donors scored worse
+(CV `Σq_L` .7796 vs .7932 for nitrogen-only). The chemical story for excluding O/S is weak; treat
+the scope as fitted.
 
-### ② `Conj` prohibition rules — R2 · R3 · R4
+**Why R7 exists** (it lives at stage 5′ of the DAG, but its cause is here): once R2·R3 make a
+5-ring Kekulé, that ring has at most two double bonds, so **one atom drops out of the π set** and
+an η⁵ ring reads as η⁴. R7 puts that atom back as a haptic candidate **without touching any bond
+order**. It is a patch on this section's side effect, not an independent rule.
 
-Bonds that **cannot** be `Conj` are cut out first. All three have **zero fitted parameters** and are derived from chemistry.
-
-```
-R2  a lone-pair-donating (pyrrole-type) heteroatom cannot be Conj
-    forbid(X) ⟺ X ∈ {O, S, Se: deg ≥ 2} ∪ {N, P: deg ≥ 3}   ⇒ remove Conj from every bond of X
-    exception ⟺ X = N and the EHT charge of its fragment > 0  (pyridinium N⁺)
-    why: furan O and pyrrole N give their own lone pair to the π system, so they are part of π but
-        their **formal bond order is 1**. The pyridine type (deg 2) gives a p electron and is 1.5.
-        Carbon is always a p-electron donor and so is not covered.
-
-R3  a 5-membered ring containing an R2-flagged nitrogen is Kekulé as a whole
-    forbid(ring r) ⟺ |r| = 5 AND every R2 donor in r is nitrogen   ⇒ remove Conj from every bond of r
-    why: R2 blocks only the bonds attached to the heteroatom. The `C=C` of pyrrole or imidazole is
-        carbon–carbon, so it is not caught and leaks into Conj.
-
-R4  non-planar all-carbon 4n rings (4- and 8-membered) are Kekulé
-    forbid(ring r) ⟺ |r| ∈ {4, 8} AND all carbon AND out-of-plane rms > τ_plane
-    why: COT is 4n antiaromatic, so it is a neutral tub-shaped D2d. η⁸-COT²⁻ is a planar 10π aromatic,
-        and the planarity condition excludes it.
-```
-
-### ③ Distance likelihood — the 4-class score of the remaining bonds
+### ③ Distance likelihood — what the geometry wants
 
 ```
 score(e, c) = − |d(e) − med[k, c]| / scl[k, c]  +  lp[k, cell(e), c]
 
   k       = element pair (sorted)             med = per-class distance median
   scl     = 1.4826 × MAD                      lp  = ln P(c | condition)
-  cell(e) = (min(deg(X), 4), min(deg(Y), 4))  ← endpoint internal-degree pair, ordered to match the element order
+  cell(e) = (min(deg(X), 4), min(deg(Y), 4))  endpoint internal-degree pair, ordered with k
 ```
 
-🔴 **The prior `lp` is conditioned on the degree cell, not globally per element pair.**
-
-```
-lp[k, cell, c] = ln P(c | element pair k, degree pair cell)   when the cell has ≥ 300 samples
-               = ln P(c | element pair k)                     below that, fall back to global
-
-exception: c = Conj(3) **always** uses the global value
-```
-
-Why it is done this way (measured):
+🔴 **The prior is conditioned on the degree cell, not globally per element pair** — because the
+same element pair is a different bond at different degrees:
 
 | `C–O` cell | n | Single | **Double** | Triple | Conj |
 |---|---|---|---|---|---|
@@ -254,81 +290,116 @@ Why it is done this way (measured):
 | `deg(C)=1, deg(O)=1` (CO ligand) | 22,298 | .000 | .017 | **.983** | .000 |
 | `deg(C)=4, deg(O)=2` (ether) | 10,087 | **1.000** | .000 | .000 | .000 |
 
-The global prior gives a carbonyl a penalty of `ln(.111/.417) = −1.32` — even when the distance points at
-`Double`, it gets flipped. Conditioning on the cell makes it `ln(.322/.344) = −0.066` and it disappears.
-Why `Conj` is excluded: the `C–C` `deg 3–3` cell has `P(Conj) = .908`, so conditioning increases the
-`Double` → `Conj` leak (measured +505).
+The global prior penalises a carbonyl by `ln(.111/.417) = −1.32` and flips it to `Single` even when
+the distance says `Double`; the cell prior makes that `−0.066` and it disappears.
 
-Fitted values are in `data/scores4.json` — 15 element pairs · 54 conditioned cells · 26,075 train structures.
+```
+lp[k, cell, c] = ln P(c | k, cell)   when the cell holds ≥ 300 samples
+               = ln P(c | k)         below that
+exception: c = Conj always uses the global value
+```
 
-### ④ Valence ceiling — the **exact solution** of a hard constraint
+⚠️ **Two crude edges here, both deliberate.** The 300-sample cut-off is a *statistical* floor (a
+cell with 40 samples estimates a prior badly), **not a chemical claim** — a bond whose cell sits
+just under it is scored by a different formula than its neighbour. And `Conj` is excluded from
+conditioning because the `C–C` deg-3/3 cell has `P(Conj) = .908`, which drags `Double` into `Conj`
+(measured +505 errors).
+
+Values in `data/scores4.json` — 15 element pairs · 54 conditioned cells · 26,075 train structures.
+
+### ④ Valence budget — what can be afforded
 
 ```
 maximize    Σ_e  score(e, c(e))
-subject to  b_int_kek(X) + b_ML(X)  ≤  CAP(X)        for every non-metal X
+subject to  b_int(X) + b_ML(X)  ≤  CAP(X)         for every non-metal X
 
-  b_int_kek : k conjugated bonds count as **k + 1** (one of them is π). Not a 1.5 conversion.
-  b_ML      : **not** an order sum — one unit per existing M–L bond (`pipeline.bml_budget`).
-              haptic spends 0. An atom taking part in a **3c2e** spends `BML3C_COST` (default
-              **1.0**) *in total* regardless of how many M–L bonds it has — one electron pair
-              across three centers is one bond of valence. `BML3C_COST=-1` counts one unit per
-              M–L bond instead, `0.0` releases the budget entirely (`BMLSKIP3C`).
-              ⑥ and the charge use this same budget — `api.predict` calls `bml_budget` too — so
-              the two cannot diverge.
-  CAP       : H 1 · B 4 · C 4 · N 5 · O 4 · F 4 · Si 6 · P 6 · S 6 · Cl 7 · Br/Se/As/Te/I 6
+  b_int  k conjugated bonds cost **k + 1** — k σ bonds plus the one π that the Kekulé matching
+         will place on this atom. **Exception:** if the fragment has a maximum matching that
+         leaves X unmatched, X gets no π and costs **k**; ⑥ is then held to that promise.
+  b_ML   **count**, not order sum — under the ionic cut an M–L bond is one donated lone pair.
+         haptic costs 0. An atom in a **3c2e** bridge costs 1.0 *in total* however many M–L bonds
+         it has: one electron pair over three centres is one bond of valence.
+  CAP    H 1 · B 4 · C 4 · N 5 · O 4 · F 4 · Si 6 · P 6 · S 6 · Cl 7 · Br/Se/As/Te/I 6
 ```
 
-🔴 **There is no lower bound.** This is an ionic cut, so an anionic ligand is normal (`Cl⁻`·`RO⁻`·`Cp⁻`).
-A deficient valence is not an error — it is a **negative charge**.
+🔴 **There is no lower bound.** This is an ionic cut, so an anionic ligand is normal (`Cl⁻`·`RO⁻`·
+`Cp⁻`). A deficient valence is not an error — it is a **negative charge**.
 
-How it is solved: take the slack `r(X) = ⌊CAP(X) − use(X)⌋` as a capacity, duplicate each atom that many
-times, and solve a **maximum weight matching** (Blossom) — a polynomial-time **exact solution**. `Triple` is
-assigned first to bonds whose likelihood argmax is `Triple` and whose endpoints both have slack ≥ 2, consuming that slack.
-M–L orders are decided inside the same matching (a dummy node expresses the metal side being unconstrained, up to `Triple`).
+How it is solved: take the slack `r(X) = ⌊CAP(X) − use(X)⌋` as a capacity, replicate each atom that
+many times, and run a **maximum-weight matching** (Blossom). `Triple` is confirmed first, greedily,
+for bonds whose likelihood argmax is `Triple` and whose ends both have slack ≥ 2. M–L orders are
+solved inside the same matching.
 
-⚠️ The matching admits as candidates only bonds with `g(e) = score(e, Double) − score(e, Single) > 0`.
+⚠️ **This is not the exact maximum** (measured 2026-09-08 — the text here used to claim it was).
+The greedy `Triple` pass runs before the matching, so it can spend slack the matching would have
+used better: **113 of 12,245** calls on holdout are suboptimal, median loss 4.58 in likelihood
+units. Solving ④ exactly with a MILP was built and **rejected** — it raised the ④ metrics but made
+the *deployment output* worse (harmful `Double` 305 → 313), because the stages do not share an
+objective.
 
-### ⑤ EHT fragment charge target
+⚠️ Only bonds with `score(Double) > score(Single)` are offered to the matching. A bond the
+likelihood scores as `Single` is never even a candidate for promotion — **114 of the 305 remaining
+harmful `Double` errors die here**, before any budget question is asked.
 
-Extended Hückel (RDKit `rdEHTTools`) computes the charge of a ligand fragment **directly**, and it enters the search as a target.
+### ⑤ Fragment electron count — does the charge agree
 
-```
-q_frag(EHT) = Σ v_i  −  2 × #{Hückel orbitals : E < −10 eV}   (+ HOMO/LUMO correction)
-
-identity    q_frag = C0(composition) + 2B,   C0 = Σ v_i − 8n   (2 for H)
-        ⇒   B* = (q_EHT − C0) / 2      the **total bond order of that fragment is fixed to a single integer**
-
-assignment ⟺ make B = B* while respecting the ceiling of ④
-             if short, +1 starting from the bonds with the largest likelihood gain · if over, −1 starting from the smallest loss (≤ 12 rounds)
-```
-
-Fragments that are skipped:
+Extended Hückel (RDKit `rdEHTTools`) gives a ligand fragment's charge directly, and that fixes the
+fragment's **total** bond order to one integer:
 
 ```
-(a) fragments where (q_EHT − q_current) is odd
-(b) 🔴 fragments whose composition is `NO`, `SS`, or `CCHH`     ← EHTSKIP
+q_frag(EHT) = Σ v_i − 2 × #{Hückel orbitals with E < −10 eV}   (+ HOMO/LUMO correction)
+identity     q_frag = C0(composition) + 2B,   C0 = Σ v_i − 8n   (2 for H)
+         ⇒   B* = (q_EHT − C0) / 2
+
+assignment ⟺ move bonds ±1 to reach B = B*, respecting ④'s ceiling, ≤ 12 rounds
+             short → +1 from the largest likelihood gain · over → −1 from the smallest loss
 ```
 
-Basis for (b) (against the reference assignment · all train fragments):
+**The veto.** A move that creates a **new pair of adjacent same-sign formal charges** is dropped
+from the candidate list; if nothing else is available ⑤ gives up the target and ④'s assignment
+stands. Of the harmful `Double` errors that ④ got right and ⑤ demoted, **47% ended with both ends
+of the bond negative** — ⑤ was pushing a `C=C` down into `C⁻ C⁻` to hit its target. A *soft*
+penalty does not work: with a single candidate a weight only reorders the list and the bad move is
+still taken.
 
-| Composition | Fragments | Target error rate | Error |
-|---|---|---|---|
-| `CO` (carbonyl ligand) | 22,298 | **1.7%** | — |
-| **`NO`** (nitrosyl) | 493 | **99.8%** | −2 in 489/492 |
-| **`SS`** | 118 | **94.9%** | +2 in 112/112 |
-| **`CCHH`** (η²-acetylene) | 142 | **66.9%** | +2 in 91/95 |
+**The trust gate.** ⑤ only chases a target it has reason to trust. Three conditions, all the same
+statement — *for this class of fragment the bare-fragment Hückel charge is not worth chasing*:
 
-The exception is keyed on the **pattern**, not on fragment size — a size cut would also disable the 22,298 `CO`.
+| condition | | target error rate |
+|---|---|---|
+| parity | `q_EHT − q_current` is odd — unreachable by ±1 moves | — |
+| composition | fragment is `NO` · `SS` · `CCHH` | 99.8% · 94.9% · 66.9% |
+| motif | an N carrying **exactly two** terminal O (nitro / nitrite) | 84.4% (`R–NO₂`) · 100% (free `NO₂⁻`) |
 
-### ⑥ Output converter (kekulization)
+Overall the target is wrong 3.8% of the time, so the error is concentrated in these classes. Two
+details are load-bearing:
 
-Turns the 4 classes back into integer S/D/T. It uses the **same maximum matching** as the charge calculation, so the assignments agree.
+- **Exactly two terminal O, not at least two.** Three is nitrate, and the target is right for
+  nitrate in **75 of 75** holdout fragments. The first version read `≥ 2` and discarded them for
+  nothing.
+- **Composition, not size.** A size cut would also disable the 22,298 `CO` fragments, whose target
+  is wrong only 1.7% of the time.
+
+⚠️ **`CCHH` (η²-acetylene) is the weakest member of the list at 66.9%** — one third of the time it
+is discarding a correct target. It is the item most likely to be fitting the CSD sample rather than
+chemistry.
+
+### ⑥ Output converter — integers
+
+Turns the 4 classes into integer S/D/T with a maximum-cardinality matching over the `Conj` bonds,
+the same one the charge calculation uses, so the two cannot disagree.
+
+The matching is **weighted** by `score(Double) − score(Single)`: a fragment usually has several
+Kekulé structures of the same size, and without weights the one that came out was unrelated to the
+bond lengths (`EMAXAR` put the π on a 1.440 Å `C–C` instead of the 1.234 Å `C=O`). The weight also
+carries ④'s promise — an atom granted headroom on condition of staying unmatched gets `−10⁶` on
+every incident edge, which cannot shrink the matching but keeps that promise.
 
 ```
 kekulize(G, el, cls, b_ML) → (orders, frag_q)
   orders  {(i,j): 1.0 | 2.0 | 3.0}
-  frag_q  residual fragment charge not expressible by the skeleton
-          (tropylium +1 · even-ring dianion −2 etc., measured 202/26,074 = 0.8%)
+  frag_q  charge the skeleton cannot express (tropylium +1 · even-ring dianion −2)
+          measured 202 / 26,074 fragments = 0.8%
 ```
 
 ---
@@ -379,21 +450,19 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
 
 ## Performance
 
-### holdout (6,456 structures not used in the fit · **opened only once**)
+**Current numbers are at the top of this file.** The table below is the *historical* one — the
+holdout as it stood in 2026-09-04, before `R7`, the `B` ligand switch, and everything adopted on
+09-07/08. It is kept because it is the record of the split's single blind opening.
 
-| Metric | **holdout 6,456** ⚠️ old code | **train CV 26,075** ★ current code |
+| Metric | holdout 6,456 (2026-09-04 code) | train CV 26,075 (same date) |
 |---|---|---|
 | T3 `Single` / **`Double`** / `Triple` / `Conj` | .9900 / **.7258** / .9822 / .9631 | .9884 / **.7047** / .9809 / .9558 |
-| `Σq_L` exact match per structure | **80.9%** | **82.5%** |
-| `OS(M)` exact match per structure | **81.3%** | **83.9%** |
-| T5 haptic F1 · T6 η^k | .9748 · .9860 | **.9789** · .9812 |
-| valence violation (structures) | 2.06% | **2.71%** |
+| `Σq_L` · `OS(M)` exact match per structure | 80.9% · 81.3% | 82.5% · 83.9% |
+| T5 haptic F1 · T6 η^k | .9748 · .9860 | .9789 · .9812 |
+| valence violation (structures) | 2.06% | 2.71% |
 
-⚠️ **The holdout column was measured with the code *before* the `R7` adoption and the `B` ligand switch.**
-The holdout is spent by its single opening and cannot be remeasured ⇒ **generalization of the current code can be
-stated only from the train CV column.**
-⚠️ **The two T3 columns also score different pools** — the `B` switch newly brought 30,628 `B–X` bonds into scoring.
-Compared over the same bond set, `Double` is .6888 → **.6952**.
+⚠️ The two T3 columns score **different pools** — the `B` switch brought 30,628 `B–X` bonds into
+scoring. On the common bond set `Double` reads .6888 → .6952.
 
 ### What is left
 
@@ -412,7 +481,8 @@ Even with a high F1, the **output can be chemically impossible**. So the valence
 
 ```
 violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
-  b_int_kek : k conjugated bonds count as **k+1** (not a 1.5 conversion)
+  b_int_kek : k conjugated bonds count as **k+1** (not a 1.5 conversion) — or **k** where ④ granted
+              headroom on the promise that ⑥ leaves the atom unmatched (see ④)
   b_ML      : sum of M–L bond orders (haptic excluded)
   ⚠️ 3c2e-tagged atoms and `B` are dropped from the tally — they are outside the two-center formalism
 ```
@@ -456,5 +526,19 @@ most of what this metric would otherwise count.
 | `data/b_ml_mayer.csv` | T8 likelihood form (old form, fallback) | 420 pairs |
 | `data/scores4.json` | T3 distance likelihood `med`·`scl`·`lp`·`lp_cell` | 15 element pairs · 54 cells |
 
-The rules (Rule A · R2 · R3 · R4 · R5 · **R7** · `EHTSKIP` · the hypervalent charge formula) have **0 fitted parameters**.
-The only global constants are the three `τ_plane = 0.05 Å` · `θ_haptic = 81.02°` · EHT cutoff `−10 eV`.
+The rules have **0 fitted parameters**: Rule A · R2 · R3 · R4 · R5 · R7 · the ⑤ trust gate
+(composition list + nitro motif) · the ⑤ adjacent-same-sign veto · the ④ unmatched-atom exception ·
+the hypervalent charge formula.
+
+Global constants — five, and two of them are quoted to more digits than the data supports:
+
+| constant | value | what it is |
+|---|---|---|
+| `τ_plane` | 0.05 Å | ring planarity tolerance (Rule A · R4) |
+| `θ_haptic` | 81.02° | M–X–Y angle below which an M–L bond is haptic — **fitted**; the two decimals are not meaningful |
+| EHT cutoff | −10 eV | occupied-orbital cut in the fragment charge |
+| `LPCOND_NMIN` | 300 | samples a degree cell needs before its prior is used — a **statistical floor**, not chemistry |
+| 3c2e cost | 1.0 | valence a bridging atom spends in total for its M–L bonds — one shared pair is one bond |
+
+⚠️ `R3`'s scope (nitrogen donors only) and the `CCHH` entry of the ⑤ composition list are the two
+places where the choice is **measured rather than derived**; both are flagged in §T3.

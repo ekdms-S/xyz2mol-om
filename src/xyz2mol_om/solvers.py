@@ -13,7 +13,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (CAP, CAPDUP_MAX, CAPINESS, CAPMILP, CAPMILP_MAX, ORD4,
+from .config import (CAP, CAPDUP_MAX, CAPMILP, CAPMILP_MAX, ORD4,
                      R6SWAP, TAUD, VTGT)
 from .charge import _qfrag, frag_charge, q_atom
 
@@ -168,7 +168,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
         k_of[e[1]] += 1
     nonc = [e for a, b in G.edges for e in [(min(a, b), max(a, b))] if e not in conj]
     iness = set()
-    if CAPINESS and conj:
+    if conj:
         # 🔴 Only `deficiency` atoms per fragment can be left unmatched at once, so grant that
         #   many — the ones with the most to gain, i.e. whose blocked non-`Conj` bond has the
         #   largest `Double − Single` margin. Ties and atoms with nothing to gain are dropped.

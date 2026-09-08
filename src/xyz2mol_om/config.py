@@ -328,7 +328,6 @@ EHTSKIP = {v for v in os.environ.get("EHTSKIP", "NO,SS,CCHH").split(",") if v}
 #     ablation from the shipped default: **+119** harmful `Double` — the single largest of the
 #     adopted rules. Interaction with `ADJQVETO` is **-3** (both off 497 vs 500 additive).
 # ★ adopted 2026-09-08
-EHTNITRO = os.environ.get("EHTNITRO", "1") == "1"
 # ══════════════════════════════════════════════════════════════════════════════════════════════
 # ★ `LPCOND` — **condition the prior of the 4-class likelihood on the endpoint internal degrees**
 #   (2026-09-03).
@@ -359,27 +358,21 @@ LPA = float(os.environ.get("LPA", "1.0"))
 #   ⇒ if the **likelihood cost** of meeting the target exceeds the threshold, that fragment gives
 #     up the target and reverts. −1 = unlimited (old behavior).
 EHTCOST = float(os.environ.get("EHTCOST", "-1"))
-# 🔴 `ADJQW` — **soft penalty on ⑤ moves that create adjacent same-sign formal charges**
-#   (proposal 1, 2026-09-07 · owner's proposal, Codex asked for the soft form).
-#   Why: of the 135 harmful `Double` errors that ④ got right and ⑤ demoted, **63 (47%) end up
-#   with both ends of the bond negative** (`(−1,−1)` 52 · `(−2,−1)` 10). ⑤ moves a bond ±1 to
-#   reach the EHT fragment-charge target, and pushing a `C=C` down makes `C⁻ C⁻`
+# ★ ⑤ may not create a new pair of **adjacent same-sign formal charges** — a move with
+#   `Δ > 0` is dropped from the candidate pool, so ⑤ takes the next-best move and, if there
+#   is none, **gives up the target for that fragment** (④'s assignment stands).
+#   **0 fitted parameters.** (proposal 1, 2026-09-07 · owner's proposal)
+#   Why: of the 135 harmful `Double` errors that ④ got right and ⑤ demoted, **63 (47%) end
+#   up with both ends of the bond negative** (`(−1,−1)` 52 · `(−2,−1)` 10). ⑤ moves a bond
+#   ±1 to reach the EHT fragment-charge target, and pushing a `C=C` down makes `C⁻ C⁻`
 #   (`IKOZUE` C6–C8: d 1.343 Å, likelihood margin `D−S` +8.18, ④ said `Double`).
-#   Rule: candidate move `e: c0 → c1` is scored `g = sc[e][c1] − sc[e][c0] − ADJQW · Δ`, where
-#   `Δ` = (number of bonds incident to `e`'s endpoints whose two atoms both carry a nonzero
-#   formal charge of the same sign) **after** the move minus **before**, floored at 0.
-#   Charges come from the same Kekule matching the output converter uses (`atom_bond_sums`).
-#   `0` = off (the move is scored on likelihood alone); the soft form was **rejected** — see
-#   `ADJQVETO`.
-ADJQW = float(os.environ.get("ADJQW", "0"))
-# ★ `ADJQVETO=1` — the **hard** form of the same rule, and the one that was adopted: a move with
-#   `Δ > 0` is dropped from the candidate pool instead of being scored down, so ⑤ takes the
-#   next-best move and, if there is none, **gives up the target for that fragment** (④'s
-#   assignment stands). **0 fitted parameters.**
-#   🔴 Why the soft form is not enough (measured): `ADJQW` only *reorders* candidates, so where
-#      the offending move is the **only** candidate it is still taken. `IKOZUE` C6–C8 is exactly
-#      that case — even `ADJQW=1e9` leaves it demoted, and on holdout `ADJQW` 1/3/10 all move
-#      `Double` by −0.0003/−0.0005/−0.0005 (i.e. nothing).
+#   `Δ` = (bonds incident to `e`'s endpoints whose two atoms both carry a nonzero formal
+#   charge of the same sign) **after** the move minus **before**, floored at 0. Charges come
+#   from the same Kekule matching the output converter uses (`atom_bond_sums`).
+#   ⛔ **The soft form was built and rejected.** A weight only *reorders* candidates, so where
+#      the offending move is the **only** candidate it is still taken. `IKOZUE` C6–C8 is
+#      exactly that case — even a weight of `1e9` left it demoted, and on holdout weights
+#      1/3/10 moved `Double` by −0.0003/−0.0005/−0.0005 (i.e. nothing).
 #   Measured (deployment path · `260907_deploy_full_score.py`; the rule was **chosen on train**
 #   and holdout only confirms it):
 #     train 27,294   `Double` .6997 → **.7071** · `Σq_L` .8212 → **.8288** · `OS` .8488 → **.8532**
@@ -393,7 +386,6 @@ ADJQW = float(os.environ.get("ADJQW", "0"))
 #   ⚠️ The one cost: valence violations **+0.06%p** (train .0301 → .0307 · holdout .0299 → .0303)
 #      — ⑤ demotions were sometimes relieving a cap that ④ had spent.
 # ★ adopted 2026-09-07 (proposal 1)
-ADJQVETO = os.environ.get("ADJQVETO", "1") == "1"
 # ══ Two defect fixes, not options — kept here for the evidence only ═══════════════════════
 #   Both restore an invariant the implementation was breaking. There is no flag: the old
 #   behaviour is not a policy anyone would choose. Reproduce it from git history if needed.
@@ -486,7 +478,6 @@ ADJQVETO = os.environ.get("ADJQVETO", "1") == "1"
 #      bond. `AYEVAB` W0≡C1: `use` = 2 (`Conj` 1) + 1.0 (M–L) = 3.0 ⇒ headroom 1 ⇒ `Double` only;
 #      charging 1 gives headroom 2 and the `Triple` goes in.
 # ★ adopted 2026-09-08
-CAPINESS = os.environ.get("CAPINESS", "1") == "1"
 # `ETAEXO=1` — in the ⑥ Kekule matching, an atom of an **η-coordinated ring** may only pair
 #   **inside that ring** (2026-09-08, measuring only, off by default).
 #   Why (owner): an η⁵-Cp coordinates because its π stays in the ring. A ring carbon that takes
