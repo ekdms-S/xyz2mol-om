@@ -9,7 +9,7 @@ What is used (decision rules and formulas) and the performance figures are in `d
 """
 
 from .api import all_fragments, all_metals, predict
-from .charge import eht_frag_charges, frag_charge, kekulize, q_atom
+from .charge import eht_frag_charges, frag_charge, kekulize, pi_suppressed, q_atom
 from .config import METALS, METALS_HARD, RCOV
 from .geometry import load_dint, read_xyz
 from .output import (assemble_complex, draw, from_jsonable, ligand_smiles, load_json,
@@ -47,6 +47,7 @@ __all__ = [
     "q_atom",
     "frag_charge",
     "kekulize",
+    "pi_suppressed",
     "ligand_smiles",
     "verify_roundtrip",
     "save_json",

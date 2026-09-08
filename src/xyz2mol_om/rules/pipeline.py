@@ -79,7 +79,7 @@ def _eht_untrusted(G, el, comp):
 
 
 def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None,
-                   w_out=None):
+                   w_out=None, w_raw_out=None):
     """★ Adopted option `D_eht` — all stages of `docs/PIPELINE.md` `1c`.
     Returns `(internal classes, M–L classes)`.
 
@@ -169,6 +169,19 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     #   and the `CAPINESS` promise (`−1e6`, added below). Both are unconditional — the
     #   tie-break was measured at 28 harmful `Double` on holdout (see `config`).
     w = {e: v.get(1, 0.0) - v.get(0, 0.0) for e, v in sc.items()}
+    # 🔴 `w_raw_out` is filled **here**, before the `CAPINESS` penalty below. A reader that wants
+    #   to know *"did the distance likelihood prefer `Double` on this bond"* must not see the
+    #   `−1e6`: that term is a matching **constraint**, not a likelihood, and it lands on edges
+    #   where ④ granted headroom — exactly the edges a π-suppression report is about. Reading the
+    #   penalized `w` made `charge.formal.pi_suppressed` silent on precisely those (codex).
+    #   🔴 `1 in v` is required, not `v.get(1, 0.0)`. Two shipped `scores4` rows (`As-C`, `B-B`)
+    #   have **no `Double` class fitted at all** — only `Single` and `Conj`. Reading a missing
+    #   `Double` as 0.0 makes `0 − score[Single]` come out positive on almost every such bond, so
+    #   a `Double` preference would be reported where none was ever fitted (codex). `w` itself
+    #   keeps the old form: it is ⑥'s tie-break and changing it would change the output.
+    if w_raw_out is not None:
+        w_raw_out.clear()
+        w_raw_out.update({e: v[1] - v.get(0, 0.0) for e, v in sc.items() if 1 in v})
     # ④ hard valence-cap constraint (M–L up to Triple) — a matching reduction, not the
     #   exact maximum; see `_solve_cap` and the `CAPMILP` comment in `config`
     iness = set()
@@ -492,7 +505,7 @@ def _eta2_pair(el, xyz, G, ml_pred, cls_now):
 
 
 def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
-                  q_eht=None, rop=None):
+                  q_eht=None, rop=None, w_raw_out=None):
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
     the haptic set** end to end.
 
@@ -553,7 +566,8 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         ml_sc = ml_order_scores_dist(el, keep, xyz)
     # pass 2 — this is the output
     w = {}
-    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, w_out=w)
+    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, w_out=w,
+                                w_raw_out=w_raw_out)
     # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**
     #      (measured: fragment neighbors F1 .9810 · all internal neighbors .9803 —
     #      precision is higher for fragment neighbors).

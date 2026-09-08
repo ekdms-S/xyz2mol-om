@@ -15,6 +15,10 @@ import json
 from pathlib import Path
 
 _BOND_KEYED = ("bonds_4class", "bonds_kekule", "ml_bonds")
+# values that are a **list of bonds**, not a bond-keyed dict. JSON turns a tuple into a
+# list, so the round trip has to put the tuples back or a caller cannot use the entries as
+# keys into `bonds_kekule`.
+_BOND_LIST = ("pi_suppressed",)
 
 
 def _k2s(d):
@@ -37,6 +41,9 @@ def _conv_molecule(mol, kf, ef):
                 g[key] = kf(g[key])
         if isinstance(g.get("eta"), dict):
             g["eta"] = {ef(k): v for k, v in g["eta"].items()}
+        for key in _BOND_LIST:
+            if isinstance(g.get(key), list):
+                g[key] = [tuple(e) for e in g[key]]
         frs.append(g)
     out["fragments"] = frs
     return out

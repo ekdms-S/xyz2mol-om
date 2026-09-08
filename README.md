@@ -88,7 +88,10 @@ r["molecules"] == [
       "eta": {},                 # {metal: k} — counted **per ligand**, so a bridged
                                  #   (ansa) metallocene is one η¹⁰, not η⁵:η⁵
       "charge": -3,              # this fragment's charge
-      "residual_charge": None},  # charge the skeleton cannot express
+      "residual_charge": None,   # charge the skeleton cannot express
+      "pi_suppressed": []},      # bonds written `Single` between two anionic atoms where
+                                 #   the distance likelihood wanted `Double` — a **flag**,
+                                 #   see ⚠️ Limits
      … ],
 
    "smiles": "[H][O-]->[Mo+6](<-[N-3])(<-[Cl-])(<-[Cl-])<-[Cl-]",
@@ -360,6 +363,28 @@ them well.
   homonuclear M–M bonds (refcode 5-fold CV: distance .9305 · Mayer .9295 · all-`Single` baseline
   .9071) and is **not shipped** — the gain over the trivial baseline is small and the sample is
   thin where it matters (`Double` 147 · `Triple` 96 · `Quadruple` 131).
+- **A suppressed π bond costs the metal `+2`, and the output says so but does not fix it.**
+  When a weak M–X contact is taken as a σ bond it spends that atom's last valence unit, ④ then has
+  no headroom to raise the neighbouring π bond, and ⑥ writes it `Single` with a lone pair on each
+  end. The fragment charge comes out **2 too negative** and the metal's oxidation state **2 too
+  high**. Every such bond is listed in the fragment's `pi_suppressed`
+  (`bonds_kekule == 1` and both ends anionic and `score[Double] > score[Single]` — no new
+  threshold), so a caller can drop those structures:
+
+  ```python
+  from xyz2mol_om import all_fragments
+  if any(fr["pi_suppressed"] for fr in all_fragments(r)):
+      ...   # this structure's ligand charges and metal oxidation state are suspect
+  ```
+
+  Measured on **Gold-DIGR 21,196 sides** (2026-09-09 · out-of-sample · reference = the dataset's
+  own mapped `rxn_smiles` metal formal charge, same ionic convention):
+  the flag fires on **660 sides (3.11%)**; **382 of them (57.9%)** disagree with that reference
+  against a **9.9%** base rate on the 20,536 it does not fire on, and **365 of the 382 (96%)**
+  disagree by **exactly +2**. It catches **365 of the 634 (57.6%)** sides that are off by exactly
+  +2. ⚠️ A per-element oxidation-state range check sees far less of this: of the 660, only **72**
+  land outside a physical range at all. Script:
+  `dev/analysis/scratch/260909_pi_suppressed_flag_score.py`.
 - **3c2e and clusters** are outside the two-center formalism — a ligand with a bridging H is **deliberately** rejected by the SMILES round-trip check, and the fragment charge of a carborane cage uses the EHT value.
 
 Every decision rule, with its thresholds, is in [docs/PIPELINE.md](docs/PIPELINE.md).

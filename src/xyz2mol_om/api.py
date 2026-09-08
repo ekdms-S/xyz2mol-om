@@ -43,6 +43,12 @@ salt with its counter-ion — and everything below is solved inside one molecule
               "eta":          {m: k},       η^k toward that metal (when haptic)
               "charge":       int,          fragment charge q_L
               "residual_charge": int | None,  charge the skeleton cannot express (if any)
+              "pi_suppressed": [(i,j), ...],  bonds ⑥ wrote `Single` between two anionic atoms
+                                            where the ③ likelihood preferred `Double`. **A flag,
+                                            not a correction** — each one means this fragment's
+                                            charge is 2 too negative and, on a metal-bearing
+                                            molecule, the metal's oxidation state 2 too high.
+                                            Empty for almost every fragment; see `## Limits`
           }, ... ],
       }, ... ]
 
@@ -89,7 +95,7 @@ import warnings
 import networkx as nx
 import numpy as np
 
-from .charge import frag_charge_or_eht, kekulize, octet_fix_period2, q_atom
+from .charge import frag_charge_or_eht, kekulize, octet_fix_period2, pi_suppressed, q_atom
 from .config import NOCTET, RCOV, VAL, WMIN, centers
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
@@ -217,7 +223,11 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   assembled differently per caller, and that diverged from the scorer in **four places**
     #   (measured · (`docs/PIPELINE.md`). Now only `ml_raw` and `wbo` are passed in.
     q_eht = eht_frag_charges(el, xyz, G)
-    cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
+    # `w_raw` is the ③ likelihood margin `score[Double] − score[Single]` **before** ④'s
+    #   `CAPINESS` penalty is folded into `w`. Only the π-suppression report reads it.
+    w_raw = {}
+    cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht,
+                                                      w_raw_out=w_raw)
     # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
     # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
     # 🔴 Before this loop had no 3c2e term at all, so ⑥ could undo what ④ allowed.
@@ -394,6 +404,17 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             radical["note"] = (f"{len(cand)} candidate sites for the unpaired electron - a genuine "
                                "anion and a radical read as an anion are the same graph, so the "
                                "closed-shell answer is returned unchanged")
+
+    # ⚠️ **π suppression report** — a flag, not a correction (`charge.formal.pi_suppressed`).
+    #   Each bond listed makes that fragment's charge 2 too negative, and on a metal-bearing
+    #   molecule the metal's oxidation state 2 too high.
+    #   🔴 Built **after** the radical block, not inside the fragment loop: placing the unpaired
+    #   electron raises one atom's charge back to 0, so a bond flagged before it ran could come
+    #   back with an endpoint that is no longer anionic — the flag would describe a charge
+    #   assignment that is not the one returned (codex).
+    for fr in fragments:
+        fr["pi_suppressed"] = pi_suppressed(fr["bonds_kekule"],
+                                            {a: qat_all[a] for a in fr["atoms"]}, w_raw)
 
     # A metal-free molecule's charge is its ligands' formal-charge sum — nothing is unknown there.
     # What is left of `total_charge` belongs to the metal-bearing molecules, and with exactly one
