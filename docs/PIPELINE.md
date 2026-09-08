@@ -485,6 +485,20 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
     reads nitro `–N(=O)=O` (b 5) as +2, sulfone S (b 6) as +4 and perchlorate Cl (b 7) as +6.
     The hypervalent branch gives **0** for all three, and no `b ≤ 4` site changes.
 
+(a″) **nitrogen never carries five bonds.** The reference writes a nitro group as `–N(=O)=O`,
+     and ⑥ reproduces that, but N is period 2 and cannot expand its octet — the only Lewis
+     structure that respects it is the charge-separated `–N⁺(=O)O⁻`. So after ⑥, one `N=O` to a
+     **terminal** O is demoted to `N–O` and the charge follows from (a): N `+1`, that O `−1`.
+     The fragment total is unchanged (`+1` and `−1` cancel), and period-3 atoms keep the
+     hypervalent form, which is legitimate for them (sulfone S, perchlorate Cl).
+     Why it matters beyond notation: RDKit refuses a neutral five-bond N and rewrites it, so
+     `bonds_kekule` and the SMILES used to disagree — and a consumer that took bonds from one and
+     charges from the other lost an electron pair. Measured on holdout: molecules whose SMILES
+     fails its round-trip check **195 → 155**, with the nitro cause **41 → 1**; T3, T4, T5, T6,
+     T8, `Σq_L`, `OS`, the valence-violation rate and the harmful-`Double` count are all
+     **unchanged** (a nitro's two N–O are symmetric, so they are ambiguous Kekulé positions and
+     already outside that target).
+
 (a′) the remaining sites where the octet breaks — covered by an (element, deg, b, neighbor element) table
         heteroatom-stabilized carbene `("C", 2, 2, N or O among neighbors)`  → 0     (octet formula −2)
         sulfoxide      `("S", 3, 4, O among neighbors)`                      → 0     (octet formula +2)

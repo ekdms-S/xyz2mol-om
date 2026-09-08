@@ -84,8 +84,8 @@ import warnings
 import networkx as nx
 import numpy as np
 
-from .charge import frag_charge_or_eht, kekulize, q_atom
-from .config import RCOV, WMIN, centers
+from .charge import frag_charge_or_eht, kekulize, octet_fix_period2, q_atom
+from .config import NOCTET, RCOV, WMIN, centers
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
@@ -219,6 +219,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
 
     # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge
     orders, frag_q = kekulize(G, el, cls, dict(bml), w)
+    if NOCTET:
+        octet_fix_period2(el, G, orders)
 
     # ⑦ M–M bonds (those T4 called with a metal at both ends) — the order is left at 1 because
     #   no distance boundary is implemented yet

@@ -207,6 +207,12 @@ SATVETO = os.environ.get("SATVETO", "1") == "1"
 #      a connected-component count drops 27 bonds of which 5 really are `Pi`, i.e. it buys 4 more
 #      false positives at the price of 5 true ones.
 ETA1SIG = os.environ.get("ETA1SIG", "1") == "1"
+# `NOCTET` — nitrogen never carries five bonds in the output. The reference writes a nitro group
+#   as `-N(=O)=O`, but N is period 2 and cannot exceed an octet, so one `N=O` to a terminal O is
+#   demoted and the charge separates into `N+` / `O-` by the ordinary octet rule. Period-3 atoms
+#   (sulfone S, perchlorate Cl) keep the hypervalent form, which is legitimate for them.
+#   See `charge.formal.octet_fix_period2`.
+NOCTET = os.environ.get("NOCTET", "1") == "1"
 # `WMIN` — a global Mayer floor for M–L candidates, on top of the per-element-pair `w_veto`.
 #   Measured and rejected. A **haptic** M–C is weak by construction — the π electrons are shared
 #   over five or six carbons, so each individual M–C is small — and a floor cannot tell that from

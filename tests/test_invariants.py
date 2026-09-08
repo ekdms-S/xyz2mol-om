@@ -150,3 +150,42 @@ def test_saturated_atom_takes_no_ml_bond():
     # H is never vetoed by this rule
     el4 = ["Ni", "H", "B"]
     assert drop_saturated(el4, _chain(el4, [(1, 2)]), [(0, 1)]) == [(0, 1)]
+
+
+def test_nitrogen_never_carries_five_bonds():
+    """Nitro comes out charge-separated, so `bonds_kekule` and the SMILES agree.
+
+    ⑥ reproduces the reference's `-N(=O)=O`, which puts five bonds on a period-2 atom. RDKit
+    refuses that and rewrites it as `[N+](=O)[O-]`, so the emitted SMILES disagreed with our own
+    bond orders and charges, and `verify_complex` reported the molecule as failing its round trip.
+    """
+    import networkx as nx
+
+    from xyz2mol_om.charge import octet_fix_period2, q_atom
+    from xyz2mol_om.output import complex_smiles, verify_complex
+
+    el = ["C", "H", "H", "H", "N", "O", "O"]
+    orders = {(0, 1): 1, (0, 2): 1, (0, 3): 1, (0, 4): 1, (4, 5): 2, (4, 6): 2}
+    G = nx.Graph()
+    G.add_edges_from(orders)
+    octet_fix_period2(el, G, orders)
+    assert sorted(orders[e] for e in [(4, 5), (4, 6)]) == [1, 2]
+
+    q = {}
+    for v in G:
+        b = sum(orders[(min(v, w), max(v, w))] for w in G[v])
+        q[v] = int(round(q_atom(el[v], float(b), G.degree(v),
+                                tuple(sorted(el[w] for w in G[v])))))
+    assert q[4] == 1 and sorted(q[x] for x in (5, 6)) == [-1, 0]
+    assert sum(q.values()) == 0  # the fragment total does not move
+
+    smi, _ = complex_smiles(el, list(range(7)), orders, q, [], {})
+    assert verify_complex(smi, el, list(range(7)), orders, q, [], {}, 0)[0]
+
+    # a period-3 atom keeps the hypervalent form — a sulfone S with six bonds is left alone
+    el3 = ["S", "O", "O", "C", "C"]
+    o3 = {(0, 1): 2, (0, 2): 2, (0, 3): 1, (0, 4): 1}
+    G3 = nx.Graph()
+    G3.add_edges_from(o3)
+    octet_fix_period2(el3, G3, o3)
+    assert o3 == {(0, 1): 2, (0, 2): 2, (0, 3): 1, (0, 4): 1}

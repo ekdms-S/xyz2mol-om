@@ -236,6 +236,39 @@ def kekulize(G, el, cls, bml=None, w=None):
             frag_q[min(cm)] = q
     return orders, frag_q
 
+
+def octet_fix_period2(el, G, orders):
+    """A period-2 atom cannot exceed an octet, so `N` never carries five bonds (`NOCTET`).
+
+    The reference (and therefore our ⑥ output) writes a nitro group as `-N(=O)=O`, which puts a
+    bond-order sum of 5 on the nitrogen. Nitrogen has no d orbitals: the only Lewis structure that
+    respects the octet is the charge-separated `-N+(=O)O-`. RDKit refuses the neutral form and
+    rewrites it on output, which left our `bonds_kekule` and our SMILES on two different
+    conventions -- and a consumer that took bonds from one and charges from the other lost an
+    electron pair.
+
+    So one `N=O` to a **terminal** O is demoted to `N-O`. Nothing else is touched: the charge then
+    follows from the ordinary octet rule (`N` +1, that `O` -1), the fragment total is unchanged,
+    and period-3 atoms (`S` in a sulfone, `Cl` in a perchlorate) keep the hypervalent form, which
+    is legitimate for them.
+
+    Mutates `orders` in place.
+    """
+    for v in G:
+        if el[v] != "N":
+            continue
+        for _ in range(3):
+            b = sum(orders.get((min(v, w), max(v, w)), 1) for w in G[v])
+            if b <= 4:
+                break
+            cand = [w for w in G[v]
+                    if el[w] == "O" and G.degree(w) == 1
+                    and orders.get((min(v, w), max(v, w)), 1) == 2]
+            if not cand:
+                break
+            w = min(cand)
+            orders[(min(v, w), max(v, w))] = 1
+
 def parse_os(m, nm):
     """Read the oxidation state of metal `m` from the name. Returns None for mixed valence or
     unknown (excluded from scoring)."""
