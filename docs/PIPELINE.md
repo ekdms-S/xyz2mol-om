@@ -15,14 +15,14 @@ Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q
 | task | holdout 6,793 | train 27,294 |
 |---|---|---|
 | T1 internal bond existence | .9998 | .9998 |
-| T3 `Single`/`Double`/`Triple`/`Conj` | **.9904 / .7699 / .9769 / .9615** | .9896 / .7618 / .9782 / .9592 |
+| T3 `Single`/`Double`/`Triple`/`Conj` | **.9904 / .7701 / .9769 / .9615** | .9896 / .7624 / .9782 / .9592 |
 | T4 M–L·M–M existence | **.9916** | .9928 |
-| T5 haptic | .9778 | .9791 |
-| T6 η^k | .9865 | .9830 |
+| T5 haptic | **.9783** | .9797 |
+| T6 η^k | .9865 | .9835 |
 | T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7461 / .7228** | .9935 / .7527 / .7734 |
-| T10 `Σq_L` · `OS` | **.8536 · .8845** | .8507 · .8787 |
-| valence-violating structures | **.0205** | .0203 |
-| harmful `Double` errors | **284 bonds · 158 structures (2.33%)** | — |
+| T10 `Σq_L` · `OS` | **.8536 · .8841** | .8505 · .8782 |
+| valence-violating structures | **.0185** | .0191 |
+| harmful `Double` errors | **283 bonds · 158 structures (2.33%)** | — |
 | reported fragment charge ≠ the emitted structure's | **129 (1.90%)** | — |
 
 *harmful `Double`* is the deployment error metric: a reference `Double` the emitted Kekulé
@@ -278,7 +278,7 @@ constraining the next.
 | **⑥** | emit **integers** | Kekulé matching |
 
 Stages ④–⑥ can each overrule the one before it, so a bond that ③ wants as `Double` may still come
-out `Single`. That is the usual reason for a wrong `Double`: of the 284 harmful ones, **173**
+out `Single`. That is the usual reason for a wrong `Double`: of the 283 harmful ones, **172**
 are bonds ④ could not raise, **32** are ⑥ placing the π on a different bond of the same fragment,
 **25** are ⑤ demoting one to reach its charge target, and **54** sit where the reference label
 itself is doubtful (the distance is 3σ outside that element pair's `Double` distribution).
@@ -406,7 +406,7 @@ median loss 4.58 in likelihood units. Solving ④ exactly (a MILP — `CAPMILP` 
 The greedy solve is therefore kept on purpose.
 
 ⚠️ Only bonds with `score(Double) > score(Single)` are offered to the matching. A bond the
-likelihood scores as `Single` is never even a candidate for promotion — **112 of the 284 remaining
+likelihood scores as `Single` is never even a candidate for promotion — **111 of the 283 remaining
 harmful `Double` errors die here**, before any budget question is asked.
 
 ### ⑤ Fragment electron count — does the charge agree
@@ -553,12 +553,12 @@ violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
 
 | Evaluation | Violating structures | Reference-label baseline (same count) |
 |---|---|---|
-| **holdout 6,793** | **2.05%** | **0.4%** |
-| train 27,294 | 2.03% | 0.4% |
+| **holdout 6,793** | **1.85%** | **0.4%** |
+| train 27,294 | 1.91% | 0.4% |
 
 ⚠️ **The baseline is not 0** — feeding the CSD reference labels as they are, **0.4%** of structures
 violate (hypervalency · ionic/covalent boundary · CSD notation conventions). Our value has to be
-read against that, so the excess is about **1.6%p**.
+read against that, so the excess is about **1.5%p**.
 
 🔴 A known residual: `B` and `Al` are treated as central atoms, but a Mayer cache built for true
 transition metals has no `B–X` entry, and a missing entry is read as "veto passed" — every one of

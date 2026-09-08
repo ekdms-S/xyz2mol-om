@@ -48,7 +48,7 @@ metal degrades (holdout 6,793):
 | T8 M–L `Double` | .7461 | .6979 |
 | T5 haptic | .9778 | .9590 |
 | T6 η^k | .9865 | .9737 |
-| **valence-violating structures** | **2.05%** | **2.47%** |
+| **valence-violating structures** | **1.85%** | **2.47%** |
 | T3 internal `Double` | .7699 | .7696 |
 
 ⚠️ When you do pass `wbo`, fill **every** `(metal, atom)` pair. A missing pair is read as
@@ -256,13 +256,13 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 |---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
 | T2 conjugation call | F1 | **0.9615** | 87,581 bonds | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9904 / .7699 / .9769 / .9615** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9904 / .7701 / .9769 / .9615** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
 | T4 M–L·M–M bond existence | F1 | **0.9916** | 56,510 bonds | all bonded .5276 |
-| T5 haptic call | F1 | **0.9778** | 15,331 M–L bonds | all haptic .6766 |
+| T5 haptic call | F1 | **0.9783** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,221 ligands | all `k=0` .8704 |
 | T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7461 / .7228** | 39,540 bonds | — |
 | T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8536** | 1,161 structures | reference-order 0.8528 |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8845** | 2,779 structures | reference-order 0.8698 |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8841** | 2,779 structures | reference-order 0.8698 |
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseline column is the
@@ -276,6 +276,37 @@ must not be read against the column to its left. **On the common pool** the pipe
 **above** it: `Σq_L` **0.8563 vs 0.8528** and `OS` **0.8774 vs 0.8725**. What is left of the gap
 to a perfect score is notation, not order prediction.
 
+### Against other tools
+
+Same pool, same references, same metrics, and **a tool's failure is scored as a wrong answer**
+rather than dropped. `xyz2mol_tm` runs live; it is given 60 s per structure, beyond which the
+structure counts as a failure.
+
+| | ours | `xyz2mol` | `xyz2mol_tm` | OpenBabel |
+|---|---|---|---|---|
+| **structures it produced an answer for** | **6,793** | 6,156 | 5,676 | **6,793** |
+| T1 internal bond existence | **.9998** | .9672 | .8922 | .9928 |
+| T4 M–L·M–M bond existence | **.9916** | — | .8990 | .7579 |
+| T3 `Single` | **.9904** | .9691 | .9811 | .9434 |
+| T3 `Double` | **.7701** | .3945 | .5693 | .3515 |
+| T3 `Triple` | .9769 | .9586 | **.9770** | .1217 |
+| T3 `Conj` | **.9615** | .9090 | .9323 | .7922 |
+| T8 M–L `Single` | **.9932** | — | — | .9771 |
+| T8 M–L `Double` | **.7461** | — | — | .0658 |
+| T8 M–L `Triple` | **.7228** | — | — | .0106 |
+| T5 haptic | **.9783** | — | — | — |
+| T10 `Σq_L` (1,161 structures) | **.8536** | .3764 | .8071 | .1843 |
+| T10 `OS` (2,779 structures) | **.8841** | — | — | — |
+
+`—` is a task the tool cannot answer at all: `xyz2mol` strips the metal and solves the fragments,
+so no M–L task; `xyz2mol_tm` gives M–L **connectivity** but no order, so no T8; OpenBabel has no
+notion of haptic, so no T5 or T6.
+
+Failures are most of what separates `xyz2mol_tm`'s T1 from ours. **On the 5,676 structures it does
+solve**, its T1 rises to .9793 and its T4 to .9667 — but `Double` does not move (.5693 against our
+**.7831** on that pool), and `Σq_L` reads .8120 against our **.8588**. The gap on bond order is not
+a coverage artifact.
+
 ### Valence violations — chemical validity of the output
 
 `b_int(X) + b_ML(X) > CAP(X)` for a non-metal X (Kekulé count · 3c2e and B excluded).
@@ -285,14 +316,15 @@ spends 0, and an atom in a 3c2e bridge spends 1.0 in total however many M–L bo
 
 | Pool | Violating structures | Reference-label baseline |
 |---|---|---|
-| holdout 6,793 | **2.05%** | **0.4%** |
+| holdout 6,793 | **1.85%** | **0.4%** |
 
 ⚠️ The baseline is not 0 — the CSD reference labels themselves violate on about 0.4%
 (hypervalency · where the ionic/covalent cut is drawn · CSD notation conventions), so the figure
 has to be read against that.
 
-**Against other tools** (holdout; each tool appears only in a pool where it succeeds on every
-structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm succeeded):
+**Violation rate against other tools** (holdout; each tool appears only in a pool where it
+succeeds on every structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm
+succeeded):
 
 | Pool · n | Tool | Viol. atoms (`b_int`) | Viol. structures (`b_int`) | (`b_int`+`b_ML`) |
 |---|---|---|---|---|
@@ -307,7 +339,7 @@ structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm suc
 ⚠️ **Our own rows here were measured on an earlier revision** (and on the 6,456-structure holdout
 of the time). Re-running the comparison drives the three external tools live, so they have not
 been refreshed; the external rows are unaffected. Our current whole-holdout figure for the last
-column is **2.05%**, better than the 3.55% below, so the row understates the gap. Read this table
+column is **1.85%**, better than the 3.55% below, so the row understates the gap. Read this table
 for what it is for — the distance between tools, not our absolute value (that is in the table
 above).
 
