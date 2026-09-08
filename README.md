@@ -265,7 +265,13 @@ missing a third of the M–L bonds (T4 recall 0.66), not from getting them right
 ## ⚠️ Limits
 
 - **Radicals are not supported** — there is no way to write an unpaired electron, so the nearest closed-shell answer comes out **without an error**.
-- **M–M orders are not produced** — only bond existence is given and the order is left at `1` (the `[Re₂Cl₈]²⁻` of example ⑤ is in fact a quadruple bond).
+- **The M–M order is a placeholder, not a prediction.** Whether two metals are bonded *is*
+  predicted (`mm_bonds`, by the same distance + Mayer rule as M–L), but the order in that dict is
+  the constant `1` — do not read it as "single bond". The `[Re₂Cl₈]²⁻` of example ⑤ is a
+  quadruple bond and still comes out as `1`. An order model was fitted and measured on 4,027
+  homonuclear M–M bonds (refcode 5-fold CV: distance .9305 · Mayer .9295 · all-`Single` baseline
+  .9071) and is **not shipped** — the gain over the trivial baseline is small and the sample is
+  thin where it matters (`Double` 147 · `Triple` 96 · `Quadruple` 131).
 - **3c2e and clusters** are outside the two-center formalism — a ligand with a bridging H is **deliberately** rejected by the SMILES round-trip check, and the fragment charge of a carborane cage uses the EHT value.
 
 Every decision rule, with its thresholds, is in [docs/PIPELINE.md](docs/PIPELINE.md).
