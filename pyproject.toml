@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "xyz2mol-om"
 version = "0.1.0"
-description = "전이금속 착물 xyz -> 결합 · 결합차수 · 리간드 전하 · 금속 산화수"
+description = "Transition-metal complex xyz -> bonds, bond orders, ligand charges, metal oxidation states"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Daeun Shin", email = "abcd0105@snu.ac.kr" }]

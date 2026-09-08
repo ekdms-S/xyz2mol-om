@@ -70,17 +70,20 @@ def _inessential(conj):
     return out
 
 
-MILP_STAT = collections.Counter()   # {"solved", "fallback_size", "fallback_fail"} — 진단용
+MILP_STAT = collections.Counter()   # {"solved", "fallback_size", "fallback_fail"} — diagnostic
 
 
 def _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, base):
-    """④ 를 **정확히** 푼다 (`CAPMILP`). 목적함수·제약은 매칭판과 같다 — 근사만 걷어낸 것이다.
+    """Solve ④ **exactly** (`CAPMILP`). Same objective and constraints as the matching solve --
+    only the approximation is removed.
 
-    `base[a]` = 그 원자가 이미 쓴 양 (`Conj` 는 `k+1`, `CAPINESS` 적용, 비-`Conj` 는 기본 1.0,
-    `b_ML` 포함). 여기에 `Double` 은 +1, `Triple` 은 +2, M–L 증분은 +1 씩 얹힌다.
+    `base[a]` = what the atom already spends (`Conj` costs `k+1`, the unmatched-atom exception
+    applied, a non-`Conj` bond 1.0, `b_ML` included). On top of that a `Double` adds +1, a
+    `Triple` +2, and each M-L increment +1.
 
-    반환 `(out, mlout)` · 못 풀면 `None` (호출부가 매칭판으로 되돌아간다).
-    ⚠️ `scipy` 는 여기서만 import 한다 — 플래그를 끄면 의존성이 아니다.
+    Returns `(out, mlout)`, or `None` if it cannot be solved (the caller falls back to the
+    matching solve).
+    ⚠️ `scipy` is imported here and nowhere else -- with the flag off it is not a dependency.
     """
     import numpy as _np
     from scipy.optimize import Bounds, LinearConstraint, milp
@@ -102,10 +105,10 @@ def _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, base):
         obj[off + 2 * j] = sm[1] - sm[0]
         obj[off + 2 * j + 1] = (sm[2] - sm[1]) if (ml_max >= 2 and 2 in sm) else NEG
     A, lo, hi = [], [], []
-    for i in range(len(ed)):                      # Double 과 Triple 은 배타
+    for i in range(len(ed)):                      # Double and Triple are exclusive
         row = _np.zeros(nv); row[2 * i] = row[2 * i + 1] = 1
         A.append(row); lo.append(-_np.inf); hi.append(1)
-    for j in range(len(mls)):                     # 둘째 증분은 첫째 없이는 불가
+    for j in range(len(mls)):                     # the 2nd increment needs the 1st
         row = _np.zeros(nv); row[off + 2 * j] = -1; row[off + 2 * j + 1] = 1
         A.append(row); lo.append(-_np.inf); hi.append(0)
     at, mlat = collections.defaultdict(list), collections.defaultdict(list)
@@ -113,7 +116,7 @@ def _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, base):
         at[e[0]].append(i); at[e[1]].append(i)
     for j, (k, _sm) in enumerate(mls):
         mlat[k[1]].append(j)
-    for a in set(at) | set(mlat):                 # 원자가 상한
+    for a in set(at) | set(mlat):                 # valence ceiling
         cap = CAP.get(el[a])
         if cap is None:
             continue
@@ -208,8 +211,8 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
         use[e[0]] += 1.0
         use[e[1]] += 1.0
     if CAPMILP:
-        # ④ 를 정확히 푼다. 목적함수·제약은 아래 매칭판과 같고, 순차 `Triple` 확정과 복제 간선
-        #   환원(= 위 복제 간선 수리가 상대하던 것)이 사라진다. 못 풀면 매칭판으로 되돌아간다.
+        # Solve ④ exactly. Same objective and constraints as the matching solve below, minus
+        #   the greedy `Triple` pass and the replicated-edge reduction. Falls back if unsolved.
         _r = _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, use)
         if _r is not None:
             return _r

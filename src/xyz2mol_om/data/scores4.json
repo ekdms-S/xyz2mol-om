@@ -5,7 +5,7 @@
   "n_pairs": 18,
   "n_min_pair": 300,
   "n_min_cell": 300,
-  "truth": "CSD bond_type (원본)",
+  "truth": "CSD bond_type (as published)",
   "geometry": "ref_xtb2",
   "date": "2026-09-03",
   "classes": {
