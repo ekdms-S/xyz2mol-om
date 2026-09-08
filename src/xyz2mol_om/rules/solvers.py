@@ -1,8 +1,6 @@
 """Search — the valence-cap assignment (④) · local search for the conjugated set (③) ·
 the R6 swap.
 
-⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
-(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -152,7 +150,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
     """The cap-respecting assignment — high likelihood subject to the valence cap, via a matching
     reduction (Blossom, polynomial time).
 
-    🔴 **Not the exact maximum** (measured 2026-09-08, the docstring used to claim it was).
+    🔴 **Not the exact maximum** (measured, the docstring used to claim it was).
     `Triple` is confirmed first, greedily, before the `Double`/M–L matching runs, so one `Triple`
     is never weighed against several `Double`s. Solving the identical objective under the
     identical constraints as a MILP and comparing: **113 of 12,245** ④ calls on holdout are
@@ -236,7 +234,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
     if ml_sc:
         for key, sm in ml_sc.items():
             # 🔴 The baseline is **the lowest class that exists for that pair** (fixed
-            #   2026-09-03). The old version pinned it to 0, which emitted `Single` for pairs
+            #). The old version pinned it to 0, which emitted `Single` for pairs
             #   whose T8 constant is `Double`/`Triple`, and it read `sm[0]` unconditionally and
             #   died with a KeyError on such pairs.
             mlout[key] = min(sm)
@@ -364,7 +362,7 @@ def _solve_sc(G, el, sc, ringA, coord, bml, lam_hi=10.0, lam_lo=10.0, maxit=50):
 
 def r6_swap(G, el, xyz, cls, bml=None, maxit=6):
     """R6 — for same-element bonds on one center, **make the bond-order ranking match the
-    distance ranking** (2026-09-03).
+    distance ranking**.
 
     Modifies `cls` in place. Returns the number of swaps. For the rule and its evidence see the
     `R6SWAP` comment.

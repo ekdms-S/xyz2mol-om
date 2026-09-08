@@ -25,7 +25,7 @@ XYZ = np.array(
         [0.00, -2.35, -0.25],
     ]
 )
-# xtb GFN2 `--sp --wbo` measured values (2026-09-03)
+# xtb GFN2 `--sp --wbo` measured values
 WBO = {(0, 1): 2.891, (0, 2): 1.022, (0, 4): 0.955, (0, 5): 0.967, (0, 6): 0.997, (2, 3): 0.862}
 WBO.update({(j, i): w for (i, j), w in list(WBO.items())})
 

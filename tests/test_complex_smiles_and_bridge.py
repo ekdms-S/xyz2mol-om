@@ -69,7 +69,7 @@ def test_ml_bonds_have_bridge_key():
 
 
 def test_bridge_tags_rule():
-    """T7 decision rule - the four real cases of design doc §3.0 5c."""
+    """T7 decision rule - the four real cases (`docs/PIPELINE.md`, DAG step 5")."""
     import networkx as nx
 
     # μ-H : 0 internal bonds · 2 M–L  ⇒ n_center 2 · b_use 2 > VALENCE_3C[H]=1  ⇒ 3c2e

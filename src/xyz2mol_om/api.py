@@ -1,71 +1,77 @@
-"""Top-level API — `xyz` → bonds · orders · charges · oxidation states, **per metal / per ligand**.
+"""Top-level API — `xyz` → bonds · orders · charges · oxidation states, per molecule.
 
     from xyz2mol_om import predict
     r = predict(elements, coords, total_charge=0, wbo=wbo)
 
-Return structure (dict)
+Return structure (dict). **Molecules are the top level**: connected components over all bonds
+(internal, M–L, M–M). An input may hold several — an IRC endpoint where the product separated, a
+salt with its counter-ion — and everything below is solved inside one molecule.
 
-    r["metals"]  = [ {                      one metal
-          "index":        int,              atom index in the full coordinate list
-          "element":      str,
-          "oxidation":    int | None,       oxidation state (needs total_charge to be given)
-          "oxidation_is_exact": bool | None, False = an even split across several molecules
-          "mm_bonds":     {(m1, m2): 1|2|3|4},   M–M bond orders
-      }, ... ]
-
-    r["ligands"] = [ {                      one ligand fragment
-          "index":        int,              fragment number (from 0)
+    r["molecules"] = [ {
+          "index":        int,
           "atoms":        [int, ...],       atom indices in the full coordinate list
-          "bonds_4class": {(i,j): "Single"|"Double"|"Triple"|"Conj"},
-          "bonds_kekule": {(i,j): 1|2|3},   output of the ⑥ converter (integers)
-          "smiles":       str | None,       Kekule SMILES. Coordinating atoms carry atom map `[X:n]`
-          "smiles_ok":    bool,             passed the round-trip check (orders · charges · H ·
-                                            chemical validity)
-          "smiles_note":  str,              failure reason ("" if it passed)
-          "coordinating": [int, ...],       atoms coordinating a metal
-          "ml_bonds":     {(m, x): {
-                "type":   "sigma"|"haptic"|"bridge",   priority haptic > bridge > sigma
-                "order":  1|2|3|None,                 None for haptic (no order is assigned)
-                "bridge": None|"3c2e"|"dative",       T7 sub-tag ([design doc] §3.0 5c)
-          }},
-          "eta":          {m: k},           η^k toward that metal (when haptic)
-          "charge":       int,              ligand charge q_L
-          "residual_charge": int | None,    residual charge the skeleton cannot express (if any)
+          "charge":       int | None,       None when it could not be split exactly (below)
+          "charge_is_exact": bool,
+          "smiles":       str | None,       SMILES of the **whole molecule**, metals included.
+                                            Every M–L is a dative arrow
+          "smiles_ok":    bool,             passed the round-trip check
+          "smiles_note":  str,              reason for failure or non-generation ("" if it passed)
+          "atom_order":   [int, ...],       input atom indices in SMILES output order
+
+          "metals":   [ {
+              "index":        int,
+              "element":      str,
+              "oxidation":    int | None,   needs `total_charge`
+              "oxidation_is_exact": bool | None,
+              "mm_bonds":     {(m1, m2): 1|2|3|4},
+          }, ... ],
+
+          "fragments": [ {                  connected component of the **internal** bonds
+              "index":        int,
+              "atoms":        [int, ...],
+              "bonds_4class": {(i,j): "Single"|"Double"|"Triple"|"Conj"},
+              "bonds_kekule": {(i,j): 1|2|3},   output of the ⑥ converter (integers)
+              "smiles":       str | None,   Kekule SMILES. Coordinating atoms carry map `[X:n]`
+              "smiles_ok":    bool,
+              "smiles_note":  str,
+              "coordinating": [int, ...],
+              "ml_bonds":     {(m, x): {
+                    "type":   "sigma"|"haptic"|"bridge",   priority haptic > bridge > sigma
+                    "order":  1|2|3|None,                 None for haptic (no order is assigned)
+                    "bridge": None|"3c2e"|"dative",       T7 sub-tag (`docs/PIPELINE.md`)
+              }},
+              "eta":          {m: k},       η^k toward that metal (when haptic)
+              "charge":       int,          fragment charge q_L
+              "residual_charge": int | None,  charge the skeleton cannot express (if any)
+          }, ... ],
       }, ... ]
 
-    r["complex_smiles"]      = str | None   SMILES of the **whole complex**. Every M–L is a dative
-                                            arrow
-    r["complex_smiles_ok"]   = bool         whether the round-trip check passed
-    r["complex_smiles_note"] = str          reason for failure or non-generation ("" if it passed)
-    r["complex_atom_order"]  = [int, ...]   input atom indices in SMILES output order
-    r["molecules"]           = the disconnected molecules the input holds
-          "index" · "atoms" · "metals" · "ligands" · "charge"
-        Connected components over **all** bonds (internal, M-L, M-M). An input may hold several
-        molecules — an IRC endpoint where the product separated, a salt with its counter-ion — and
-        the oxidation state is solved **inside** each one. Over the whole input it would average
-        one molecule's charge into another's metals: `CpTiCl3` alone is Ti(IV) and
-        `[Os(CO)3Cl3]-` alone is Os(II), but fed together they came out Ti(III)/Os(III), with the
-        sum still right and every check passing.
-        A metal-free molecule's charge is its formal-charge sum, so with exactly one metal-bearing
-        molecule the split is exact. With two or more, the remainder is spread evenly over all
-        their metals and everything derived from it is flagged: `oxidation_is_exact` is False on
-        the metals, the molecule `charge` stays None, and `complex_smiles_note` says so.
-    r["total_charge"]        = the input total charge (unchanged)
+    r["total_charge"] = the input total charge (unchanged)
 
-🔴 **The M–L orders are collapsed in `complex_smiles`.** An oxo `M=O` and a nitrido `M≡N` both go
-   out as a single arrow — the real order is in `ligands[*]["ml_bonds"][(m,x)]["order"]` (owner's
-   decision 2026-09-03). They are written as dative because RDKit's `DATIVE` **is not counted
-   toward the donor's valence** — our `q_atom` already reflects the electron-pair donation as a
-   formal charge, so writing them as normal bonds would count the donor twice.
-🔴 **A metal's formal charge = its oxidation state.** Without `total_charge` there is no oxidation
-   state, so `complex_smiles` is **not built either** (the reason goes in `complex_smiles_note`).
+Most fragments are ligands — `ml_bonds` says what they coordinate — but a molecule with no metal
+has one fragment that coordinates nothing, and that is how a free organic molecule appears.
+`all_metals(r)` and `all_fragments(r)` flatten across molecules when the split does not matter.
+
+🔴 **How the charge is split.** A metal-free molecule's charge is its formal-charge sum, so with
+   exactly one metal-bearing molecule the remainder is exact. With two or more it is spread evenly
+   over their metals and everything derived from it is flagged: `oxidation_is_exact` False,
+   the molecule `charge` None, and `smiles_note` says so. Solving over the whole input instead
+   would average one molecule's charge into another's metals — `CpTiCl3` alone is Ti(IV) and
+   `[Os(CO)3Cl3]-` is Os(III), but fed together they came out Ti(III)/Os(III) with the sum still
+   right and every check passing.
+🔴 **A metal's formal charge is its oxidation state.** Without `total_charge` there is no
+   oxidation state, so the molecule SMILES is not built either (the reason goes in `smiles_note`).
+🔴 **The M–L orders are collapsed in the molecule SMILES.** An oxo `M=O` and a nitrido `M≡N` both
+   go out as a single arrow — the real order is `ml_bonds[(m,x)]["order"]`. They are written as
+   dative because RDKit's `DATIVE` is **not counted toward the donor's valence**: `q_atom` already
+   reflects the electron-pair donation as a formal charge, so a normal bond would count it twice.
 
 ⚠️ **Without `wbo` (Mayer bond orders)** the M–L decision uses distance only and every order comes
-   out `Single`. Pass it as `{(metal index, atom index): w}` (an xtb `--sp` output).
+   out `Single`. Pass it as `{(metal index, atom index): w}` (an xtb `--sp --wbo` output), and
+   fill **every** (metal, atom) pair — a missing pair is read as "veto passed", not "unknown".
 ⚠️ **The SMILES is built with our orders and charges pinned** — RDKit is locked out of adding
-   implicit hydrogens to coordinating atoms or reassigning formal charges (`smiles.py`). If
-   `smiles_ok=False`, that ligand failed the round-trip check, so **do not use the SMILES; use
-   `bonds_kekule`.**
+   implicit hydrogens to coordinating atoms or reassigning formal charges (`output/smiles.py`).
+   If `smiles_ok=False`, that SMILES failed the round-trip check, so **use `bonds_kekule`.**
 """
 
 
@@ -92,7 +98,7 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
 
     `cen` = the set of center-atom indices (`config.centers`) — **`B` is a conditional center,
     so it cannot be told apart by element alone.**
-    ⚠️ Agostic exclusion (`C–H···M`) is the rule in [design doc] §3 3.
+    ⚠️ Agostic exclusion (`C–H···M`) is the rule in `docs/PIPELINE.md` 3.
     """
     idx = [i for i in range(len(el)) if i not in cen]
     mets = sorted(cen)
@@ -107,7 +113,7 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
     return raw
 
 
-MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} ([design doc] §3.1 (c))
+MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} (`docs/PIPELINE.md`))
 
 
 def all_metals(r):
@@ -160,7 +166,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
 
     # ① T1 — bonds inside a ligand (distance)
     #   🔴 The center atoms are decided by `centers()`, not by element — with a transition metal
-    #      present, `B` is a **ligand atom** (carborane, boryl, `BH₄⁻`). [design doc] §3.0 0.
+    #      present, `B` is a **ligand atom** (carborane, boryl, `BH₄⁻`). `docs/PIPELINE.md`.0 0.
     cen = centers(el)
     idx = [i for i in range(len(el)) if i not in cen]
     G = nx.Graph()
@@ -168,12 +174,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     for ii in range(len(idx)):
         for jj in range(ii + 1, len(idx)):
             a, b = idx[ii], idx[jj]
-            # 🔴 Two guards apply **first** (aligned 2026-09-03 · same as the scorer):
+            # 🔴 Two guards apply **first** (aligned · same as the scorer):
             #   ① `H–H` is never a candidate
             #   ② `d > 1.8·(r_cov(a)+r_cov(b))` is not a candidate — an element pair with **no**
             #      fitted cutoff uses the global fallback `d_int = 2.0542 Å`, which is so long
             #      that it **turns hydrogen-bond contacts into covalent bonds.** Measured
-            #      (`DEKKEJ` · 2026-09-03): 12 `F···H` contacts at 1.99 Å were taken as bonds
+            #      (`DEKKEJ` ·): 12 `F···H` contacts at 1.99 Å were taken as bonds
             #      (a covalent `F–H` is 0.92 Å and is absent from the reference labels). Those 12
             #      joined ligand fragments together and flipped 4 `C=O` bonds to `Single`.
             if el[a] == "H" and el[b] == "H":
@@ -198,16 +204,16 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo, cen)
 
     # ③④⑤ T3 · M–L orders · T5 (haptic) · R7 — **one function** produces all of it
-    #   (unified 2026-09-03).
+    #.
     #   Why the caller does not assemble it: whether haptic and agostic are removed from the
     #   budget, how the M–L order candidates are chosen, and what T5's Y candidates are were each
     #   assembled differently per caller, and that diverged from the scorer in **four places**
-    #   (measured 2026-09-03 · [design doc] §6.5). Now only `ml_raw` and `wbo` are passed in.
+    #   (measured · (`docs/PIPELINE.md`). Now only `ml_raw` and `wbo` are passed in.
     q_eht = eht_frag_charges(el, xyz, G)
     cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht)
     # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
     # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
-    # 🔴 Before 2026-09-06 this loop had no 3c2e term at all, so ⑥ could undo what ④ allowed.
+    # 🔴 Before this loop had no 3c2e term at all, so ⑥ could undo what ④ allowed.
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
     bml = bml_budget([p for p in ml_pred if p not in hap], three_c)
 
@@ -232,8 +238,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # -- group by ligand fragment
     NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
     hapset = {(min(a, b), max(a, b)) for a, b in hap}
-    # T7 ([design doc] §3.0 5c) — bridge tags `{coordinating atom: "3c2e" | "dative"}`.
-    # 🔴 Taken from `predict_T3_T5` (2026-09-06) rather than recomputed: the rule now reads the
+    # T7 (`docs/PIPELINE.md`) — bridge tags `{coordinating atom: "3c2e" | "dative"}`.
+    # 🔴 Taken from `predict_T3_T5` rather than recomputed: the rule now reads the
     # **pass-1** internal orders, which only that function has, and reusing its result is what
     # guarantees the output tag and the ④·⑥ budget cannot diverge.
     coord_of = collections.defaultdict(set)  # fragment representative -> coordinating atoms
@@ -248,7 +254,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         bk = {e: int(o) for e, o in orders.items() if e[0] in cs}
         # 🔴 For a cluster fragment (carborane and the like) the formal-charge sum cannot be
         #    trusted — use the EHT fragment charge. For the rule and its evidence see the
-        #    `charge.is_cluster_frag` comment (2026-09-03).
+        #    `charge.is_cluster_frag` comment.
         qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q))
         q_all[key] = qL
         coord = sorted({x for _m, x in ml_pred if x in cs})
@@ -268,13 +274,13 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         eta_out = {}
         # 🔴 `ml_pred`, not `ml_raw` — the agostic `C–H···M` contacts that T4 removes must not
         #   reappear in the output. They used to, so `ml_bonds` disagreed with the molecule's
-        #   SMILES, which is built from `ml_pred` (reported by flower-om, 2026-09-08).
+        #   SMILES, which is built from `ml_pred` (reported by flower-om).
         for m, x in ml_pred:
             if x not in cs:
                 continue
             e = (min(m, x), max(m, x))
             is_h = e in hapset
-            # 🔴 The priority of `type` is **haptic > bridge > sigma** (owner request 2026-09-03).
+            # 🔴 The priority of `type` is **haptic > bridge > sigma**.
             #   The field answers in a single word, so one has to be picked when they overlap. So
             #   that nothing is lost on an overlap, the `bridge` field is **filled whenever the
             #   atom bridges** (even when haptic) — the T7 sub-tag survives.
@@ -282,13 +288,13 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             mlb_out[(m, x)] = {
                 "type": "haptic" if is_h else ("bridge" if br else "sigma"),
                 "order": None if is_h else int(mlout.get((m, x), 0)) + 1,
-                "bridge": br,  # None | "3c2e" | "dative"  (T7 · [design doc] §3.0 5c)
+                "bridge": br,  # None | "3c2e" | "dative"  (T7 · (`docs/PIPELINE.md`)
             }
-        # 🔴 η^k is counted **per ligand** (aligned 2026-09-03). Both the scorer
+        # 🔴 η^k is counted **per ligand**. Both the scorer
         #    (`len(comp ∩ hall)`) and the reference labels (`n_haptic_bound`) are per ligand.
         #    Counting per π fragment splits η, because a 5-ring turned Kekule by R2/R3 **breaks
         #    into 2 fragments** — `ZEGVIQ` has all 5 M–L bonds haptic yet the old count gave
-        #    **η2** (truth η5 · measured 2026-09-03).
+        #    **η2** (truth η5 · measured).
         for m in {m0 for m0, x0 in hap if x0 in cs}:
             eta_out[m] = sum(1 for m0, x0 in hap if m0 == m and x0 in cs)
         fragments.append({
@@ -346,7 +352,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         else:
             # ⚠️ Two or more metal-bearing molecules: nothing in the input says how `total_charge`
             #   divides between them. The fallback spreads what is left evenly over **all** their
-            #   metals, which is the pre-2026-09-08 behaviour and is right only when the molecules
+            #   metals, which is the pre- behaviour and is right only when the molecules
             #   happen to be symmetric. Measured on holdout: 7 structures land here and the even
             #   split gets 5 of them — so it is kept, but every value it produces is flagged
             #   `oxidation_is_exact = False` and the molecule charge is left `None`, because when
@@ -359,8 +365,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 os_exact = False
 
     # -- ⑧ complex SMILES — the whole complex. M–L bonds are **all dative arrows** (owner's
-    #   decision 2026-09-03). Bond order is collapsed here — the real M–L order is in
-    #   `ligands[*]["ml_bonds"][(m,x)]["order"]`.
+    #   decision). Bond order is collapsed here — the real M–L order is in
+    #   `ml_bonds[(m,x)]["order"]`.
     #   A metal's formal charge = its **oxidation state**. Without `total_charge` the oxidation
     #   state cannot be found, so it is not built (stamping 0 would emit a SMILES whose total
     #   charge is wrong — better absent than silently wrong).

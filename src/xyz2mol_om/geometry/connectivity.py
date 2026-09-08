@@ -1,7 +1,5 @@
 """T1 — presence of a bond inside a ligand (per-element-pair distance threshold).
 
-⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
-(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501

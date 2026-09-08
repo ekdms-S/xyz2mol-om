@@ -1,7 +1,5 @@
 """T8 — M–L bond order (monotone Mayer threshold).
 
-⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
-(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -113,7 +111,7 @@ def ml_order_scores(el, ml_pairs, wbo, bml_model=None, fb=None):
     """M–L order **score table** `{(m, x): {class: score}}` — used when the ④ exact solution
     optimizes M–L jointly.
 
-    🔴 **Built in exactly one place** (2026-09-03). It used to be built separately by the CV
+    🔴 **Built in exactly one place**. It used to be built separately by the CV
     script, the tool comparison, CRW and the library, and some of them did not build it at all
     (`ml_sc=None`), **pinning** the M–L order to the T8 argmax. That gives different answers for
     the same input.
@@ -121,7 +119,7 @@ def ml_order_scores(el, ml_pairs, wbo, bml_model=None, fb=None):
     `wbo` {(metal, atom): Mayer w} · `bml_model`/`fb` = output of `load_b_ml_mayer()` (read
     directly if omitted)
     ⚠️ **The caller must remove haptic pairs beforehand** — haptic bonds get no order
-    ([design doc] §3 5a).
+    (`docs/PIPELINE.md`).
     """
     if bml_model is None:
         bml_model, fb = load_b_ml_mayer()
@@ -147,7 +145,7 @@ def ml_order_scores(el, ml_pairs, wbo, bml_model=None, fb=None):
 
 
 # ============================================================================
-# T8 fallback — assign M–L orders **from distance alone**, without `wbo` (Mayer) (2026-09-03).
+# T8 fallback — assign M–L orders **from distance alone**, without `wbo` (Mayer).
 #
 # Why: with `predict(..., wbo=None)` the Mayer path above degenerates entirely to the fallback
 #      (`Single`). A per-element-pair distance model fills that gap.
@@ -163,8 +161,7 @@ def ml_order_scores(el, ml_pairs, wbo, bml_model=None, fb=None):
 #   means a higher order, for distance a shorter one does.
 #
 # performance (reference labels CSD `bond_type` · geometry `ref_xtb2` · train sample 158,048 ·
-#       refcode 5-fold **CV** · 2026-09-03 · reproduce with
-#       `ognm-bh-workspace/code/analysis/scratch/260903_fit_t8_dist.py`):
+#       refcode 5-fold **CV**):
 #       variant                        Single   Double   Triple   accuracy   params
 #       trivial (all Single)           0.9815   0.0000   0.0000     0.9636        0
 #       distance monotone thr (here)   0.9915   0.6976   0.6515     0.9821      464
@@ -228,7 +225,7 @@ def ml_order_scores_dist(el, ml_pairs, xyz, model=None, fb=None):
     `xyz` = coordinate array (Å) · `model`/`fb` = output of `load_b_ml_dist()` (read directly if
     omitted)
     ⚠️ **The caller must remove haptic pairs beforehand** — haptic bonds get no order
-    ([design doc] §3 5a).
+    (`docs/PIPELINE.md`).
     """
     if model is None:
         model, fb = load_b_ml_dist()

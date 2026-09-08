@@ -106,9 +106,9 @@ def verify_roundtrip(smi, el, atoms, bonds, charges):
         return False, f"bond-order multiset {wb[:6]}... vs {gb[:6]}..."
     if any(a.GetNumImplicitHs() for a in m.GetAtoms()):
         return False, "RDKit added implicit H"
-    # 🔴 chemical validity — catches sites that cannot be written in 2-center form (2026-09-03).
+    # 🔴 chemical validity — catches sites that cannot be written in 2-center form.
     #   An `H` with 2 or more bonds is a **bridging H (3c2e)**. That is the site excluded from
-    #   valence scoring in [design doc] §3 5c, and it cannot be written correctly in SMILES
+    #   valence scoring in `docs/PIPELINE.md` 5c, and it cannot be written correctly in SMILES
     #   (2-center form) — you get things like `[H+2]`.
     for a in m.GetAtoms():
         if a.GetSymbol() == "H" and a.GetDegree() > 1:
@@ -121,11 +121,11 @@ def verify_roundtrip(smi, el, atoms, bonds, charges):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ★ complex SMILES — the **whole complex** including metals (owner request 2026-09-03)
+# ★ complex SMILES — the **whole complex** including metals
 #   M-L bonds are **all written as dative arrows** (`->`). Bond order is collapsed here (every M-L
 #   is a single arrow); the real order stays in `ml_bonds[(m,x)]["order"]` — owner's decision.
 #   🔴 **The arrow is a connectivity marker only.** It must not change any formal charge (owner,
-#      2026-09-03) — every atom charge is stamped with our `q_atom` / oxidation state as-is, and
+#) — every atom charge is stamped with our `q_atom` / oxidation state as-is, and
 #      `verify_complex` enforces that via the **(element, charge) multiset**. RDKit is locked out
 #      of reassigning them.
 #   Why dative: RDKit's `BondType.DATIVE` **is not counted toward the donor's valence** (measured —
@@ -198,7 +198,7 @@ def verify_complex(smi, el, atoms, bonds, charges, ml_pairs, mm_bonds=(), total_
     implicit H = 0**.
     🔴 Charge is checked **per atom, not as a sum** — the dative arrow is only a connectivity
        marker and must not change a single one of the formal charges we stamped (owner,
-       2026-09-03). A sum-only check misses a charge that moved to a different atom.
+       A sum-only check misses a charge that moved to a different atom.
     If `total_charge` is given, it also checks that **the charge sum equals it** (⚠️ a residual
     charge that the skeleton cannot express, such as an even-ring dianion, is caught here — see
     `residual_charge`).
@@ -211,7 +211,7 @@ def verify_complex(smi, el, atoms, bonds, charges, ml_pairs, mm_bonds=(), total_
     except Exception:
         return False, "sanitize failed"
     # 🔴 **The arrow is a connectivity marker only — it must not change a single charge**
-    #   (owner 2026-09-03). So the check is the **(element, formal charge) multiset**, not the
+    #. So the check is the **(element, formal charge) multiset**, not the
     #   sum. A sum-only check cannot catch a `+1` that moved to a different atom. This check
     #   doubles as the composition check.
     want_q = sorted((el[a], int(round(charges.get(a, 0)))) for a in atoms)

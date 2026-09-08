@@ -102,7 +102,7 @@ def _thienyl(r):
 
 
 def _run(r7):
-    # the R7 flag lives in `pipeline`, where the unified function is (since the 2026-09-03 merge)
+    # the R7 flag lives in `pipeline`, where the unified function is (since the merge)
     old = pipeline.R7RING
     pipeline.R7RING = r7
     try:

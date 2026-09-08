@@ -1,7 +1,5 @@
-"""★ Adopted pipeline — `predict_T3_EHT` ([design doc] §3 `1c`).
+"""★ Adopted pipeline — `predict_T3_EHT` (`docs/PIPELINE.md`).
 
-⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
-(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -30,7 +28,7 @@ def _sgn(q):
 
 def _adjq_pairs(G, el, e, db, bs, qn, deg, nbrs):
     """`ADJQW` (proposal 1) — how many **adjacent same-sign nonzero formal-charge pairs** the
-    move `e: order += db` adds (2026-09-07).
+    move `e: order += db` adds.
 
     Only the two endpoints of `e` change charge (see `atom_bond_sums`), so only the bonds
     touching them can gain or lose such a pair — the count runs over exactly those bonds, with
@@ -82,7 +80,7 @@ def _eht_untrusted(G, el, comp):
 
 def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None,
                    w_out=None):
-    """★ Adopted option `D_eht` — all stages of [design doc] §3 `1c`.
+    """★ Adopted option `D_eht` — all stages of `docs/PIPELINE.md` `1c`.
     Returns `(internal classes, M–L classes)`.
 
     `bml`   {coordinating atom: sum of M–L bond orders} — enters the capacity budget
@@ -99,7 +97,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             because `predict_T3_EHT` is part of the public API.
 
     ⚠️ **Haptic M–L bonds must not go into `bml`** — a haptic bond gets no order and is shared
-       across the π system, so it is not attributed to an atom ([design doc] §3 `5a`). Including
+       across the π system, so it is not attributed to an atom (`docs/PIPELINE.md`). Including
        it would waste the budget of the Cp carbons.
     """
     bml = bml or {}
@@ -263,23 +261,23 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     return cls, mlout
 
 
-# ★★ unified entry point (2026-09-03) — **T3, M–L order, haptic (T5) and R7 all come out of one
+# ★★ unified entry point — **T3, M–L order, haptic (T5) and R7 all come out of one
 #   function.**
 #   Why: the scorer (`260831_propagation_prior_cv.py`) and the release (`xyz2mol-om`) each
 #   assembled the same decisions themselves, and they diverged in **four places** (measured
-#   2026-09-03, 0.12-0.90% of bonds):
+#, 0.12-0.90% of bonds):
 #     ① was haptic removed from the `b_ML` budget passed to the ④ cap solution?
 #     ② was haptic removed from the M–L order candidates?
 #     ③ was agostic (`C–H···M`) removed?
 #     ④ are T5's Y candidates the fragment neighbors or all neighbors?
 #   ⇒ **Assembly is not left to the caller.** The caller supplies only the T4 candidates
 #     (`ml_raw`) and Mayer (`wbo`).
-MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} ([design doc] §3.1 (c))
+MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} (`docs/PIPELINE.md`))
 
 
 def drop_agostic(el, G, ml_raw):
     """Remove `C–H···M` only — μ-H and `B–H···M` (borohydride) are genuine 3c2e and are kept
-    ([design doc] §3.0 [T4]).
+    (`docs/PIPELINE.md`).
 
     rule  remove ⟺ el[X] = H  AND  exactly 1 metal-like neighbor  AND  some internal neighbor is
                    not metal-like
@@ -297,7 +295,7 @@ def drop_agostic(el, G, ml_raw):
 
 def drop_saturated(el, G, ml_raw):
     """Remove an M–X candidate to an atom whose **internal neighbours already fill its valence**
-    (`SATVETO`, 2026-09-08 — reported by flower-om on the Gold-DIGR corpus).
+    (`SATVETO`).
 
         remove ⟺ el[X] ∉ {H} ∪ {B, Al}  AND  no internal neighbour of X is B or Al
                  AND  deg_int(X) ≥ CAP(el[X])
@@ -348,7 +346,7 @@ def is_3c2e(el0, b_use, n_center):
 
 
 def bridge_tags(el, G, ml_pred, cls):
-    """T7 ([design doc] §3.0 5c) — the **bridge tag** per coordinating atom.
+    """T7 (`docs/PIPELINE.md`) — the **bridge tag** per coordinating atom.
     Returns `{x: "3c2e" | "dative"}`.
 
     An atom that is not a bridge **has no key at all.**
@@ -411,7 +409,7 @@ def bml_budget(ml_bonds, three_c, cost=None):
 
     Every M–L bond costs 1.0, **except** that an atom taking part in a 3c2e bond spends
     `cost` in total no matter how many M–L bonds it has (`config.BML3C_COST`, default 1.0).
-    `cost < 0` restores the pre-2026-09-06 behaviour of one unit per bond.
+    `cost < 0` charges one unit per M–L bond instead of one in total.
 
     ⚠️ `ml_bonds` must already have the bonds that spend nothing removed — haptic for ④
        (`keep`), the final haptic set for ⑥.
@@ -485,7 +483,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
       `btag`    {x: "3c2e" | "dative"}                             T7 bridge tags (pass-1 based)
       `w`       {(i,j): score[Double] − score[Single]}              ⑥ Kekule matching tie-break
 
-    Why 2 passes: a haptic M–L bond **gets no order and spends no budget** ([design doc] §3 5a).
+    Why 2 passes: a haptic M–L bond **gets no order and spends no budget** (`docs/PIPELINE.md`).
     But whether a bond is haptic can only be decided once T3 (the π fragments) is known. So the
     **first pass solves T3 with a budget of 0** to get the π candidates, haptic bonds are decided
     provisionally **from the angle alone**, and the second pass is solved with those removed from
@@ -521,7 +519,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     btag = bridge_tags(el, G, ml_pred, cls0)
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
     bml = bml_budget(keep, three_c)  # M–L baseline = Single, 3c2e = one pair
-    # 🔴 With no `wbo`, M–L orders come from the **distance fallback** (2026-09-03).
+    # 🔴 With no `wbo`, M–L orders come from the **distance fallback**.
     #   Without Mayer, T8 emits `Single` for every bond (`Double` F1 **0.0000** · measured over
     #   300 structures, TP 0 / FN 40). On the same pool with refcode 5-fold CV, the monotone
     #   distance-threshold fallback gives `Double` **0.6976** · `Triple` 0.6515 (Mayer version
@@ -535,7 +533,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     w = {}
     cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, w_out=w)
     # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**
-    #      (measured 2026-09-03: fragment neighbors F1 .9810 · all internal neighbors .9803 —
+    #      (measured: fragment neighbors F1 .9810 · all internal neighbors .9803 —
     #      precision is higher for fragment neighbors).
     pi = nx.Graph()
     pi.add_edges_from(e for e, v in cls.items() if v in (1, 2, 3))
@@ -551,8 +549,8 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     for m, x in _eta2_pair(el, xyz, G, ml_pred, cls):
         hap.add((m, x))
         hap_by_m[m].add(x)
-    # R7 — restore an R2 donor inside a haptic ring as a π candidate (adopted 2026-09-03 ·
-    #      the rule is [design doc] §3.1-R7)
+    # R7 — restore an R2 donor inside a haptic ring as a π candidate (adopted ·
+    #      the rule is (`docs/PIPELINE.md`)
     if R7RING:
         mlset = set(ml_pred)
         donors = {x for x in G if lp_donor(el[x], G.degree(x))}

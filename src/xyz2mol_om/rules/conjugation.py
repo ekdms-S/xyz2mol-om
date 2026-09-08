@@ -1,7 +1,5 @@
 """`Conj` candidate rules — rule A · R2 · R3 · R4 (R5 lives in the pipeline).
 
-⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
-(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501

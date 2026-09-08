@@ -10,7 +10,7 @@ Why the old code was wrong - it charged **every** T4 candidate `b_ML` 1.0:
   five ring atoms are attached to Cr, so all five drew on the budget, the `CAP` headroom
   vanished, and the ④ upper-bound exact solution pushed the whole ring to **`Single`** ⇒ with no
   π fragment left, T5 could not form η.
-  Measured (train sample of 1,999 structures · 2026-09-03): without this exclusion **520 bonds
+  Measured (train sample of 1,999 structures): without this exclusion **520 bonds
   (0.90%)** disagree with the §5 scorer, and accuracy at those sites was **16.5% vs 70.9%**.
   With the exclusion it drops to **71 bonds (0.12%)**.
 

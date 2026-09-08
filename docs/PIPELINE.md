@@ -23,7 +23,7 @@ Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q
 | T10 `Σq_L` · `OS` | **.8536 · .8845** | .8507 · .8787 |
 | valence-violating structures | **.0205** | .0203 |
 | harmful `Double` errors | **284 bonds · 158 structures (2.33%)** | — |
-| reported ligand charge ≠ the emitted structure's | **214 (3.15%)** | — |
+| reported fragment charge ≠ the emitted structure's | **129 (1.90%)** | — |
 
 *harmful `Double`* is the deployment error metric: a reference `Double` the emitted Kekulé
 structure does not call 2, excluding positions where the fragment has an equally good alternative

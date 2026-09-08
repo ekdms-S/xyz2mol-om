@@ -1,4 +1,4 @@
-"""🔴 Regression — the four structural invariants the 2026-09-08 rule review fixed or relied on.
+"""🔴 Regression — the structural invariants of the decision functions.
 
 These are cheap, geometry-free unit tests on the decision functions themselves. They exist
 because the corresponding defects were all silent: the metrics stayed fine while the emitted
@@ -9,6 +9,9 @@ structure was wrong, so nothing failed until someone read a picture.
   3. The ⑤ EHT trust gate fires on `–NO2` (two terminal O) and **not** on nitrate (three).
   4. The ⑥ Kekule matching is **weighted**, so among equal-cardinality Kekule structures the
      one the bond lengths prefer comes out.
+  5. T4 does not report an agostic `C–H···M` contact as a bond.
+  6. T4 does not report a bond to an atom its own bonds already saturate — H, B/Al and cage
+     atoms exempt.
 """
 
 # ruff: noqa: E501
@@ -104,7 +107,7 @@ def test_kekule_matching_follows_the_likelihood():
         assert all(orders[e] == 1.0 for e in other)
 
 
-# ── 5·6. What `ml_bonds` may contain (reported by flower-om, 2026-09-08) ──────────────────
+# ── 5·6. What `ml_bonds` may contain (reported by flower-om) ──────────────────
 #   The output used to be assembled from `ml_raw`, i.e. **before** T4's agostic removal, while
 #   the molecule SMILES was built from `ml_pred`, i.e. after. A consumer reading `ml_bonds` got a
 #   different graph from the one the SMILES describes. These two tests pin the T4 filters.

@@ -1,8 +1,6 @@
 """Formal charge — per atom `q_atom` · conjugated fragment `frag_charge` · fragment sum
 `_qfrag` · output converter `kekulize`.
 
-⚠️ **Ported from `ognm-bh-workspace/code/analysis/scratch/260830_fit_t10_charge.py`**
-(2026-09-03). Function bodies were moved **verbatim** — the decision rules are unchanged.
 """
 
 # ruff: noqa: E501
@@ -17,7 +15,7 @@ from ..config import (ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMA
 def q_atom(e, b, deg=None, nb=()):
     """(a) q_i = v + b − quota (octet assumption `lp = 4 − b`).
 
-    ★ (a′) covers only the sites where the octet breaks (2026-08-30, [design doc] §5.0.8 ④ · V2d).
+    ★ (a′) covers only the sites where the octet breaks (, (`docs/PIPELINE.md`).
     `deg` = number of ligand-*internal* neighbors · `nb` = tuple of those neighbors' elements.
     🔴 **The neighbor-element condition is essential** — keying on `(element, deg, b)` alone
     causes regressions (measured):
@@ -25,7 +23,7 @@ def q_atom(e, b, deg=None, nb=()):
         the **isocyanide N** (neighbors C,C), throwing the ligand charge off by −2.
       · forcing `("C",2,2)` to 0 gets **CF₂** (neighbors F,F) and `C7H6` (neighbors C,C) wrong.
     """
-    # 🔴 `QHV=1` — **hypervalent generalization** (2026-09-03). `lp = 4 − b` becomes
+    # 🔴 `QHV=1` — **hypervalent generalization**. `lp = 4 − b` becomes
     #   `lp = max(0, 4 − b)` ⇒ `q = v − b − 2·lp`. For `b ≤ 4` this is **identical** to
     #   `v + b − 8` (exactly the current behavior); only for `b > 4` does it become `q = v − b`.
     #   It absorbs the hand-written exceptions `S(=O)₂` (b 6) and `P=O` (b 5), and fixes nitro
@@ -38,7 +36,7 @@ def q_atom(e, b, deg=None, nb=()):
     nO, nN = nb.count("O"), nb.count("N")
     if e == "C" and deg == 2 and b == 2.0 and nN + nO >= 1:
         # heteroatom-stabilized carbene — 6 electrons. The octet formula gives −2 (`nO` added
-        #   after the owner's remark, 2026-09-02).
+        #   after the owner's remark).
         #   NHC `:C(NR)₂` (N neighbors) was caught from the start, but the **Fischer carbene
         #   `:C(OR)R` (O neighbor)** was missed and kept falling to −2 — **374 cases** measured
         #   (all M-coordinated · `C–O` neighbor).
@@ -64,7 +62,7 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None)
                                        ← every ring atom must have exactly 1 external bond
     otherwise                        → maximize Kekule (maximum matching), then sum (a)
 
-    🔴 2 bugs fixed (2026-08-30, [design doc] §5.0.8 ②):
+    🔴 2 bugs fixed (, (`docs/PIPELINE.md`):
       B1  Hückel was also applied to substituted all-carbon rings, making **phenyl C6H5 come out
           0** (truth −1). Adding the `CmHm` check drops it to Kekule and gives −1.
       B2  `min(HUCKEL, key=|m−h|)` picked **the earlier 6 on the m=8 tie between 6 and 10**,
@@ -82,7 +80,7 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None)
             if out is None:
                 return huckel
             # ⑥ output converter — even on the Hückel branch, **the skeleton comes from the
-            #   matching** (2026-09-02). Hückel fixes only the charge; the S/D/T skeleton comes
+            #   matching**. Hückel fixes only the charge; the S/D/T skeleton comes
             #   from the matching below.
             #   ⚠️ For an even-ring dianion (η⁴-C₄R₄²⁻, η⁸-COT²⁻) the skeleton is a **neutral
             #      Kekule**, so per-atom charges cannot be inferred from it — the charge has to
@@ -114,7 +112,7 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None)
 
 def atom_bond_sums(G, el, cls, comp, w=None):
     """Per-atom **internal** bond-order sum for one fragment, resolved through the *same* Kekule
-    matching the output converter uses (2026-09-07, for `ADJQW`).
+    matching the output converter uses.
 
     Returns `(bsum, deg, nbrs)` so a caller can get the formal charge of atom `v` as
     `q_atom(el[v], bsum[v], deg[v], nbrs[v])` — exactly what `_qfrag` sums up, but kept per atom.
@@ -182,7 +180,7 @@ def _qfrag(G, el, cls, comp, w=None):
 
 def kekulize(G, el, cls, bml=None, w=None):
     """⑥ **output converter** — turn the 4-class prediction (`Conj` included) back into integer
-    S/D/T (2026-09-02).
+    S/D/T.
 
     Returns `(orders, frag_q)`
       `orders` {(i,j): 1|2|3}                    — integer bond orders for output (all internal
@@ -250,14 +248,14 @@ def parse_os(m, nm):
     return f.pop() if len(f) == 1 else None
 
 
-# ★★ cluster fragment charge (2026-09-03) — **a fragment that cannot be written in 2-center
+# ★★ cluster fragment charge — **a fragment that cannot be written in 2-center
 #   form** uses the EHT value.
 #   rule  F is a cluster ⟺ F contains an atom with `b_int(x) > CAP(el[x])`
 #   Why: a carborane cage follows Wade's rules (multicenter skeletal bonding) and is not
 #       expressible as 2-center 2-electron. A cage `B` has 5-6 internal neighbors, so
 #       `b_int > CAP(B)=4`, and the formal-charge formula (`q = v + b − 8` · hypervalent
 #       `q = v − b`) piles up −2 to −3 per atom.
-#       measured (`GANLUF` · 2026-09-03): formal-charge sum of the carborane ligand **−27** vs
+#       measured (`GANLUF` ·): formal-charge sum of the carborane ligand **−27** vs
 #       EHT **−1**.
 #   ⚠️ With no EHT value it falls back to the formal-charge sum (better than being silently
 #      wrong).

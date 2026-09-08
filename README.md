@@ -200,7 +200,7 @@ what it draws, and the result is what it labels.
 |---|---|---|
 | `elements` | required | the element list passed to `predict` |
 | `coords` | required | the `(n, 3)` coordinates passed to `predict` — **the figure is this geometry**, not a 2D layout |
-| `result` | required | the dict `predict` returned (`metals` · `ligands` · `bonds_kekule` · `ml_bonds` · `eta` · `charge`) |
+| `result` | required | the dict `predict` returned (it reads `molecules` → `metals` · `fragments` → `bonds_kekule` · `ml_bonds` · `eta` · `charge`) |
 | `out` | required | where to write; the extension picks the format (`.png`, `.pdf`, `.svg`) |
 | `title` | `""` | first title line |
 | `subtitle` | auto | second line; by default the per-ligand charges and η, e.g. `q0=-1 η5 · q1=-1` |
@@ -304,11 +304,12 @@ structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm suc
 | **X2M_TM** 5,479 | **xyz2mol-om** | **0.01%** | **0.40%** | 3.83% |
 | | xyz2mol_tm | 0.17% | 4.87% | 43.49% |
 
-⚠️ **Our own rows here come from an earlier revision of the pipeline** and have not been
-re-measured, because the run drives the three external tools live; the external rows are
-unaffected. On the whole holdout our figure has moved by less than 0.1%p since, so read these rows
-as the comparison they are for — the gap between tools, not our current absolute value (that is in
-the table above).
+⚠️ **Our own rows here were measured on an earlier revision** (and on the 6,456-structure holdout
+of the time). Re-running the comparison drives the three external tools live, so they have not
+been refreshed; the external rows are unaffected. Our current whole-holdout figure for the last
+column is **2.05%**, better than the 3.55% below, so the row understates the gap. Read this table
+for what it is for — the distance between tools, not our absolute value (that is in the table
+above).
 
 The `b_int`-only columns are the fair comparison (every tool can produce that) — we are lowest
 in all three pools. ⚠️ **Do not compare the `b_int`+`b_ML` column across tools**: xyz2mol_tm

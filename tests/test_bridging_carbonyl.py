@@ -76,7 +76,7 @@ def test_terminal_co_is_unaffected():
 
 
 def test_per_bond_cost_reproduces_the_old_answer(monkeypatch):
-    """`BML3C_COST < 0` = one unit per M-L bond, the behaviour before 2026-09-06.
+    """`BML3C_COST < 0` = one unit per M-L bond instead of one in total.
 
     The tag is `3c2e` either way — this is the evidence that the tag alone changes nothing and
     that the budget is what moves the result.
