@@ -2,7 +2,7 @@
 
 The figure comes from the **real 3D coordinates**, projected onto the least cluttered plane, so
 haptic rings and chelates stay readable (an RDKit 2D layout collapses them). See
-`xyz2mol_om/drawing.py` for what the colours and line styles mean.
+`xyz2mol_om/output/drawing.py` for what the colours and line styles mean.
 
 Needs `matplotlib`, which is an optional dependency of the package.
 """
