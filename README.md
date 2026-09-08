@@ -322,32 +322,26 @@ spends 0, and an atom in a 3c2e bridge spends 1.0 in total however many M–L bo
 (hypervalency · where the ionic/covalent cut is drawn · CSD notation conventions), so the figure
 has to be read against that.
 
-**Violation rate against other tools** (holdout; each tool appears only in a pool where it
-succeeds on every structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm
-succeeded):
+**Violation rate against other tools** — same pools as the task table above, and the same
+definition: a violating atom is a non-metal with `b_int + b_ML > CAP` (`B` excluded, and for our
+own rows the 3c2e atoms too). Our `b_int` is the ⑥ Kekulé integer; a tool that emits aromatic
+bonds is counted at its own 1.5.
 
-| Pool · n | Tool | Viol. atoms (`b_int`) | Viol. structures (`b_int`) | (`b_int`+`b_ML`) |
-|---|---|---|---|---|
-| **HOLDOUT** 6,456 | **xyz2mol-om** | **0.01%** | **0.36%** | 3.55% |
-| **TOOL** 4,930 | **xyz2mol-om** | **0.01%** | **0.43%** | 3.98% |
-| | xyz2mol | 0.25% | 7.48% | — |
-| | xyz2mol_tm | 0.18% | 4.97% | 43.79% |
-| | OpenBabel | 0.06% | 1.52% | 1.66% |
-| **X2M_TM** 5,479 | **xyz2mol-om** | **0.01%** | **0.40%** | 3.83% |
-| | xyz2mol_tm | 0.17% | 4.87% | 43.49% |
+| Pool | | ours | `xyz2mol` | `xyz2mol_tm` | OpenBabel |
+|---|---|---|---|---|---|
+| **holdout** 6,793 | `b_int` only | **1.25%** | 10.60% | 7.35% | 3.96% |
+| | `b_int`+`b_ML` | **1.85%** | 10.60% | 37.63% | 3.96% |
+| **TOOL** 5,207 (all 3 external tools succeeded) | `b_int` only | **1.50%** | 11.14% | 9.03% | 3.76% |
+| | `b_int`+`b_ML` | **2.19%** | 11.14% | 45.65% | 3.76% |
+| **X2M_TM** 5,676 (xyz2mol_tm succeeded) | `b_int` only | **1.41%** | 10.50% | 8.79% | 3.54% |
+| | `b_int`+`b_ML` | **2.11%** | 10.50% | 45.03% | 3.54% |
 
-⚠️ **Our own rows here were measured on an earlier revision** (and on the 6,456-structure holdout
-of the time). Re-running the comparison drives the three external tools live, so they have not
-been refreshed; the external rows are unaffected. Our current whole-holdout figure for the last
-column is **1.85%**, better than the 3.55% below, so the row understates the gap. Read this table
-for what it is for — the distance between tools, not our absolute value (that is in the table
-above).
-
-The `b_int`-only columns are the fair comparison (every tool can produce that) — we are lowest
-in all three pools. ⚠️ **Do not compare the `b_int`+`b_ML` column across tools**: xyz2mol_tm
-emits no M–L order, so it must be read as all-dative and every η⁵-Cp over-valences five
-carbons at once (81% of its violations are at haptic sites); OpenBabel's low figure comes from
-missing a third of the M–L bonds (T4 recall 0.66), not from getting them right.
+The `b_int`-only row is the fair comparison — every tool produces internal bond orders, and we are
+lowest in all three pools. ⚠️ **The `b_int`+`b_ML` row must not be read across tools**:
+`xyz2mol_tm` emits no M–L order, so every M–L reads as one dative unit and an η⁵-Cp over-valences
+five carbons at once; `xyz2mol` produces no M–L bond at all, so its two rows are identical; and
+OpenBabel's flat figure comes from missing a third of the M–L bonds (T4 .7579), not from placing
+them well.
 
 ## ⚠️ Limits
 
