@@ -23,6 +23,7 @@
    "index": 0,
    "element": "Ti",
    "oxidation": 4,
+   "oxidation_is_exact": true,
    "mm_bonds": {}
   }
  ],
@@ -179,6 +180,38 @@
    },
    "charge": -1,
    "residual_charge": null
+  }
+ ],
+ "molecules": [
+  {
+   "index": 0,
+   "atoms": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+   ],
+   "metals": [
+    0
+   ],
+   "ligands": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "charge": 0,
+   "charge_is_exact": true
   }
  ],
  "total_charge": 0

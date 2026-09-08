@@ -58,7 +58,9 @@ metal degrades and the output is far more often chemically impossible (holdout 6
 ## Output
 
 ```python
-r["metals"]  == [{"index": 0, "element": "Mo", "oxidation": 6, "mm_bonds": {}}]
+r["metals"]  == [{"index": 0, "element": "Mo", "oxidation": 6,
+                  "oxidation_is_exact": True,   # False = an even split, see below
+                  "mm_bonds": {}}]
 
 r["ligands"] == [
   {"index": 0, "atoms": [1],
@@ -74,8 +76,34 @@ r["ligands"] == [
    "residual_charge": None},   # residual charge not expressible by the skeleton
   … ]
 
+r["molecules"] == [
+  {"index": 0, "atoms": [0, 1, …], "metals": [0], "ligands": [0, 1, 2, 3],
+   "charge": 0,           # this molecule's charge
+   "charge_is_exact": True},   # False when it had to be guessed
+  … ]
+
 r["complex_smiles"] == "[H][O-]->[Mo+6](<-[N-3])(<-[Cl-])(<-[Cl-])<-[Cl-]"
 ```
+
+### More than one molecule in the input
+
+An input may hold several disconnected molecules — an IRC endpoint where the product has
+separated, a salt with its counter-ion, a solvate. `r["molecules"]` groups them: connected
+components over **all** bonds (internal, M–L and M–M), so each entry is one molecule with its own
+metals, ligands and charge. Anything touching none of those — a free counter-ion, a departed
+fragment — is a molecule of its own. `complex_smiles` separates them with `.` as SMILES does.
+
+🔴 **This is not only for tidiness.** The oxidation state is `(charge − Σ q_L) / n_metals`; run
+over the whole input it averages one molecule's charge into another molecule's metals. `CpTiCl₃`
+alone gives Ti(IV) and `fac-[Os(CO)₃Cl₃]⁻` alone gives Os(II), but concatenated into one input
+they used to come out **Ti(III) and Os(III)** — both wrong, the sum still right, every check
+passing. The state is now solved **inside** each molecule.
+
+| the input holds | what you get |
+|---|---|
+| one molecule | as before |
+| one metal-bearing molecule + any number of metal-free ones | **exact** — a metal-free molecule's charge is its formal-charge sum, and the rest belongs to the metal-bearing one. This is the IRC-endpoint case |
+| two or more metal-bearing molecules | the remainder is split **evenly** over all their metals and marked `oxidation_is_exact: False`, with the same warning in `complex_smiles_note`. It is right when the molecules are symmetric (5 of the 7 holdout structures that land here) and silently wrong otherwise, so check the flag — or pass one molecule at a time |
 
 ### SMILES format
 

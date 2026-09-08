@@ -15,12 +15,14 @@
    "index": 0,
    "element": "Ag",
    "oxidation": 1,
+   "oxidation_is_exact": true,
    "mm_bonds": {}
   },
   {
    "index": 3,
    "element": "Ag",
    "oxidation": 1,
+   "oxidation_is_exact": true,
    "mm_bonds": {}
   }
  ],
@@ -130,6 +132,31 @@
    "eta": {},
    "charge": -1,
    "residual_charge": null
+  }
+ ],
+ "molecules": [
+  {
+   "index": 0,
+   "atoms": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "metals": [
+    0,
+    3
+   ],
+   "ligands": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "charge": -2,
+   "charge_is_exact": true
   }
  ],
  "total_charge": -2

@@ -9,6 +9,7 @@ Return structure (dict)
           "index":        int,              atom index in the full coordinate list
           "element":      str,
           "oxidation":    int | None,       oxidation state (needs total_charge to be given)
+          "oxidation_is_exact": bool | None, False = an even split across several molecules
           "mm_bonds":     {(m1, m2): 1|2|3|4},   M–M bond orders
       }, ... ]
 
@@ -37,6 +38,18 @@ Return structure (dict)
     r["complex_smiles_ok"]   = bool         whether the round-trip check passed
     r["complex_smiles_note"] = str          reason for failure or non-generation ("" if it passed)
     r["complex_atom_order"]  = [int, ...]   input atom indices in SMILES output order
+    r["molecules"]           = the disconnected molecules the input holds
+          "index" · "atoms" · "metals" · "ligands" · "charge"
+        Connected components over **all** bonds (internal, M-L, M-M). An input may hold several
+        molecules — an IRC endpoint where the product separated, a salt with its counter-ion — and
+        the oxidation state is solved **inside** each one. Over the whole input it would average
+        one molecule's charge into another's metals: `CpTiCl3` alone is Ti(IV) and
+        `[Os(CO)3Cl3]-` alone is Os(II), but fed together they came out Ti(III)/Os(III), with the
+        sum still right and every check passing.
+        A metal-free molecule's charge is its formal-charge sum, so with exactly one metal-bearing
+        molecule the split is exact. With two or more, the remainder is spread evenly over all
+        their metals and everything derived from it is flagged: `oxidation_is_exact` is False on
+        the metals, the molecule `charge` stays None, and `complex_smiles_note` says so.
     r["total_charge"]        = the input total charge (unchanged)
 
 🔴 **The M–L orders are collapsed in `complex_smiles`.** An oxo `M=O` and a nitrido `M≡N` both go
@@ -113,6 +126,22 @@ def _drop_agostic(el, G, ml_raw):
                 continue
         out.append((m, x))
     return out
+
+
+def _molecule_of(el, cls, ml_pred, mm):
+    """`{atom: molecule index}` — connected components over **all** bonds, M–L and M–M included.
+
+    A molecule here is what a chemist would call one: the internal bonds hold a ligand together,
+    the M–L bonds attach it to its metal, and the M–M bonds hold a cluster together. Anything the
+    input contains that touches none of those — a free counter-ion, a solvent molecule, the other
+    half of a dissociated product — becomes a molecule of its own.
+    """
+    g = nx.Graph()
+    g.add_nodes_from(range(len(el)))
+    g.add_edges_from(cls)
+    g.add_edges_from(ml_pred)
+    g.add_edges_from(mm)
+    return {a: i for i, comp in enumerate(nx.connected_components(g)) for a in comp}
 
 
 def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=None,
@@ -282,11 +311,58 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "residual_charge": frag_q.get(key),
         })
 
-    os_metal = {}
-    if total_charge is not None and mets:
-        num = total_charge - sum(q_all.values())
-        if num % len(mets) == 0:
-            os_metal = dict.fromkeys(mets, num // len(mets))
+    # -- molecules. The input may hold **several disconnected molecules** — an IRC endpoint where
+    #   the product has separated, a salt with its counter-ion, a solvate. Splitting them matters
+    #   for more than tidiness: the oxidation state is `(charge - sum q_L) / n_metals`, and run
+    #   over the whole input that averages one molecule's charge into another's metals. Measured:
+    #   `CpTiCl3` alone gives Ti(IV) and `[Os(CO)3Cl3]-` alone gives Os(II), but fed together they
+    #   come out Ti(III) and Os(III) — both wrong, the sum still right, and every check passing.
+    mol_of = _molecule_of(el, cls, ml_pred, mm)
+    molecules = []
+    for mi in sorted(set(mol_of.values())):
+        atoms = sorted(a for a, k in mol_of.items() if k == mi)
+        aset = set(atoms)
+        molecules.append({
+            "index": mi,
+            "atoms": atoms,
+            "metals": [m for m in mets if m in aset],
+            "ligands": [lg["index"] for lg in ligands if lg["atoms"][0] in aset],
+        })
+
+    # A metal-free molecule's charge is its ligands' formal-charge sum — nothing is unknown there.
+    # What is left of `total_charge` belongs to the metal-bearing molecules, and with exactly one
+    # of those the split is **exact**. With two or more there is one equation and two unknowns per
+    # molecule, and nothing in the input says how to divide the remainder, so the oxidation state
+    # is left as `None` rather than guessed.
+    os_metal, os_exact = {}, True
+    q_of_lig = {lg["index"]: lg["charge"] for lg in ligands}
+    for mol in molecules:
+        mol["charge"] = (None if mol["metals"]
+                         else sum(q_of_lig[i] for i in mol["ligands"]))
+        mol["charge_is_exact"] = not mol["metals"]
+    with_metal = [m for m in molecules if m["metals"]]
+    if total_charge is not None and with_metal:
+        rest = total_charge - sum(m["charge"] for m in molecules if not m["metals"])
+        if len(with_metal) == 1:
+            mol = with_metal[0]
+            mol["charge"], mol["charge_is_exact"] = rest, True
+            num = rest - sum(q_of_lig[i] for i in mol["ligands"])
+            if num % len(mol["metals"]) == 0:
+                os_metal = dict.fromkeys(mol["metals"], num // len(mol["metals"]))
+        else:
+            # ⚠️ Two or more metal-bearing molecules: nothing in the input says how `total_charge`
+            #   divides between them. The fallback spreads what is left evenly over **all** their
+            #   metals, which is the pre-2026-09-08 behaviour and is right only when the molecules
+            #   happen to be symmetric. Measured on holdout: 7 structures land here and the even
+            #   split gets 5 of them — so it is kept, but every value it produces is flagged
+            #   `oxidation_is_exact = False` and the molecule charge is left `None`, because when
+            #   it is wrong it is wrong silently (CpTiCl3 + [Os(CO)3Cl3]- gives Ti(III)/Os(III),
+            #   the sum still correct and every check passing).
+            allm = [x for m in with_metal for x in m["metals"]]
+            num = rest - sum(q_of_lig[i] for m in with_metal for i in m["ligands"])
+            if num % len(allm) == 0:
+                os_metal = dict.fromkeys(allm, num // len(allm))
+                os_exact = False
 
     # -- ⑧ complex SMILES — the whole complex. M–L bonds are **all dative arrows** (owner's
     #   decision 2026-09-03). Bond order is collapsed here — the real M–L order is in
@@ -299,8 +375,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         cx_note = "no metal - use ligand SMILES"
     elif not os_metal:
         cx_note = (
-            "oxidation state undetermined - total_charge not given, or not divisible by "
-            "the number of metals"
+            "oxidation state undetermined - total_charge not given, or the remainder is not "
+            "divisible by the number of metals"
         )
     else:
         qcx = dict(qat_all)
@@ -314,6 +390,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             cx_ok, cx_note = verify_complex(
                 cx_smi, el, list(range(len(el))), orders, qcx, ml_pred, mm, total_charge
             )
+        # 🔴 said **after** the round-trip check, which overwrites `cx_note` on success. The
+        #   SMILES can be self-consistent and still carry a guessed oxidation state.
+        if not os_exact:
+            warn = ("oxidation state is an even split - the input holds several metal-bearing "
+                    "molecules and nothing says how total_charge divides between them")
+            cx_note = f"{cx_note}; {warn}" if cx_note else warn
 
     return {
         "complex_smiles": cx_smi,
@@ -325,10 +407,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 "index": m,
                 "element": el[m],
                 "oxidation": os_metal.get(m),
+                "oxidation_is_exact": os_exact if os_metal.get(m) is not None else None,
                 "mm_bonds": {k: v for k, v in mm.items() if m in k},
             }
             for m in mets
         ],
         "ligands": ligands,
+        "molecules": molecules,
         "total_charge": total_charge,
     }
