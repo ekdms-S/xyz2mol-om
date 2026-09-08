@@ -382,8 +382,20 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         smi = note = None
         ok, order = False, []
         if not mol["metals"]:
-            # one connected component, so its fragment SMILES is the molecule's
-            smi, ok, note = frs[0]["smiles"], frs[0]["smiles_ok"], frs[0]["smiles_note"]
+            # 🔴 Built the same way as a metal-bearing molecule, with the M–L and M–M lists empty
+            #   — **not** by reusing the fragment SMILES. The string comes out identical (same
+            #   sanitize, same canonicalization) but `complex_smiles` is what returns the output
+            #   atom order, and reusing the fragment left `atom_order` empty on every metal-free
+            #   molecule (reported by flower-om: 779 of them in a 3,000-structure sample).
+            qcx = {a: q for a, q in qat_all.items() if a in aset}
+            smi, order = complex_smiles(el, mol["atoms"], {e: v for e, v in orders.items() if e[0] in aset},
+                                        qcx, [], {}, with_map=complex_atom_map)
+            if smi is None:
+                note = "SMILES generation failed"
+            else:
+                ok, note = verify_complex(smi, el, mol["atoms"],
+                                          {e: v for e, v in orders.items() if e[0] in aset},
+                                          qcx, [], {}, mol["charge"])
         elif not os_metal:
             note = ("oxidation state undetermined - total_charge not given, or the remainder is "
                     "not divisible by the number of metals")

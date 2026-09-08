@@ -89,3 +89,33 @@ def test_two_metal_molecules_flag_the_oxidation_state_as_an_even_split():
     assert [m["oxidation_is_exact"] for m in all_metals(r)] == [False, False]
     assert all(m["charge"] is None and not m["charge_is_exact"] for m in r["molecules"])
     assert all("even split" in m["smiles_note"] for m in r["molecules"])
+
+
+def test_metal_free_molecule_has_atom_order():
+    """Every molecule fills `atom_order`, including one with no metal.
+
+    A metal-free molecule used to reuse its fragment's SMILES, and the output order is what
+    `complex_smiles` returns, so the field came back empty on exactly the case the feature exists
+    for -- an IRC endpoint whose organic product has separated (reported by flower-om: 779 of
+    3,000 structures). The SMILES string is unchanged by the fix; only the order is now filled.
+    """
+    import numpy as np
+
+    from xyz2mol_om import predict
+
+    el = ["Pd", "Cl", "Cl", "C", "C", "H", "H", "H", "H"]
+    xyz = np.array([[0, 0, 0], [2.3, 0, 0], [-2.3, 0, 0],
+                    [0, 0, 12], [0, 1.33, 12],
+                    [0.93, -0.55, 12], [-0.93, -0.55, 12],
+                    [0.93, 1.88, 12], [-0.93, 1.88, 12]], float)  # fmt: skip
+    wbo = {(0, x): 0.0 for x in range(1, 9)}
+    wbo[(0, 1)] = wbo[(0, 2)] = 0.9
+    r = predict(el, xyz, total_charge=0, wbo=wbo)
+
+    assert len(r["molecules"]) == 2
+    for mol in r["molecules"]:
+        assert sorted(mol["atom_order"]) == sorted(mol["atoms"]), mol["index"]
+    free = [m for m in r["molecules"] if not m["metals"]]
+    assert len(free) == 1
+    # the molecule SMILES of a single-fragment metal-free molecule is that fragment's
+    assert free[0]["smiles"] == free[0]["fragments"][0]["smiles"]
