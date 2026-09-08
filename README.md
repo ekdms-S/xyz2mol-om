@@ -350,8 +350,9 @@ them well.
   still comes out as the nearest closed-shell answer **with no error** — `CH₃•` reads as `CH₃⁻`,
   and beside a metal that wrong `−1` is cancelled by the metal's `+1`, so the total charge stays
   right while the oxidation state does not. The electron goes to the one negatively charged atom
-  outside the metal's own molecule; with none it is on the metal and nothing changes, with several
-  it is refused and `r["radical"]["note"]` says so.
+  outside the metal's own molecule **that can hold it** (`v − b ≥ 1`, so a borate's structural
+  `−1` is not a candidate); with none it is on the metal and nothing changes, with several it is
+  refused and `r["radical"]["note"]` says so.
 - **The M–M order is a placeholder, not a prediction.** Whether two metals are bonded *is*
   predicted (`mm_bonds`, by the same distance + Mayer rule as M–L), but the order in that dict is
   the constant `1` — do not read it as "single bond". The `[Re₂Cl₈]²⁻` of example ⑤ is a

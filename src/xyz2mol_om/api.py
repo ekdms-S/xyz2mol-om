@@ -90,7 +90,7 @@ import networkx as nx
 import numpy as np
 
 from .charge import frag_charge_or_eht, kekulize, octet_fix_period2, q_atom
-from .config import NOCTET, RCOV, WMIN, centers
+from .config import NOCTET, RCOV, VAL, WMIN, centers
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
@@ -283,7 +283,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         eta_out = {}
         # 🔴 `ml_pred`, not `ml_raw` — the agostic `C–H···M` contacts that T4 removes must not
         #   reappear in the output. They used to, so `ml_bonds` disagreed with the molecule's
-        #   SMILES, which is built from `ml_pred` (reported by flower-om).
+        #   SMILES, which is built from `ml_pred`.
         for m, x in ml_pred:
             if x not in cs:
                 continue
@@ -344,7 +344,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   structure that invented `-1` is cancelled by a `+1` on the metal, so the total is right
     #   while the oxidation state is not: `Cu(I)Cl + CH3•` came out as Cu(II).
     #
-    #   Placement — candidates are atoms of a **metal-free molecule** carrying a negative charge:
+    #   Placement — candidates are atoms of a **metal-free molecule** carrying a negative charge
+    #   **that can still hold the electron**: neutralising the atom must leave it a non-bonding
+    #   place to put it, `v(X) - b_int(X) >= 1`. A borate's `-1` fails that (B with four bonds:
+    #   `3 - 4 = -1`) because the charge is structural, not a mispriced radical -- neutralising it
+    #   produced a neutral four-bond boron that RDKit rejects outright. Same for a six-bond P.
+    #   A carbanion passes (`4 - 3 = 1`), and so does a bare halide (`7 - 0 = 7`).
     #     0 candidates  the electron is on the metal. The oxidation state already carries it, so
     #                   nothing changes (`site = "metal"`).
     #     1 candidate   put it there and return that atom's charge to 0. The metal's oxidation
@@ -356,8 +361,13 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   — a caller that wants the strict behaviour drops the structure on a non-empty note.
     radical = {"n_unpaired": n_unpaired, "atom": None, "site": None, "note": ""}
     if n_unpaired:
+        bsum = collections.Counter()
+        for (i, j), o in orders.items():
+            bsum[i] += o
+            bsum[j] += o
         free_atoms = [a for m in molecules if not m["metals"] for a in m["atoms"]]
-        cand = sorted(a for a in free_atoms if qat_all.get(a, 0) < 0)
+        cand = sorted(a for a in free_atoms
+                      if qat_all.get(a, 0) < 0 and VAL.get(el[a], 0) - bsum[a] >= 1)
         if not cand:
             radical["site"] = "metal" if mets else None
             if not mets:
@@ -442,7 +452,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             #   — **not** by reusing the fragment SMILES. The string comes out identical (same
             #   sanitize, same canonicalization) but `complex_smiles` is what returns the output
             #   atom order, and reusing the fragment left `atom_order` empty on every metal-free
-            #   molecule (reported by flower-om: 779 of them in a 3,000-structure sample).
+            #   molecule.
             qcx = {a: q for a, q in qat_all.items() if a in aset}
             smi, order = complex_smiles(el, mol["atoms"], {e: v for e, v in orders.items() if e[0] in aset},
                                         qcx, [], {}, with_map=complex_atom_map,

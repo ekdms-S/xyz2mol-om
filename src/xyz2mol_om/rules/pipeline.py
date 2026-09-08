@@ -314,7 +314,7 @@ def drop_saturated(el, G, ml_raw):
     there, **95 are real M–L bonds** and 100 of 101 are dicarbollide **cage carbons** bonded to
     three or four B, where `deg 5 > CAP 4` says nothing about the metal. With the cage exception
     the rule fires on **1 candidate in 55,519** on CSD (a `–SiMe₃` methyl carbon) and leaves the
-    holdout numbers unchanged, while removing the Gold-DIGR pathology.
+    holdout numbers unchanged.
     """
     if not SATVETO:
         return ml_raw

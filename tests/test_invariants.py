@@ -107,7 +107,7 @@ def test_kekule_matching_follows_the_likelihood():
         assert all(orders[e] == 1.0 for e in other)
 
 
-# ── 5·6. What `ml_bonds` may contain (reported by flower-om) ──────────────────
+# ── 5·6. What `ml_bonds` may contain ─────────────────────────────────────────────────
 #   The output used to be assembled from `ml_raw`, i.e. **before** T4's agostic removal, while
 #   the molecule SMILES was built from `ml_pred`, i.e. after. A consumer reading `ml_bonds` got a
 #   different graph from the one the SMILES describes. These two tests pin the T4 filters.

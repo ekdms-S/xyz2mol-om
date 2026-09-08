@@ -96,8 +96,8 @@ def test_metal_free_molecule_has_atom_order():
 
     A metal-free molecule used to reuse its fragment's SMILES, and the output order is what
     `complex_smiles` returns, so the field came back empty on exactly the case the feature exists
-    for -- an IRC endpoint whose organic product has separated (reported by flower-om: 779 of
-    3,000 structures). The SMILES string is unchanged by the fix; only the order is now filled.
+    for -- an IRC endpoint whose organic product has separated. The SMILES string is the same
+    either way; only the order is filled.
     """
     import numpy as np
 

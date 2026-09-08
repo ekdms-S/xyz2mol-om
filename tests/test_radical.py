@@ -5,7 +5,7 @@ electron read as a lone pair, so `CH3•` came out `CH3-`. With a metal present 
 is cancelled by a `+1` on the metal, so the total charge stayed right while the oxidation state
 did not, and no total-based check could see it.
 
-The four cases below are the ones the downstream report named, plus the two refusals.
+The cases below are the placements and the two refusals.
 """
 
 # ruff: noqa: E501
@@ -81,3 +81,24 @@ def test_more_than_one_unpaired_electron_is_refused():
     """Diradicals are out of scope — two electrons on different atoms cannot be placed."""
     with pytest.raises(ValueError, match="n_unpaired"):
         predict(["C", "H", "H", "H"], np.array(CH3, float), total_charge=0, n_unpaired=2)
+
+
+def test_a_structural_negative_charge_is_not_a_radical_site():
+    """A borate's `-1` is required by its valence, not a mispriced unpaired electron.
+
+    Neutralising a four-bond boron leaves `3 - 4 = -1` places for the electron, i.e. a neutral
+    B with four bonds, which RDKit rejects outright.
+    """
+    el = ["Cu", "Cl", "B", "O", "H", "O", "H", "O", "H", "C", "H", "H", "H"]
+    xyz = np.array([[0, 0, 0], [2.2, 0, 0],
+                    [0, 0, 12], [1.5, 0, 12], [2.0, 0.8, 12],
+                    [-0.75, 1.3, 12], [-1.3, 1.8, 12.6],
+                    [-0.75, -1.3, 12], [-1.3, -1.8, 12.6],
+                    [0, 0, 13.6], [0.9, 0, 14.2], [-0.5, 0.85, 14.2], [-0.5, -0.85, 14.2]],
+                   float)  # fmt: skip
+    wbo = {(0, x): 0.0 for x in range(1, 13)}
+    wbo[(0, 1)] = 0.9
+    r = predict(el, xyz, total_charge=-1, wbo=wbo, n_unpaired=1)
+    assert r["radical"]["site"] == "metal" and r["radical"]["atom"] is None
+    borate = [m for m in r["molecules"] if not m["metals"]][0]
+    assert borate["charge"] == -1 and borate["smiles_ok"]
