@@ -129,14 +129,14 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | Task | Metric | Value | Pool | Trivial baseline |
 |---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
-| T2 conjugation call | F1 | **0.9611** | — | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9904 / .7682 / .9769 / .9611** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
+| T2 conjugation call | F1 | **0.9615** | — | — |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9904 / .7699 / .9769 / .9615** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
 | T4 M–L·M–M bond existence | F1 | **0.9905** | 56,510 bonds | all bonded .5276 |
-| T5 haptic call | F1 | **0.9777** | 15,331 M–L bonds | all haptic .6766 |
-| T6 η^k (exact match per ligand) | accuracy | **0.9863** | 4,221 ligands | all `k=0` .8704 |
-| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7456 / .7317** | 39,540 bonds | — |
-| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8519** | 1,161 structures | reference-order 0.8528 |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8831** | 2,779 structures | reference-order 0.8698 |
+| T5 haptic call | F1 | **0.9778** | 15,331 M–L bonds | all haptic .6766 |
+| T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,221 ligands | all `k=0` .8704 |
+| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7461 / .7228** | 39,540 bonds | — |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8536** | 1,161 structures | reference-order 0.8528 |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8845** | 2,779 structures | reference-order 0.8698 |
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%.

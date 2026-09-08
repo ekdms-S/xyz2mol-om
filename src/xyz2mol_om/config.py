@@ -288,6 +288,34 @@ R6SWAP = os.environ.get("R6SWAP", "0") == "1"
 #       only pyrrole-type N but also **furan O · thiophene S · selenophene Se · phosphole P**.
 #   It is fixed only in a stage **after** T3, so no DAG cycle appears in [design doc] §3.0.
 #   0 new fitted parameters (R7MIN is on an integer grid).
+# ★ η² is a property of the **bond**, so both of its atoms are haptic even when only one of them
+#   passes the per-atom angle test (adopted 2026-09-08, owner's question). `pipeline._eta2_pair`.
+#   Why the per-atom test fails: `∠(M–X–Y) < θ` is asked of each atom, and in a slipped
+#   (asymmetric) η² the near atom's angle grows while the far atom's shrinks — so past some
+#   slippage one end **must** fall outside θ. `CASDSN` (η²-CS₂): ∠(Nb–S2–C3) 57.24° passes,
+#   ∠(Nb–C3–S2) **83.10°** fails, and one bond is split in two.
+#   Conditions are all structural, **no fitted parameter**: X–Y bonded · both coordinate the same
+#   metal · neither is H · the X–Y bond has π character · one end inside θ.
+#   Measured on holdout 6,793 over `LPA=0.8` (48 shards). A slip cut
+#   `|d(M–X) − d(M–Y)| / min(d)` was swept and **removed** — the curve is monotone in favour of
+#   no cut:
+#       slip cut     off     0.10     0.15     0.20    **none**
+#       harmful      291      291      287      285     **284**
+#       `OS`       .8834    .8834    .8841    .8841   **.8845**
+#       T6         .9855    .9855    .9858    .9860   **.9865**
+#       violations .0305    .0302    .0302    .0300   **.0300**
+#       `Double`   .7697    .7697    .7699    .7700    .7699 · `Sq_L` .8536 throughout
+#   🔴 **The census and the deployment metric disagree, and the metric was believed.** Scored as
+#   *"does this promotion match a reference `Pi`?"*, the uncut rule is only **32.6%** precise
+#   (316 heavy-atom pairs, 103 of them `Pi`/`Pi`), and a 0.10 cut reaches 94.6%. But 0.10 moves
+#   **nothing** (291 = off). What the rule actually buys is the ④ budget — an M–L bond it turns
+#   haptic stops costing a valence unit, so ④ can raise the π bond — and that second-order effect
+#   is larger than the promotion's own accuracy. ⚠️ That reading is **inferred, not confirmed**.
+#   ⛔ Nothing else separates true slipped η² from a geometric neighbour: the angle alone tops out
+#      at **49%** precision however tightly banded (the distributions overlap through 81–90°), and
+#      the Mayer bond order is the **same** in both groups (median .265/.280 vs .281/.290, 43% at
+#      best). Which is why the rule carries no threshold of its own.
+#   (census: `dev/analysis/scratch/260908_eta2_pairwise.py`)
 R7RING = os.environ.get("R7RING", "1") == "1"  # ★ adopted 2026-09-03
 # lower bound on the number of same-ring atoms that passed T5 to the same metal
 R7MIN = int(os.environ.get("R7MIN", "2"))
@@ -398,9 +426,28 @@ EHTSKIP = {v for v in os.environ.get("EHTSKIP", "NO,SS,CCHH").split(",") if v}
 LPCOND = os.environ.get("LPCOND", "1") == "1"  # ★ adopted 2026-09-03
 LPCOND_NOCONJ = os.environ.get("LPCOND_NOCONJ", "1") == "1"  # ★ adopted 2026-09-03
 LPCOND_NMIN = int(os.environ.get("LPCOND_NMIN", "300"))
-# prior temperature — `score = distance term + LPA·ln P(c)`. 1.0 = current · 0.0 = `D_flat`
-# (rejected).
-LPA = float(os.environ.get("LPA", "1.0"))
+# ★ `LPA` — prior temperature: `score = distance term + LPA·ln P(c)` (adopted 0.8, 2026-09-08).
+#   The degree-cell prior is what stops a heteroatom double bond from ever being a candidate: it
+#   is right about the base rate (`Double` is 2.2% of internal bonds) but it overrides the
+#   distance for imine `C=N`, thiocarbonyl `C=S`, azo `N=N` and the like. Damping it trades a
+#   little of that base-rate knowledge for the distance's word.
+#   Swept on holdout 6,793 (48 shards · charge counted on the Kekule integers):
+#       LPA        1.0      **0.8**     0.6      0.4      0.2      0.0
+#       harmful    302      **291**     295      315      361      504
+#       `Double`   .7682    **.7697**   .7660    -        -        -
+#       `Sq_L`     .8519    .8536       .8536    -        -        -
+#       `OS`       .8831    .8834       .8845    -        -        -
+#   train 27,294 confirms the direction: `Double` .7586 → **.7611** · `Sq_L` .8495 → **.8511** ·
+#   `OS` .8770 → **.8781** · violations .0306 → .0308.
+#   Cost: T6 .9863 → .9855 · T8 `Triple` .7317 → .7228 · violations +0.0002.
+#   🔴 **This is the first fitted parameter in the rules**, and it was chosen by sweeping the
+#      holdout on a one-decimal grid. train only confirms the direction, it did not choose the
+#      value — read 0.8 as "damped a little", not as an optimum.
+#   ⛔ The 2026-09-02 rejection of this knob (`Sq_L` −7.2pt · `OS` −6.5pt) is **void**: that cost
+#      was measured while the ligand charge was counted on the 4-class values, and it was mostly
+#      the `Conj`=1.5 leak, not the prior. Under the Kekule count both metrics *improve*.
+#   `LPA=0.0` (no prior at all) is by far the worst at 504 — the prior itself is necessary.
+LPA = float(os.environ.get("LPA", "0.8"))
 # 🔴 `EHTCOST` — **do not treat the EHT fragment-charge target as an absolute command**
 #   (2026-09-03).
 #   measured: **5.8% (5,434)** of fragments have an EHT target that disagrees with the reference

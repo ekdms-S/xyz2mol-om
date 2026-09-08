@@ -14,14 +14,14 @@ is always weighted by the distance likelihood.
 | task | holdout 6,793 | train 27,294 |
 |---|---|---|
 | T1 internal bond existence | .9998 | .9998 |
-| T3 `Single`/`Double`/`Triple`/`Conj` | **.9904 / .7682 / .9769 / .9611** | .9895 / .7586 / .9776 / .9587 |
+| T3 `Single`/`Double`/`Triple`/`Conj` | **.9904 / .7699 / .9769 / .9615** | .9896 / .7618 / .9782 / .9592 |
 | T4 M–L·M–M existence | .9905 | .9918 |
-| T5 haptic | .9777 | .9793 |
-| T6 η^k | .9863 | .9819 |
-| T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7456 / .7317** | .9934 / .7512 / .7728 |
-| T10 `Σq_L` · `OS` | **.8519 · .8831** | .8495 · .8770 |
-| valence-violating structures | .0303 | .0306 |
-| harmful `Double` errors | **302 bonds · 169 structures (2.49%)** | — |
+| T5 haptic | .9778 | .9791 |
+| T6 η^k | .9865 | .9830 |
+| T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7461 / .7228** | .9935 / .7527 / .7734 |
+| T10 `Σq_L` · `OS` | **.8536 · .8845** | .8507 · .8787 |
+| valence-violating structures | .0300 | .0300 |
+| harmful `Double` errors | **284 bonds · 158 structures (2.33%)** | — |
 | reported ligand charge ≠ the emitted structure's | **214 (3.15%)** | — |
 
 Feeding the **reference** bond orders to the same charge rule gives `Σq_L` .8528 · `OS` .8698.
@@ -136,11 +136,31 @@ that are not yet contaminated by the metal budget (see 5″).
 
 5.  [T5] that bond is haptic
            ⟺  ∠(M–X–Y) < θ = 81.02°   AND  X belongs to a π fragment
+           **or** the bond-level test below fires for a π bond X is an end of
            Y = the neighbor of X within its fragment whose **bond midpoint is closest to M**
            if false, σ-dative (the bond itself was already settled in 4, so it stays)
            π fragment = connected component of {Conj ∪ Double ∪ Triple} bonds
            ⇒ **X belongs to a π fragment ⟺ X touches a `Double`, `Triple`, or `Conj` bond.**
              🔴 **There is no fragment-size condition.** A lone isolated double bond is a π fragment too.
+
+5*. **η² is a property of the bond, not of each atom** — both ends of a π bond are haptic when
+         one end passes the angle test (adopted 2026-09-08 · `pipeline._eta2_pair` · 0 parameters)
+
+           both(M, X–Y) ⟺ X–Y is an internal bond with π character (`Double`/`Triple`/`Conj`)
+                       AND X and Y both have a T4 bond to the **same** M
+                       AND neither X nor Y is H
+                       AND ∠(M–X–Y) < θ  **or**  ∠(M–Y–X) < θ
+
+         why: the per-atom test splits a **slipped** (asymmetric) η². As the metal slides toward
+             one end, that end's angle grows and the far end's shrinks, so past some slippage one
+             end **must** fall outside θ — `CASDSN` (η²-CS₂): 57.24° passes, 83.10° fails, one
+             bond torn in two. Asking the bond instead needs no new constant.
+         🔴 applied in **pass 1 as well**, because what it buys is the ④ budget: a haptic M–L
+             bond costs 0 valence, which is what lets pass 2 raise the π bond at all.
+         ⚠️ Scored as *"does the promotion match a reference `Pi`?"* this rule is only **32.6%**
+             precise, yet every deployment metric improves (harmful `Double` 291 → **284** · `OS`
+             .8834 → **.8845** · T6 .9855 → **.9865** · violations .0305 → **.0300**). The budget
+             effect is larger than the promotion's own accuracy — **inferred, not confirmed**.
 
 5′. [R7] **Return an R2 donor inside a haptic ring to the π candidates**   (on by default)
          Turn it off with `R7RING=0`. 0 fitted parameters (`R7MIN` is an integer lattice).
@@ -219,7 +239,7 @@ constraining the next.
 | | question | how |
 |---|---|---|
 | **①②** | which bonds share a **delocalized π system**? | chemistry, 0 fitted parameters |
-| **③** | what order does the **geometry** want? | per-element-pair distance likelihood |
+| **③** | what order does the **geometry** want? | per-element-pair distance likelihood, prior damped by `LPA = 0.8` |
 | **④** | what can the **valence budget** afford? | hard constraint, maximum-weight matching |
 | **⑤** | does the fragment's **electron count** agree? | extended-Hückel fragment charge as a target |
 | **⑥** | emit **integers** | Kekulé matching |

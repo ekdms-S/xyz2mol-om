@@ -412,6 +412,37 @@ def _closest_mid(xyz, x, m, cand):
     return min(cand, key=lambda q: float(np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m])))
 
 
+def _eta2_pair(el, xyz, G, ml_pred, cls_now):
+    """η² is a property of the **bond**, so both of its atoms are haptic (see `config`).
+
+    A slipped η² has a large angle at the near atom and a small one at the far atom, so asking
+    `∠(M–X–Y) < θ` **per atom** must break the pair apart once the slippage is large enough.
+    Asked of the bond instead, one end inside θ is enough.
+
+    Conditions, all structural — **no fitted parameter**: X and Y are bonded, both coordinate the
+    same metal, neither is H (a hydrogen beside a coordinating atom is a geometric artifact — of
+    535 such holdout pairs **none** is `Pi`/`Pi` in the reference), and the X–Y bond has π
+    character (it is what would be donated).
+
+    Returns the `{(m, x)}` to add to the haptic set — always both atoms of a qualifying bond.
+    """
+    coord = collections.defaultdict(set)
+    for m, x in ml_pred:
+        coord[m].add(x)
+    out = set()
+    for m, xs in coord.items():
+        for a in xs:
+            for b in G[a]:
+                if b <= a or b not in xs or el[a] == "H" or el[b] == "H":
+                    continue
+                if cls_now.get((a, b)) not in (1, 2, 3):
+                    continue  # the bond must have π character to be an η² donor
+                if _angle_ok(xyz, m, a, b, THETA_HAPTIC) or _angle_ok(xyz, m, b, a, THETA_HAPTIC):
+                    out.add((m, a))
+                    out.add((m, b))
+    return out
+
+
 def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                   q_eht=None, rop=None):
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
@@ -445,6 +476,10 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         nb = list(G[x])
         if x in unsat0 and nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
             hap_pre.add((m, x))
+    # A slipped η² whose far end misses the per-atom angle test. Applied **here** as well as
+    #   below, because what it buys is the ④ budget: an M–L bond it turns haptic stops costing a
+    #   valence unit, which is exactly what pass 2 needs to raise the π bond.
+    hap_pre |= _eta2_pair(el, xyz, G, ml_pred, cls0)
     keep = [p for p in ml_pred if p not in hap_pre]
     # 🔴 T7 bridge tags — computed **here**, between the two passes, because pass 2's budget
     #   depends on them. `cls0` (pass-1, metal-free orders) is what makes the bond-order form of
@@ -484,6 +519,9 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         if nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
             hap.add((m, x))
             hap_by_m[m].add(x)
+    for m, x in _eta2_pair(el, xyz, G, ml_pred, cls):
+        hap.add((m, x))
+        hap_by_m[m].add(x)
     # R7 — restore an R2 donor inside a haptic ring as a π candidate (adopted 2026-09-03 ·
     #      the rule is [design doc] §3.1-R7)
     if R7RING:
