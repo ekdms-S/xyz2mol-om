@@ -102,3 +102,48 @@ def test_kekule_matching_follows_the_likelihood():
         orders, _ = kekulize(G, el, cls, w=w)
         assert all(orders[e] == 2.0 for e in want), f"the pi should sit on {want}"
         assert all(orders[e] == 1.0 for e in other)
+
+
+# ── 5·6. What `ml_bonds` may contain (reported by flower-om, 2026-09-08) ──────────────────
+#   The output used to be assembled from `ml_raw`, i.e. **before** T4's agostic removal, while
+#   the molecule SMILES was built from `ml_pred`, i.e. after. A consumer reading `ml_bonds` got a
+#   different graph from the one the SMILES describes. These two tests pin the T4 filters.
+
+
+def test_agostic_contact_is_not_a_bond():
+    """`C–H···M`: the H has one metal neighbour and one non-metal internal neighbour."""
+    from xyz2mol_om.rules.pipeline import drop_agostic
+
+    el = ["Ni", "C", "H", "H", "H"]
+    G = _chain(el, [(1, 2), (1, 3), (1, 4)])
+    assert drop_agostic(el, G, [(0, 2)]) == []
+    # a hydride bound to nothing else is kept, and so is a mu-H between two metals
+    el2 = ["Ni", "H"]
+    assert drop_agostic(el2, _chain(el2, []), [(0, 1)]) == [(0, 1)]
+    el3 = ["Ni", "Ni", "H"]
+    assert drop_agostic(el3, _chain(el3, []), [(0, 2), (1, 2)]) == [(0, 2), (1, 2)]
+
+
+def test_saturated_atom_takes_no_ml_bond():
+    """A carbon whose four internal neighbours already fill it cannot also bond a metal.
+
+    The three exceptions are load-bearing: H (else every M–H dies), B/Al, and **an atom bonded
+    to B/Al** — a dicarbollide cage carbon has `deg 5 > CAP 4` and its M–C is real (95 of the 97
+    such candidates on the CSD holdout are reference M–L bonds).
+    """
+    from xyz2mol_om.rules.pipeline import drop_saturated
+
+    el = ["Ni", "C", "H", "H", "H", "C"]
+    G = _chain(el, [(1, 2), (1, 3), (1, 4), (1, 5)])
+    assert drop_saturated(el, G, [(0, 1)]) == []          # sp3 C, deg 4 = CAP
+    # an sp2 carbon keeps its M–L bond: deg 3 leaves a place even though `b_int` is 4
+    el2 = ["Ni", "C", "C", "H", "H"]
+    G2 = _chain(el2, [(1, 2), (1, 3), (1, 4)])
+    assert drop_saturated(el2, G2, [(0, 1)]) == [(0, 1)]
+    # cage carbon (bonded to B) is exempt even at deg 5
+    el3 = ["Co", "C", "B", "B", "B", "C", "H"]
+    G3 = _chain(el3, [(1, 2), (1, 3), (1, 4), (1, 5), (1, 6)])
+    assert drop_saturated(el3, G3, [(0, 1)]) == [(0, 1)]
+    # H is never vetoed by this rule
+    el4 = ["Ni", "H", "B"]
+    assert drop_saturated(el4, _chain(el4, [(1, 2)]), [(0, 1)]) == [(0, 1)]

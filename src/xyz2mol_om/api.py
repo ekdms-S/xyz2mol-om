@@ -79,7 +79,7 @@ import networkx as nx
 import numpy as np
 
 from .charge import frag_charge_or_eht, kekulize, q_atom
-from .config import RCOV, centers
+from .config import RCOV, WMIN, centers
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
@@ -101,31 +101,13 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
         for x in idx:
             d = float(np.linalg.norm(xyz[x] - xyz[m]))
             tb, wv = dbond.get((el[m], el[x]), (c1g * (RCOV.get(el[x], 1.6) + RCOV.get(el[m], 1.6)), 0.0))
-            if d < tb and (wbo or {}).get((m, x), 1.0) > wv:
+            w_mx = (wbo or {}).get((m, x), 1.0)
+            if d < tb and w_mx > wv and w_mx >= WMIN:
                 raw.append((m, x))
     return raw
 
 
 MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} ([design doc] §3.1 (c))
-
-
-def _drop_agostic(el, G, ml_raw):
-    """Remove `C–H···M` only — μ-H and `B–H···M` (borohydride) are genuine 3c2e and are kept.
-
-    rule  remove ⟺ el[X] = H  AND  exactly 1 metal-like neighbor  AND  some internal neighbor is
-                   not metal-like
-    The agostic rule of [design doc] §3.0 [T4]. Same formula as the scorer
-    (`260831_propagation_prior_cv.py`).
-    """
-    nmet = collections.Counter(x for _m, x in ml_raw)
-    out = []
-    for m, x in ml_raw:
-        if el[x] == "H":
-            n_like = nmet[x] + sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
-            if n_like == 1 and any(el[y] not in MLIKE_EXTRA for y in G[x]):
-                continue
-        out.append((m, x))
-    return out
 
 
 def all_metals(r):
@@ -269,7 +251,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         #    `charge.is_cluster_frag` comment (2026-09-03).
         qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q))
         q_all[key] = qL
-        coord = sorted({x for _m, x in ml_raw if x in cs})
+        coord = sorted({x for _m, x in ml_pred if x in cs})
         coord_of[key] = coord
         # per-atom formal charge — stamped into the SMILES as-is
         qat = {}
@@ -284,7 +266,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             ok, why = verify_roundtrip(smi, el, comp, bk, qat)
         mlb_out = {}
         eta_out = {}
-        for m, x in ml_raw:
+        # 🔴 `ml_pred`, not `ml_raw` — the agostic `C–H···M` contacts that T4 removes must not
+        #   reappear in the output. They used to, so `ml_bonds` disagreed with the molecule's
+        #   SMILES, which is built from `ml_pred` (reported by flower-om, 2026-09-08).
+        for m, x in ml_pred:
             if x not in cs:
                 continue
             e = (min(m, x), max(m, x))

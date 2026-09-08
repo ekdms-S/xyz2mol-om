@@ -263,6 +263,24 @@ QHV = os.environ.get("QHV", "1") == "1"  # ★ adopted 2026-09-03
 #      Kekule count on **19 (0.52%, 6 structures)**, always by a whole electron pair, so ⑤ can
 #      chase a delta that is 2 off on ~0.5% of fragments. Whether fixing it helps is untested;
 #      the ceiling is small. `_qfrag` never returns a half-integer (0/3,632).
+# `SATVETO` — no M–X bond to a non-metal whose internal neighbours already fill its valence
+#   (`deg_int(X) >= CAP(X)`, H and B/Al excluded). Reported by flower-om 2026-09-08 on Gold-DIGR
+#   (21,196 DFT IRC endpoints): 99% of the valence violations there were one pattern,
+#   `(C, b_int 4, b_ML 1, CAP 4)` -- an M-C added to a carbon already saturated by its own bonds.
+#   Those contacts are long and weak (Mayer median 0.217 vs 0.915 for real M-C; 80.4% below 0.3).
+#   ⚠️ The test is on the neighbour **count**, not the bond-order sum: an eta2-alkene carbon has
+#      `deg 3` but `b_int 4 = CAP`, so a `b_int` form would veto every alkene/arene/Cp.
+SATVETO = os.environ.get("SATVETO", "1") == "1"
+# `WMIN` — a global Mayer floor for M-L candidates, on top of the per-element-pair `w_veto`.
+#   ✗ **Measured and rejected** (2026-09-08). The idea is sound on its face: the weak contacts
+#   that produce valence violations sit at Mayer ~0.2 while a real M-C is ~0.9. But a **haptic**
+#   M-C is weak *by construction* -- the pi electrons are shared over five or six carbons, so each
+#   individual M-C is small. A floor cannot tell the two apart. `WMIN=0.3` on the CSD holdout:
+#       T5 haptic   .9778 -> **.7241**      T4 .9916 -> .9057      T6 .9865 -> .9384
+#       M-L bonds scored 38,055 -> 35,224   valence violations .0205 -> .0190
+#   A 1.5%p gain in violations for a quarter of the haptic calls. Kept at 0.0 (off) so the
+#   experiment does not have to be rebuilt, not as a supported option.
+WMIN = float(os.environ.get("WMIN", "0.0"))
 # ★ `R6SWAP` — **for same-element bonds on one center, distance order and bond-order order must
 #   agree** (2026-09-03).
 #   Sites where **two or more atoms of the same element** hang off one center — nitro

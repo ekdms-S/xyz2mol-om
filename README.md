@@ -40,15 +40,15 @@ r = predict(elements, coords, total_charge=-1, wbo=wbo)
 
 ⚠️ **You may run with `wbo=None`**, but it costs more than it looks. The M–L decision falls back to
 distances alone; **internal** bond orders are essentially unchanged, but everything that touches the
-metal degrades and the output is far more often chemically impossible (holdout 6,793):
+metal degrades (holdout 6,793):
 
 | | with `wbo` | without |
 |---|---|---|
-| T4 M–L bond existence | .9905 | .9764 |
+| T4 M–L bond existence | .9916 | .9838 |
 | T8 M–L `Double` | .7461 | .6979 |
 | T5 haptic | .9778 | .9590 |
 | T6 η^k | .9865 | .9737 |
-| **valence-violating structures** | **3.00%** | **8.38%** |
+| **valence-violating structures** | **2.05%** | **2.47%** |
 | T3 internal `Double` | .7699 | .7696 |
 
 ⚠️ When you do pass `wbo`, fill **every** `(metal, atom)` pair. A missing pair is read as
@@ -99,6 +99,11 @@ r["molecules"] == [
 A **fragment** is a connected component of the internal bonds. Most are ligands — `ml_bonds` says
 what they coordinate — but a molecule with no metal has exactly one fragment that coordinates
 nothing, and that is how a free organic molecule appears.
+
+`ml_bonds` holds exactly the M–L bonds the pipeline decided on, so it **always agrees with the
+molecule's SMILES**. Contacts that T4 rejects are not in it: an agostic `C–H···M`, and a contact
+to an atom whose own bonds already fill its valence. Both are real close approaches, but neither
+is treated as a bond, so nothing in the output reports them.
 
 To walk the whole result without nesting loops:
 
@@ -252,7 +257,7 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
 | T2 conjugation call | F1 | **0.9615** | 87,581 bonds | — |
 | T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9904 / .7699 / .9769 / .9615** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
-| T4 M–L·M–M bond existence | F1 | **0.9905** | 56,510 bonds | all bonded .5276 |
+| T4 M–L·M–M bond existence | F1 | **0.9916** | 56,510 bonds | all bonded .5276 |
 | T5 haptic call | F1 | **0.9778** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,221 ligands | all `k=0` .8704 |
 | T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7461 / .7228** | 39,540 bonds | — |
@@ -280,7 +285,7 @@ spends 0, and an atom in a 3c2e bridge spends 1.0 in total however many M–L bo
 
 | Pool | Violating structures | Reference-label baseline |
 |---|---|---|
-| holdout 6,793 | **3.00%** | **0.4%** |
+| holdout 6,793 | **2.05%** | **0.4%** |
 
 ⚠️ The baseline is not 0 — the CSD reference labels themselves violate on about 0.4%
 (hypervalency · where the ionic/covalent cut is drawn · CSD notation conventions), so the figure

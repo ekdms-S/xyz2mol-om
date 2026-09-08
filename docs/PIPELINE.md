@@ -16,12 +16,12 @@ Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q
 |---|---|---|
 | T1 internal bond existence | .9998 | .9998 |
 | T3 `Single`/`Double`/`Triple`/`Conj` | **.9904 / .7699 / .9769 / .9615** | .9896 / .7618 / .9782 / .9592 |
-| T4 M–L·M–M existence | .9905 | .9918 |
+| T4 M–L·M–M existence | **.9916** | .9928 |
 | T5 haptic | .9778 | .9791 |
 | T6 η^k | .9865 | .9830 |
 | T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7461 / .7228** | .9935 / .7527 / .7734 |
 | T10 `Σq_L` · `OS` | **.8536 · .8845** | .8507 · .8787 |
-| valence-violating structures | .0300 | .0300 |
+| valence-violating structures | **.0205** | .0203 |
 | harmful `Double` errors | **284 bonds · 158 structures (2.33%)** | — |
 | reported ligand charge ≠ the emitted structure's | **214 (3.15%)** | — |
 
@@ -131,6 +131,17 @@ that are not yet contaminated by the metal budget (see 5″).
          agostic excluded: `C–H···M` is not counted as a bond
            ⟺ that H has exactly one metal-like neighbor and has an internal neighbor that is not metal-like
            (μ-H and `B–H···M` are kept — those are real 3c2e)
+         saturated atoms excluded: no M–X bond to an atom its own bonds already fill up
+           ⟺ el(X) ∉ {H, B, Al}  AND  no internal neighbor of X is B or Al  AND  deg_int(X) ≥ CAP(X)
+           `deg_int` counts **neighbors, not bond orders**: T4 runs before ③ so no order exists
+             yet, and an η²-alkene carbon has deg 3 with `b_int 4 = CAP` — a `b_int` form would
+             veto every alkene, arene and Cp
+           the B·Al exception covers **cage carbons** (a dicarbollide C bonded to 3–4 B has
+             deg 5 > CAP 4, which says nothing about the metal). Without it the rule removes 95
+             real M–L bonds on holdout; with it, it fires on 1 candidate in 55,519 there
+           what it is for: on off-distribution geometries (DFT reaction-path endpoints) a metal
+             often sits 2.4 Å from an already-saturated carbon. Those contacts are weak
+             (Mayer median 0.217 against 0.915 for a real M–C) and used to become bonds
 
 5.  [T5] that bond is haptic
            ⟺  ∠(M–X–Y) < θ = 81.02°   AND  X belongs to a π fragment
@@ -527,12 +538,12 @@ violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
 
 | Evaluation | Violating structures | Reference-label baseline (same count) |
 |---|---|---|
-| **holdout 6,793** | **3.00%** | **0.4%** |
-| train 27,294 | 3.00% | 0.4% |
+| **holdout 6,793** | **2.05%** | **0.4%** |
+| train 27,294 | 2.03% | 0.4% |
 
 ⚠️ **The baseline is not 0** — feeding the CSD reference labels as they are, **0.4%** of structures
 violate (hypervalency · ionic/covalent boundary · CSD notation conventions). Our value has to be
-read against that, so the excess is about **2.6%p**.
+read against that, so the excess is about **1.6%p**.
 
 🔴 A known residual: `B` and `Al` are treated as central atoms, but a Mayer cache built for true
 transition metals has no `B–X` entry, and a missing entry is read as "veto passed" — every one of
@@ -564,7 +575,8 @@ M–L candidates are missing, all `B`-centred**). Supplying `wbo` for `B` remove
 
 These rules carry **no fitted parameter** — each is a structural condition: Rule A · R2 · R3 · R4 ·
 R5 · R7 · the ⑤ EHT trust gate (composition list + nitro motif) · the ⑤ adjacent-same-sign veto ·
-the ④ unmatched-atom exception · the bond-level η² rule (5*) · the hypervalent charge formula.
+the ④ unmatched-atom exception · the bond-level η² rule (5*) · the hypervalent charge formula ·
+the T4 agostic and saturated-atom exclusions.
 
 Global constants:
 

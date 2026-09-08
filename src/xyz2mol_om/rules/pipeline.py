@@ -12,7 +12,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (BML3C_COST, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
+from ..config import (BML3C_COST, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -274,8 +274,6 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
 #     ④ are T5's Y candidates the fragment neighbors or all neighbors?
 #   ⇒ **Assembly is not left to the caller.** The caller supplies only the T4 candidates
 #     (`ml_raw`) and Mayer (`wbo`).
-#   ⚠️ The body of this function must **stay identical to** the same-named function in the release
-#      `xyz2mol-om/src/xyz2mol_om/pipeline.py`. Do not change only one side.
 MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} ([design doc] §3.1 (c))
 
 
@@ -295,6 +293,37 @@ def drop_agostic(el, G, ml_raw):
                 continue
         out.append((m, x))
     return out
+
+
+def drop_saturated(el, G, ml_raw):
+    """Remove an M–X candidate to an atom whose **internal neighbours already fill its valence**
+    (`SATVETO`, 2026-09-08 — reported by flower-om on the Gold-DIGR corpus).
+
+        remove ⟺ el[X] ∉ {H} ∪ {B, Al}  AND  no internal neighbour of X is B or Al
+                 AND  deg_int(X) ≥ CAP(el[X])
+
+    `deg_int` is the **number of internal neighbours**, not the bond-order sum. T4 runs before ③,
+    so no order exists yet; and since every bond order is ≥ 1, `deg_int ≥ CAP` already implies
+    `b_int ≥ CAP`. Using `b_int` instead would be wrong even if it were available: an η²-alkene
+    carbon has `deg 3` but `b_int 4 = CAP`, so a `b_int` test would veto every alkene, arene and
+    Cp coordination.
+
+    H is excluded — `CAP(H) = 1` and an H always has one internal neighbour, so the test would
+    veto every M–H bond, μ-H and borohydride included. Agostic `C–H···M` is `drop_agostic`'s job.
+    B and Al are excluded, **and so is any atom bonded to one**, because cluster bonding
+    (carborane) is outside the two-centre formalism — the same exception the valence-violation
+    tally makes. That second half is what the CSD holdout forced: of the 97 saturated candidates
+    there, **95 are real M–L bonds** and 100 of 101 are dicarbollide **cage carbons** bonded to
+    three or four B, where `deg 5 > CAP 4` says nothing about the metal. With the cage exception
+    the rule fires on **1 candidate in 55,519** on CSD (a `–SiMe₃` methyl carbon) and leaves the
+    holdout numbers unchanged, while removing the Gold-DIGR pathology.
+    """
+    if not SATVETO:
+        return ml_raw
+    return [(m, x) for m, x in ml_raw
+            if el[x] == "H" or el[x] in MLIKE_EXTRA
+            or any(el[y] in MLIKE_EXTRA for y in G[x])
+            or G.degree(x) < CAP.get(el[x], 99)]
 
 
 def is_3c2e(el0, b_use, n_center):
@@ -467,7 +496,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     if bml_model is None:
         bml_model, bml_fb = load_b_ml_mayer()
     coord = {x for _m, x in ml_raw}
-    ml_pred = drop_agostic(el, G, ml_raw)
+    ml_pred = drop_saturated(el, G, drop_agostic(el, G, ml_raw))
     # pass 1 — budget 0 · no M–L optimization
     cls0, _ = predict_T3_EHT(el, xyz, G, scores4, {}, None, q_eht, coord, rop)
     unsat0 = {x for e, v in cls0.items() if v in (1, 2, 3) for x in e}
