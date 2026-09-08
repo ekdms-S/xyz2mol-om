@@ -1,15 +1,16 @@
 # Pipeline — what is decided in what order, by what formula
 
+**Every decision rule** from one `xyz` coming in to bonds, orders, charges and oxidation states
+coming out. This document is the pipeline **as it is**: trial and error, rejected alternatives and
+the tuning history are kept in the project workspace, not here. Where a rule's threshold came from
+a fit, it says so.
 
-## ★ Current performance — re-measured 2026-09-08 (shipped defaults)
+Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q_frag` fragment charge ·
+`deg(X)` number of **internal** neighbors within the ligand (H included · M–L excluded) · `b_int(X)` sum of internal bond orders ·
+`b_ML(X)` sum of M–L bond orders · `n_ML(X)` **number** of M–L bonds of X · `n_lp(X)` lone pairs X still has to give ·
+`v` number of valence electrons.
 
-Three rules on top of the base pipeline, each a single idea with **no fitted parameter** —
-`ADJQVETO=1` (⑤ may not create adjacent same-sign formal charges) · `CAPINESS=1` (④ charges
-an atom `k`, not `k+1`, when ⑥ can leave it unmatched) · the ⑤ **EHT target trust gate**
-(`EHTMINFRAG` · `EHTSKIP=NO,SS,CCHH` · `EHTNITRO=1`). Two defect fixes are unconditional
-(one capacity unit per bond in ④; cluster detection on Kekulé integers), and the ⑥ matching
-is always weighted by the distance likelihood.
-`ADJQW=0 TAUD=0 ETAEXO=0 CAPMILP=0` (built, measured, rejected — see the `config` comments).
+## Current performance — shipped defaults, measured 2026-09-08
 
 | task | holdout 6,793 | train 27,294 |
 |---|---|---|
@@ -24,23 +25,20 @@ is always weighted by the distance likelihood.
 | harmful `Double` errors | **284 bonds · 158 structures (2.33%)** | — |
 | reported ligand charge ≠ the emitted structure's | **214 (3.15%)** | — |
 
+*harmful `Double`* is the deployment error metric: a reference `Double` the emitted Kekulé
+structure does not call 2, excluding positions where the fragment has an equally good alternative
+Kekulé structure, μ-CO π-acceptors, and charge-transfer resonance.
+
 Feeding the **reference** bond orders to the same charge rule gives `Σq_L` .8528 · `OS` .8698.
 On the **common pool** (1,155 / 2,635 structures — kekulizing the reference fails on a few) the
-comparison now reads `Σq_L` **.8563 vs .8528** and `OS` **.8774 vs .8725**: since 2026-09-08 the
-pipeline is **above** that line on both. It was never an upper bound — it measures how much of the
-remaining gap is our Lewis notation against tmQMg-L's rather than our bond orders — and what is
-left of the gap is notation, not order prediction.
+comparison reads `Σq_L` **.8563 vs .8528** and `OS` **.8774 vs .8725** — the pipeline is **above**
+that line on both. It was never an upper bound: it measures how much of the remaining gap is our
+Lewis notation against tmQMg-L's rather than our bond orders, and what is left of the gap is
+notation, not order prediction.
 
-🔴 **The numbers further down are from the date they were taken** — they record how a rule was
-adopted, not current performance. Quote this table.
-**Every decision rule** from one `xyz` coming in to bonds, orders, charges, and oxidation states coming out.
-This document is the pipeline **as it is**. Trial and error, rejected alternatives and the tuning history are
-kept in the project workspace (`docs/analysis/` · `docs/settings/`), not here.
-
-Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q_frag` fragment charge ·
-`deg(X)` number of **internal** neighbors within the ligand (H included · M–L excluded) · `b_int(X)` sum of internal bond orders ·
-`b_ML(X)` sum of M–L bond orders · `n_ML(X)` **number** of M–L bonds of X · `n_lp(X)` lone pairs X still has to give ·
-`v` number of valence electrons.
+**Fitted parameters in the rules: one.** The prior temperature `LPA = 0.8` (§T3 ③). Every other
+rule is a structural condition with no number to tune; the per-element-pair tables (`d_int`,
+`d_bond`, `b_ml_t8forms`, `scores4`) are fits and are listed at the end of this document.
 
 Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal order 1.5).
 
@@ -144,7 +142,7 @@ that are not yet contaminated by the metal budget (see 5″).
              🔴 **There is no fragment-size condition.** A lone isolated double bond is a π fragment too.
 
 5*. **η² is a property of the bond, not of each atom** — both ends of a π bond are haptic when
-         one end passes the angle test (adopted 2026-09-08 · `pipeline._eta2_pair` · 0 parameters)
+         one end passes the angle test (`pipeline._eta2_pair` · 0 fitted parameters)
 
            both(M, X–Y) ⟺ X–Y is an internal bond with π character (`Double`/`Triple`/`Conj`)
                        AND X and Y both have a T4 bond to the **same** M
@@ -157,10 +155,11 @@ that are not yet contaminated by the metal budget (see 5″).
              bond torn in two. Asking the bond instead needs no new constant.
          🔴 applied in **pass 1 as well**, because what it buys is the ④ budget: a haptic M–L
              bond costs 0 valence, which is what lets pass 2 raise the π bond at all.
-         ⚠️ Scored as *"does the promotion match a reference `Pi`?"* this rule is only **32.6%**
-             precise, yet every deployment metric improves (harmful `Double` 291 → **284** · `OS`
-             .8834 → **.8845** · T6 .9855 → **.9865** · violations .0305 → **.0300**). The budget
-             effect is larger than the promotion's own accuracy — **inferred, not confirmed**.
+         ⚠️ Judged one promotion at a time against a reference `Pi`, the rule is only **32.6%**
+             precise (316 candidate pairs on holdout, 103 of them `Pi`/`Pi`) — yet every metric
+             improves with it on (harmful `Double` 291 → **284** · `OS` .8834 → **.8845** · T6
+             .9855 → **.9865** · violations .0305 → **.0300**). The gain is the ④ budget it frees,
+             not the promotion's own accuracy. **That reading is inferred, not confirmed.**
 
 5′. [R7] **Return an R2 donor inside a haptic ring to the π candidates**   (on by default)
          Turn it off with `R7RING=0`. 0 fitted parameters (`R7MIN` is an integer lattice).
@@ -282,13 +281,13 @@ OUT  R2       a **lone-pair donor** heteroatom is part of π but its own bonds a
               forbid(e) ⟺ neither end of e touches another Conj bond
 ```
 
-⚠️ **`R3` covers every R2 donor, and the cost of that is one motif.** Restricting it to nitrogen
-(the default until 2026-09-08) was never derived — the argument holds for furan O and thiophene S
-just as it does for pyrrole N, and the O-only donor five-rings carry an average of **0.10 aromatic
-bonds out of 5** in the reference, i.e. they really are Kekulé. Widening it costs `Σq_L` 0.0129
-(15 structures) and `OS` 0.0046 (13), and **10 of the 12 structures that get worse are `C₃NO`
-five-rings** (isoxazole · oxazoline) with 3 more `C₃NS` — rings **mixing N with O or S**. Excluding
-just those was not tried; that condition would itself be read off the losses.
+⚠️ **`R3` covers every R2 donor.** Restricting it to nitrogen does not follow from its own
+argument — that argument holds for furan O and thiophene S exactly as for pyrrole N, and the
+O-only donor five-rings carry an average of **0.10 aromatic bonds out of 5** in the reference, so
+they really are Kekulé. The cost of the wider scope sits in one motif: of the structures whose
+`Σq_L` gets worse, **10 of 12 are `C₃NO` five-rings** (isoxazole · oxazoline) and 3 are `C₃NS` —
+rings **mixing N with O or S**, which are genuinely aromatic azoles. Excluding just those was
+measured and did not pay (it recovered 7 of 58).
 
 **Why R7 exists** (it lives at stage 5′ of the DAG, but its cause is here): once R2·R3 make a
 5-ring Kekulé, that ring has at most two double bonds, so **one atom drops out of the π set** and
@@ -298,12 +297,21 @@ order**. It is a patch on this section's side effect, not an independent rule.
 ### ③ Distance likelihood — what the geometry wants
 
 ```
-score(e, c) = − |d(e) − med[k, c]| / scl[k, c]  +  lp[k, cell(e), c]
+score(e, c) = − |d(e) − med[k, c]| / scl[k, c]  +  LPA · lp[k, cell(e), c]
 
   k       = element pair (sorted)             med = per-class distance median
   scl     = 1.4826 × MAD                      lp  = ln P(c | condition)
   cell(e) = (min(deg(X), 4), min(deg(Y), 4))  endpoint internal-degree pair, ordered with k
+  LPA     = 0.8                               prior temperature
 ```
+
+**Why the prior is damped (`LPA = 0.8`, the one fitted parameter).** The prior is right about the
+base rate — `Double` is only 2.2% of internal bonds — but in a cell such as `C(3)–N(3)` the amines
+and amides dominate so heavily that it overrides the distance for a genuine imine `C=N`, and ④
+never gets the bond as a candidate. Damping it trades a little of that base-rate knowledge for the
+geometry's word. The value was chosen on a one-decimal grid (harmful `Double`: 1.0 → 302 ·
+**0.8 → 291** · 0.6 → 295 · 0.4 → 315 · 0.2 → 361 · 0.0 → 504); dropping the prior altogether is by
+far the worst, so the prior itself is necessary.
 
 🔴 **The prior is conditioned on the degree cell, not globally per element pair** — because the
 same element pair is a different bond at different degrees:
@@ -355,12 +363,11 @@ many times, and run a **maximum-weight matching** (Blossom). `Triple` is confirm
 for bonds whose likelihood argmax is `Triple` and whose ends both have slack ≥ 2. M–L orders are
 solved inside the same matching.
 
-⚠️ **This is not the exact maximum** (measured 2026-09-08 — the text here used to claim it was).
-The greedy `Triple` pass runs before the matching, so it can spend slack the matching would have
-used better: **113 of 12,245** calls on holdout are suboptimal, median loss 4.58 in likelihood
-units. Solving ④ exactly with a MILP was built and **rejected** — it raised the ④ metrics but made
-the *deployment output* worse (harmful `Double` 305 → 313, measured before the 09-08 R3 change), because the stages do not share an
-objective.
+⚠️ **This is not the exact maximum.** The greedy `Triple` pass runs before the matching, so it can
+spend slack the matching would have used better: **113 of 12,245** calls on holdout are suboptimal,
+median loss 4.58 in likelihood units. Solving ④ exactly (a MILP — `CAPMILP` in `config`) raises the
+④ metrics but makes the *deployment output* worse, because the stages do not share an objective.
+The greedy solve is therefore kept on purpose.
 
 ⚠️ Only bonds with `score(Double) > score(Single)` are offered to the matching. A bond the
 likelihood scores as `Single` is never even a candidate for promotion — **114 of the 302 remaining
@@ -399,9 +406,8 @@ statement — *for this class of fragment the bare-fragment Hückel charge is no
 Overall the target is wrong 3.8% of the time, so the error is concentrated in these classes. Two
 details are load-bearing:
 
-- **Exactly two terminal O, not at least two.** Three is nitrate, and the target is right for
-  nitrate in **75 of 75** holdout fragments. The first version read `≥ 2` and discarded them for
-  nothing.
+- **Exactly two terminal O, not at least two.** Three terminal O is nitrate, and the target is
+  right for nitrate in **75 of 75** holdout fragments — counting `≥ 2` would discard them all.
 - **Composition, not size.** A size cut would also disable the 22,298 `CO` fragments, whose target
   is wrong only 1.7% of the time.
 
@@ -480,30 +486,27 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
 
 ## Performance
 
-**Current numbers are at the top of this file.** The table below is the *historical* one — the
-holdout as it stood in 2026-09-04, before `R7`, the `B` ligand switch, and everything adopted on
-09-07/08. It is kept because it is the record of the split's single blind opening.
+The numbers are at the top of this file. Two things about how they were obtained:
 
-| Metric | holdout 6,456 (2026-09-04 code) | train CV 26,075 (same date) |
-|---|---|---|
-| T3 `Single` / **`Double`** / `Triple` / `Conj` | .9900 / **.7258** / .9822 / .9631 | .9884 / **.7047** / .9809 / .9558 |
-| `Σq_L` · `OS(M)` exact match per structure | 80.9% · 81.3% | 82.5% · 83.9% |
-| T5 haptic F1 · T6 η^k | .9748 · .9860 | .9789 · .9812 |
-| valence violation (structures) | 2.06% | 2.71% |
-
-⚠️ The two T3 columns score **different pools** — the `B` switch brought 30,628 `B–X` bonds into
-scoring. On the common bond set `Double` reads .6888 → .6952.
+- The **holdout split is 6,793 structures never used in any fit**, and it was opened blind once
+  (at 6,456 structures, before `B` was admitted as a ligand centre — which is why an older table
+  quoting 6,456 is not comparable bond-for-bond).
+- `Σq_L` and `OS` are scored against tmQMg-L ligand charges and the roman numeral in the CSD
+  chemical name, which cover 23% and 41% of structures respectively. The other tasks are scored
+  against CSD `bond_type`, which covers all of them.
 
 ### What is left
 
-- **`Double` is the only weak class.** The rest are .98–.99.
-- Feeding the CSD reference bond orders wholesale to the same charge rule gives `Σq_L` **0.8528** ·
-  `OS` **0.8698** (re-measured 2026-09-08; the 83.4% / 85.6% printed here before was stale, and it is
-  a reference point, **not a ceiling** — its pool differs, and on the common pool the pair reads
-  0.8442 → 0.8528 and 0.8649 → 0.8725).
-  differs from our Lewis accounting (haptic charge convention · ionic/covalent boundary). **It is not prediction error.**
-- The remaining `Double` errors cluster in carbonyl `C–O` · imine `C–N` · thiocarbonyl `C–S` · azo `N–N`,
-  and close to half of them are a question of **how far `Conj` is taken**.
+- **`Double` is the only weak class.** The rest are .96–.99.
+- Feeding the CSD **reference** bond orders to the same charge rule gives `Σq_L` **0.8528** ·
+  `OS` **0.8698**. That is **not a ceiling** — it measures how far our Lewis conventions (haptic
+  charge convention · where the ionic/covalent cut is drawn) sit from tmQMg-L's, and the pipeline
+  is now **above** it on the common pool (`Σq_L` .8563 vs .8528 · `OS` .8774 vs .8725). What is
+  left of the gap is notation, not order prediction.
+- The remaining `Double` errors are **heteroatom double bonds** — imine `C=N`, thiocarbonyl `C=S`,
+  carbonyl `C=O`, azo `N=N`, nitroso `N=O`, selenocarbonyl `C=Se`. `Double` is only 2.2% of
+  internal bonds, and in a degree cell such as `C(3)–N(3)` the amines and amides dominate, so the
+  prior outweighs the distance and ④ never sees the bond as a candidate (§T3 ③, `LPA`).
 
 ### 🔴 Valence violation rate — the axis that is not in the performance table
 
@@ -517,21 +520,21 @@ violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
   ⚠️ 3c2e-tagged atoms and `B` are dropped from the tally — they are outside the two-center formalism
 ```
 
-| Evaluation | Structures | Violating atoms | **Violating structures** | Reference-label baseline (same count) |
-|---|---|---|---|---|
-| **holdout** | 6,456 | 201 / 385,913 = **0.05%** | **133 = 2.06%** | 28 = **0.43%** |
-| train CV | 26,075 | 1,045 / 1,547,807 = **0.07%** | **715 = 2.74%** | 103 = **0.40%** |
+| Evaluation | Violating structures | Reference-label baseline (same count) |
+|---|---|---|
+| **holdout 6,793** | **3.00%** | **0.4%** |
+| train 27,294 | 3.00% | 0.4% |
 
-⚠️ **The baseline is not 0** — feeding the CSD reference labels as they are, **0.4%** of structures violate
-(hypervalency · ionic/covalent boundary · CSD notation conventions). Our value has to be read **against that**:
-holdout excess **1.6%p**.
+⚠️ **The baseline is not 0** — feeding the CSD reference labels as they are, **0.4%** of structures
+violate (hypervalency · ionic/covalent boundary · CSD notation conventions). Our value has to be
+read against that, so the excess is about **2.6%p**.
 
-**What the 2.74% (train CV) violations are** — μ-bridge 74 · other 969 · 164 exceed on T3 alone.
-🔴 A known residual: `B` and `Al` are central atoms, but the Mayer cache holds only true transition metals, so `B–X` is
-always missing, and every one of those missing entries becomes an M–L bond that eats the `CAP` budget of the neighboring `C` and `H`
-(measured: **6.0% of M–L candidates are missing, all of them `B`-centered**).
-**The ⑥ output converter (kekulization) removes the spurious violations** that arise from converting `Conj` to 1.5 —
-most of what this metric would otherwise count.
+🔴 A known residual: `B` and `Al` are treated as central atoms, but a Mayer cache built for true
+transition metals has no `B–X` entry, and a missing entry is read as "veto passed" — every one of
+those becomes an M–L bond that eats the `CAP` budget of the neighbouring `C` and `H` (**6.0% of
+M–L candidates are missing, all `B`-centred**). Supplying `wbo` for `B` removes this.
+The ⑥ output converter removes the *spurious* violations that would otherwise come from counting
+a `Conj` bond as 1.5.
 
 ### Trivial baselines (always read the performance next to these)
 
@@ -556,21 +559,21 @@ most of what this metric would otherwise count.
 | `data/b_ml_mayer.csv` | T8 likelihood form (old form, fallback) | 420 pairs |
 | `data/scores4.json` | T3 distance likelihood `med`·`scl`·`lp`·`lp_cell` | 15 element pairs · 54 cells |
 
-The rules have **0 fitted parameters**: Rule A · R2 · R3 · R4 · R5 · R7 · the ⑤ trust gate
-(composition list + nitro motif) · the ⑤ adjacent-same-sign veto · the ④ unmatched-atom exception ·
-the hypervalent charge formula.
+These rules carry **no fitted parameter** — each is a structural condition: Rule A · R2 · R3 · R4 ·
+R5 · R7 · the ⑤ EHT trust gate (composition list + nitro motif) · the ⑤ adjacent-same-sign veto ·
+the ④ unmatched-atom exception · the bond-level η² rule (5*) · the hypervalent charge formula.
 
-Global constants — five, and two of them are quoted to more digits than the data supports:
+Global constants:
 
 | constant | value | what it is |
 |---|---|---|
+| `LPA` | 0.8 | prior temperature in the ③ likelihood — **the one fitted parameter in the rules**, chosen on a one-decimal grid |
+| `θ_haptic` | 81.02° | M–X–Y angle below which an M–L bond is side-on — **fitted**; the two decimals are not meaningful |
 | `τ_plane` | 0.05 Å | ring planarity tolerance (Rule A · R4) |
-| `θ_haptic` | 81.02° | M–X–Y angle below which an M–L bond is haptic — **fitted**; the two decimals are not meaningful |
 | EHT cutoff | −10 eV | occupied-orbital cut in the fragment charge |
-| `LPCOND_NMIN` | 300 | samples a degree cell needs before its prior is used — a **statistical floor**, not chemistry |
+| `LPCOND_NMIN` | 300 | samples a degree cell needs before its own prior is used — a **statistical floor**, not chemistry |
 | 3c2e cost | 1.0 | valence a bridging atom spends in total for its M–L bonds — one shared pair is one bond |
 
-⚠️ The `CCHH` entry of the ⑤ composition list is the one place where the choice is **measured
-rather than derived** (66.9% target error rate — the weakest of the three); it is flagged in §T3.
-`R3`'s scope was such a place until 2026-09-08 and is no longer: it now covers every R2 donor,
-which is what its own argument implies.
+⚠️ Two choices in this pipeline are **measured rather than derived**, and are flagged where they
+are used: the `CCHH` entry of the ⑤ composition list (66.9% target error rate — the weakest of the
+three) and the value of `LPA`.

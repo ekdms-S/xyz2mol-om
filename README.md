@@ -37,8 +37,18 @@ r = predict(elements, coords, total_charge=-1, wbo=wbo)
 | `total_charge` | total charge of the complex. Without it, oxidation states and the complex SMILES are not produced |
 | `wbo` | `{(metal idx, atom idx): Mayer bond order}` — output of xtb GFN2 `--sp --wbo` |
 
-⚠️ **You may run with `wbo=None`** — the M–L decision falls back to distances and **performance
-drops slightly** (M–L `Double` F1 0.73 → 0.70 · bond existence F1 0.973 → 0.964 · internal bonds nearly unchanged).
+⚠️ **You may run with `wbo=None`**, but it costs more than it looks. The M–L decision falls back to
+distances alone; **internal** bond orders are essentially unchanged, but everything that touches the
+metal degrades and the output is far more often chemically impossible (holdout 6,793):
+
+| | with `wbo` | without |
+|---|---|---|
+| T4 M–L bond existence | .9905 | .9764 |
+| T8 M–L `Double` | .7461 | .6979 |
+| T5 haptic | .9778 | .9590 |
+| T6 η^k | .9865 | .9737 |
+| **valence-violating structures** | **3.00%** | **8.38%** |
+| T3 internal `Double` | .7699 | .7696 |
 
 ⚠️ When you do pass `wbo`, fill **every** `(metal, atom)` pair. A missing pair is read as
 "veto passed", not "unknown" — xtb's `wbo` file omits near-zero pairs, so build
@@ -126,10 +136,10 @@ tmQMg-L `q_ligand`, and the roman numeral in the CSD `chemical_name` for the oxi
 ⚠️ Fit and evaluation both use CSD experimental structures **relaxed with GFN2-xTB**.
 Coordinates from another source (raw CSD, DFT, a force field) are off-distribution.
 
-| Task | Metric | Value | Pool | Trivial baseline |
+| Task | Metric | Value | Pool | Baseline |
 |---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
-| T2 conjugation call | F1 | **0.9615** | — | — |
+| T2 conjugation call | F1 | **0.9615** | 87,581 bonds | — |
 | T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9904 / .7699 / .9769 / .9615** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
 | T4 M–L·M–M bond existence | F1 | **0.9905** | 56,510 bonds | all bonded .5276 |
 | T5 haptic call | F1 | **0.9778** | 15,331 M–L bonds | all haptic .6766 |
@@ -139,7 +149,8 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8845** | 2,779 structures | reference-order 0.8698 |
 
 The pool differs per task because the references do: `bond_type` covers every structure,
-tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%.
+tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseline column is the
+**trivial** prediction for that task, except the two `reference-order` entries — see below.
 
 ⚠️ **`reference-order` is not an upper bound.** It is what the same charge rule produces when the
 **reference** bond orders are fed to it (CSD labels through `charge.kekulize`), so it measures how
@@ -148,20 +159,21 @@ slightly smaller (1,155 / 2,635 structures — kekulization of the reference fai
 must not be read against the column to its left. **On the common pool** the pipeline is now
 **above** it: `Σq_L` **0.8563 vs 0.8528** and `OS` **0.8774 vs 0.8725**. What is left of the gap
 to a perfect score is notation, not order prediction.
-(Re-measured 2026-09-08 after the ligand charge moved onto the emitted Kekulé integers;
-the figures previously printed here, 83.4% and 85.6%, were stale.)
 
 ### Valence violations — chemical validity of the output
 
 `b_int(X) + b_ML(X) > CAP(X)` for a non-metal X (Kekulé count · 3c2e and B excluded).
 
-`b_ML` is what the (4) constraint spends: **1.0 per non-haptic M–L bond**.
+`b_ML` is what the ④ valence constraint spends: **1.0 per non-haptic M–L bond** (a haptic bond
+spends 0, and an atom in a 3c2e bridge spends 1.0 in total however many M–L bonds it has).
 
 | Pool | Violating structures | Reference-label baseline |
 |---|---|---|
-| holdout 6,793 | **3.02%** | 0.68% |
+| holdout 6,793 | **3.00%** | **0.4%** |
 
-⚠️ The baseline is not 0 — the CSD reference labels themselves violate on 0.4–0.7%.
+⚠️ The baseline is not 0 — the CSD reference labels themselves violate on about 0.4%
+(hypervalency · where the ionic/covalent cut is drawn · CSD notation conventions), so the figure
+has to be read against that.
 
 **Against other tools** (holdout; each tool appears only in a pool where it succeeds on every
 structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm succeeded):
@@ -176,10 +188,11 @@ structure — `TOOL` = all 3 external tools succeeded, `X2M_TM` = xyz2mol_tm suc
 | **X2M_TM** 5,479 | **xyz2mol-om** | **0.01%** | **0.40%** | 3.83% |
 | | xyz2mol_tm | 0.17% | 4.87% | 43.49% |
 
-⚠️ **Our own rows in this table were measured on 2026-08-31, before `ADJQVETO` was adopted**
-(2026-09-07); the external tools' rows are unaffected. On the whole holdout the adoption moved
-violating structures by **+0.03%p** (2.99% → 3.02%), so expect a shift of that size here. It has
-not been re-measured, because the run also drives the three external tools live.
+⚠️ **Our own rows here come from an earlier revision of the pipeline** and have not been
+re-measured, because the run drives the three external tools live; the external rows are
+unaffected. On the whole holdout our figure has moved by less than 0.1%p since, so read these rows
+as the comparison they are for — the gap between tools, not our current absolute value (that is in
+the table above).
 
 The `b_int`-only columns are the fair comparison (every tool can produce that) — we are lowest
 in all three pools. ⚠️ **Do not compare the `b_int`+`b_ML` column across tools**: xyz2mol_tm
