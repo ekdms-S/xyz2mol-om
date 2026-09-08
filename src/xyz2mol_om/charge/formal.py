@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .config import (ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
+from ..config import (ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
 
 
 def q_atom(e, b, deg=None, nb=()):

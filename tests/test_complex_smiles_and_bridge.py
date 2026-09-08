@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 
 from xyz2mol_om import predict
-from xyz2mol_om.pipeline import bridge_tags
+from xyz2mol_om.rules.pipeline import bridge_tags
 
 EL = ["Mo", "N", "O", "H", "Cl", "Cl", "Cl"]
 XYZ = np.array(

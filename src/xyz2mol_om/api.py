@@ -67,11 +67,11 @@ import numpy as np
 
 from .charge import frag_charge_or_eht, kekulize, q_atom
 from .config import RCOV, centers
-from .smiles import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
-from .connectivity import load_dint
-from .eht import eht_frag_charges
-from .likelihood import load_scores4
-from .pipeline import bml_budget, predict_T3_T5
+from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
+from .geometry import load_dint
+from .charge import eht_frag_charges
+from .rules import load_scores4
+from .rules import bml_budget, predict_T3_T5
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):

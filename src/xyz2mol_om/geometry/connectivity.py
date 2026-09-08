@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import csv
 
-from .config import DATA, RCOV, USE_DINT
+from ..config import DATA, RCOV, USE_DINT
 
 
 DINT_CSV = DATA / "d_int.csv"

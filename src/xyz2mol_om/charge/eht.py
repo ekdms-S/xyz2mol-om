@@ -12,7 +12,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import EHT_CUTOFF, METALS, _EHT_VE
+from ..config import EHT_CUTOFF, METALS, _EHT_VE
 
 
 def eht_frag_charges(el, xyz, G):

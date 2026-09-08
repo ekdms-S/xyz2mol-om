@@ -10,7 +10,8 @@ Structure: Co2(CO)8, the C2v bridged isomer, relaxed with GFN2-xTB (Co-Co 2.514 
 not passed; for this molecule the distance fallback gives the same answer.
 """
 
-from xyz2mol_om import pipeline, predict
+from xyz2mol_om import predict
+from xyz2mol_om.rules import pipeline
 
 # Co2(CO)8 (C2v, bridged) · GFN2-xTB optimized
 CO2CO8 = [

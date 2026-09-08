@@ -10,8 +10,8 @@ from __future__ import annotations
 import networkx as nx
 import numpy as np
 
-from .config import CAP, R3MODE, R3RING, R4RING, RULEA, TAU_P, _LP_DEG
-from .geometry import plane_rms
+from ..config import CAP, R3MODE, R3RING, R4RING, RULEA, TAU_P, _LP_DEG
+from ..geometry import plane_rms
 
 
 def rule_a_ok(n):

@@ -7,11 +7,14 @@
 # ruff: noqa: E501
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 
-def read_xyz(p):
-    L = p.read_text().split("\n")
+def read_xyz(path):
+    """Read an `xyz` file — returns `(elements, coords)`. `path` may be a `str` or a `Path`."""
+    L = Path(path).read_text().split("\n")
     n = int(L[0])
     el, x = [], np.empty((n, 3))
     for k in range(n):

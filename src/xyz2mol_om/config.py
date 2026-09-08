@@ -289,7 +289,7 @@ R6SWAP = os.environ.get("R6SWAP", "0") == "1"
 #   It is fixed only in a stage **after** T3, so no DAG cycle appears in [design doc] §3.0.
 #   0 new fitted parameters (R7MIN is on an integer grid).
 # ★ η² is a property of the **bond**, so both of its atoms are haptic even when only one of them
-#   passes the per-atom angle test (adopted 2026-09-08, owner's question). `pipeline._eta2_pair`.
+#   passes the per-atom angle test (adopted 2026-09-08, owner's question). `rules.pipeline._eta2_pair`.
 #   Why the per-atom test fails: `∠(M–X–Y) < θ` is asked of each atom, and in a slipped
 #   (asymmetric) η² the near atom's angle grows while the far atom's shrinks — so past some
 #   slippage one end **must** fall outside θ. `CASDSN` (η²-CS₂): ∠(Nb–S2–C3) 57.24° passes,

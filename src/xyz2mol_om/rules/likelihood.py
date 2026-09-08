@@ -14,7 +14,7 @@ import json
 
 import numpy as np
 
-from .config import DATA, LPCOND_NMIN
+from ..config import DATA, LPCOND_NMIN
 
 
 def deg_cell(el, a, b, deg):

@@ -10,6 +10,7 @@ It is built to handle organometallics as well, hence the `-om` in the name.
 | `numpy` | ≥ 1.23 | coordinates, distances |
 | `networkx` | ≥ 3.0 | graphs, rings, connected components |
 | `rdkit` | ≥ 2023.3 | SMILES · EHT fragment charge (`rdEHTTools`) |
+| (optional) `matplotlib` | ≥ 3.5 | `draw()` — the 2D figure. Not needed for `predict` |
 | (optional) `pytest`·`ruff` | — | tests, lint |
 
 Python ≥ 3.10. Validated on Python 3.13.5 · rdkit 2025.09.6 · numpy 2.1.3 · networkx 3.4.2.
@@ -108,7 +109,7 @@ input_idx = sorted(lg["coordinating"])[at.GetAtomMapNum() - 1]
 ## Examples — `examples/`
 
 Five real CSD structures. Each example comes as four files — `<name>.xyz` (coordinates) · `<name>.wbo.json`
-(total charge + Mayer bond orders) · `<name>.result.json` (**the full pipeline output**) · `<name>.png` (Kekulé 2D graph).
+(total charge + Mayer bond orders) · `<name>.result.json` (**the full pipeline output**) · `<name>.png` (the figure `draw()` produces).
 
 ```bash
 python examples/run_examples.py            # runs all 5 and rewrites <name>.result.json
@@ -127,6 +128,67 @@ python examples/draw_examples.py           # redraw the PNGs
 
 To save a result yourself use `save_json(r, path)`, and to read it back `load_json(path)`
 (bond keys `(i, j)` are stored as `"i,j"` and converted back on read).
+
+### Drawing a result — `draw()`
+
+```python
+from xyz2mol_om import predict, read_xyz, draw
+
+el, xyz = read_xyz("complex.xyz")          # or your own lists
+r = predict(el, xyz, total_charge=-2, wbo=wbo)
+draw(el, xyz, r, "complex.png", title="[Re2Cl8]2-")
+```
+
+It takes **the same two inputs you gave `predict`, plus what `predict` returned** — the geometry is
+what it draws, and the result is what it labels.
+
+| argument | | what it is |
+|---|---|---|
+| `elements` | required | the element list passed to `predict` |
+| `coords` | required | the `(n, 3)` coordinates passed to `predict` — **the figure is this geometry**, not a 2D layout |
+| `result` | required | the dict `predict` returned (`metals` · `ligands` · `bonds_kekule` · `ml_bonds` · `eta` · `charge`) |
+| `out` | required | where to write; the extension picks the format (`.png`, `.pdf`, `.svg`) |
+| `title` | `""` | first title line |
+| `subtitle` | auto | second line; by default the per-ligand charges and η, e.g. `q0=-1 η5 · q1=-1` |
+| `highlight` | `()` | internal bonds `{(i, j), …}` to draw thick red — for pointing at a disputed bond |
+| `projection` | auto | a projection returned by an earlier call, to put every atom in the same place |
+
+It returns the projection it used. Pass that back as `projection=` for a second figure and the two
+become comparable atom by atom — which is the only way to read a reference beside a prediction:
+
+```python
+proj = draw(el, xyz, reference, "ref.png", title="reference")
+draw(el, xyz, r, "pred.png", title="prediction", projection=proj, highlight={(2, 3)})
+```
+
+**What you see.** The projection is the least cluttered view of the real geometry — an RDKit 2D
+layout collapses haptic rings and chelates onto themselves, which is why this is drawn from
+coordinates instead. Internal bonds get 1/2/3 lines from `bonds_kekule`; M–L bonds are arrows
+(**σ** solid black · **haptic** green dotted · **bridge** orange dashed); M–M bonds are purple,
+one line per order; the metal is a purple circle carrying its oxidation state; a non-metal is
+labelled with its formal charge when non-zero, and a neutral carbon is just a dot. Terminal H is
+hidden, but an H on a metal (hydrido, 3c2e bridge) is kept.
+
+⚠️ **`matplotlib` is required for this function only** — it is not a dependency of the package, and
+`predict` does not need it. The five figures in `examples/` are made by `examples/draw_examples.py`,
+which is nothing more than a loop over this call.
+
+## Package layout
+
+```
+xyz2mol_om/
+├── api.py        predict() — the only orchestrator: it calls the stages below in order
+├── config.py     every constant, threshold and switch, with the measurement behind it
+├── data/         the fitted tables (per-element-pair distances, thresholds, likelihood)
+├── geometry/     coordinates in, connectivity out — no chemistry
+├── rules/        the decision rules: conjugation · likelihood · valence solvers · M–L order · pipeline
+├── charge/       formal charge, fragment charge, Kekulé conversion, extended-Hückel charge
+└── output/       SMILES · RDKit mol · JSON · figure
+```
+
+Everything a caller normally needs is re-exported at the top: `from xyz2mol_om import predict,
+read_xyz, draw, save_json`. The subpackages are there for reading the code, and each one's
+`__init__` says what it is for.
 
 ## Performance
 

@@ -96,7 +96,7 @@ two passes — they are what pass 2's budget is made of.
              │                                             3c2e spends `BML3C_COST` in total
              └─────────────────────────┬─────────────────────────┘
                                        ↓
-                        `bml` budget fixed  (`pipeline.bml_budget`)
+                        `bml` budget fixed  (`rules.pipeline.bml_budget`)
                                        ↓
                    3. [T3] pass 2     bml · ml_sc
                                        │   7. [T8] M–L orders are solved **inside** this
@@ -142,7 +142,7 @@ that are not yet contaminated by the metal budget (see 5″).
              🔴 **There is no fragment-size condition.** A lone isolated double bond is a π fragment too.
 
 5*. **η² is a property of the bond, not of each atom** — both ends of a π bond are haptic when
-         one end passes the angle test (`pipeline._eta2_pair` · 0 fitted parameters)
+         one end passes the angle test (`rules.pipeline._eta2_pair` · 0 fitted parameters)
 
            both(M, X–Y) ⟺ X–Y is an internal bond with π character (`Double`/`Triple`/`Conj`)
                        AND X and Y both have a T4 bond to the **same** M
@@ -178,7 +178,7 @@ that are not yet contaminated by the metal budget (see 5″).
          Y candidates: X is by definition not in a π fragment, so the "same-fragment neighbor" of 5 cannot be used ⇒
              pick among the **neighbors that do belong to a π fragment**. η^k is added to that Y's fragment.
 
-5″. [T7] bridge tag — the **type** of an existing M–L bond, `pipeline.bridge_tags`
+5″. [T7] bridge tag — the **type** of an existing M–L bond, `rules.pipeline.bridge_tags`
 
            n_center(X) = n_ML(X) + (internal neighbours of X whose element is B·Al)
            b_use(X)    = b_int(X) + n_ML(X)        b_int from the **pass-1** Kekule orders
@@ -460,7 +460,7 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
         monocyclic all-carbon `CmHm`  →  Hückel:  z = m − (4n+2) minimizing |m − h| (larger h on a tie)
         otherwise                     →  sum of (a) over the ⑥ Kekulé integers
 
-(c) 3c2e — the decision itself is **T7 at stage 5″** of the DAG, not here. `charge.py` has no
+(c) 3c2e — the decision itself is **T7 at stage 5″** of the DAG, not here. `charge/formal.py` has no
     3c2e branch: a bridging atom gets exactly the same `q_atom(element, b_int)` as any other.
     The tag reaches the charge only **indirectly**, through the internal orders that the ④·⑥
     budget allows:  budget → `b_int` → `q_atom` → `q_L` → `OS(M)`.

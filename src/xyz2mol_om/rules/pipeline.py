@@ -12,13 +12,13 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (BML3C_COST, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
+from ..config import (BML3C_COST, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
-from .charge import _qfrag, atom_bond_sums, q_atom
+from ..charge.formal import _qfrag, atom_bond_sums, q_atom
 from .conjugation import conj_forbidden, lp_donor, rule_a_ok
-from .eht import eht_frag_charges
-from .geometry import plane_rms
+from ..charge.eht import eht_frag_charges
+from ..geometry import plane_rms
 from .likelihood import deg_cell
 from .solvers import _kek_val, _solve_cap, _solve_sc, r6_swap
 from .ml_order import load_b_ml_mayer, ml_order_scores, ml_order_scores_dist

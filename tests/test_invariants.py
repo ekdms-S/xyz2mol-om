@@ -17,8 +17,8 @@ from __future__ import annotations
 import networkx as nx
 
 from xyz2mol_om.charge import is_cluster_frag, kekulize
-from xyz2mol_om.pipeline import _eht_untrusted, _is_nitro
-from xyz2mol_om.solvers import _solve_cap
+from xyz2mol_om.rules.pipeline import _eht_untrusted, _is_nitro
+from xyz2mol_om.rules.solvers import _solve_cap
 
 
 def _chain(el, bonds):

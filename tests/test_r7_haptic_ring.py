@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import numpy as np
 
-import xyz2mol_om.pipeline as pipeline
+import xyz2mol_om.rules.pipeline as pipeline
 from xyz2mol_om import predict
 
 # `HOQNOQ` (from CSD · `ref_xtb2` geometry)

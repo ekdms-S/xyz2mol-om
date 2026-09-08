@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import CLS, DATA, T8FORM
+from ..config import CLS, DATA, T8FORM
 
 
 B_ML_CSV = DATA / "b_ml_mayer.csv"

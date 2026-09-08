@@ -3,21 +3,19 @@
     from xyz2mol_om import predict
     r = predict(elements, coords, total_charge=0, wbo=wbo)
 
+`draw(elements, coords, r, "out.png")` renders the result from the real geometry.
+
 What is used (decision rules and formulas) and the performance figures are in `docs/PIPELINE.md`.
 """
 
 from .api import predict
-from .assemble import assemble_complex
-from .charge import frag_charge, kekulize, q_atom
+from .charge import eht_frag_charges, frag_charge, kekulize, q_atom
 from .config import METALS, METALS_HARD, RCOV
-from .connectivity import load_dint
-from .eht import eht_frag_charges
-from .geometry import read_xyz
-from .likelihood import deg_cell, fit_scores4, load_scores4, scores4_meta
-from .ml_order import load_b_ml_mayer, ml_order_scores, predict_T8
-from .pipeline import predict_T3_EHT
-from .serialize import from_jsonable, load_json, save_json, to_jsonable
-from .smiles import ligand_smiles, verify_roundtrip
+from .geometry import load_dint, read_xyz
+from .output import (assemble_complex, draw, from_jsonable, ligand_smiles, load_json,
+                     projection_axes, save_json, to_jsonable, verify_roundtrip)
+from .rules import (deg_cell, fit_scores4, load_b_ml_mayer, load_scores4, ml_order_scores,
+                    predict_T3_EHT, predict_T8, scores4_meta)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -30,6 +28,9 @@ __all__ = [
     "METALS_HARD",
     "RCOV",
     "assemble_complex",
+    # 2D figure from the real geometry (needs matplotlib, an optional dependency)
+    "draw",
+    "projection_axes",
     "predict_T3_EHT",
     "load_scores4",
     "scores4_meta",

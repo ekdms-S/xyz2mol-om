@@ -13,9 +13,9 @@ import collections
 import networkx as nx
 import numpy as np
 
-from .config import (CAP, CAPDUP_MAX, CAPMILP, CAPMILP_MAX, ORD4,
+from ..config import (CAP, CAPDUP_MAX, CAPMILP, CAPMILP_MAX, ORD4,
                      R6SWAP, TAUD, VTGT)
-from .charge import _qfrag, frag_charge, q_atom
+from ..charge.formal import _qfrag, frag_charge, q_atom
 
 
 def _kek_val(G, el, cls):
