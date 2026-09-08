@@ -235,17 +235,17 @@ R5SOLO = os.environ.get("R5SOLO", "1") == "1"  # ★ adopted 2026-09-03
 #   rule see the `q_atom` comment)
 QHV = os.environ.get("QHV", "1") == "1"  # ★ adopted 2026-09-03
 # ★ The reported ligand charge is counted on the **emitted Kekule integers** plus the
-#   residual `kekulize` returns, not on `ORD4[cls]` where a `Conj` bond is 1.5 (adopted
-#   2026-09-08, owner's proposal).
-#   Why: `_qfrag` summed `ORD4[cls]`, so an atom with three `Conj` bonds read `b = 3.5` and picked
-#   up a formal charge of `-0.5` that **no emitted bond accounts for**. The per-atom charges
+#   residual `kekulize` returns, not on the 4-class assignment (adopted 2026-09-08, owner's
+#   proposal).
+#   Why: `_qfrag` sends every `Conj` component through the Huckel branch, which can hand a pi
+#   fragment a charge the emitted skeleton does not carry. Measured on 1,794 holdout fragments
+#   (2026-09-08): the two counts disagree on 13 (0.72%), always by a whole electron pair
+#   (-2 x11 · -4 x1 · +2 x1) -- `MBTZRE01`'s 14-atom fragment reads -3 on the 4-class basis and
+#   -1 on the emitted one (that fragment is a single `Conj` component, so `_qfrag` prices it with
+#   `frag_charge` rather than with the emitted bonds). The per-atom charges
 #   stamped into the SMILES were already counted from the Kekule integers (`api.predict`), so the
 #   only thing on the 4-class basis was the ligand `charge` field -- which is why
 #   `complex_smiles_ok` kept reporting "charge sum differs".
-#   Worked example `MBTZRE01` (benzothiazole-2-thiolate, the correct charge is -1):
-#       reported -3 · 4-class per-atom sum -2 · emitted Kekule **-1**
-#   Two leaks add up there: atoms 11 and 20 read `b = 3.5` (`-0.5` each), and `frag_charge`'s
-#   matching adds another `-1` for the conjugated component.
 #   `frag_q` is added on top, so the charge a Kekule skeleton genuinely cannot express (an
 #   even-ring dianion has a perfect matching and a neutral skeleton) is still reported.
 #   Measured (holdout 6,793 · 48 shards) -- **no bond decision changes**, T1/T3/T4/T5/T6/T8 and
@@ -255,10 +255,14 @@ QHV = os.environ.get("QHV", "1") == "1"  # ★ adopted 2026-09-03
 #       reported != emitted charge   298 → **214**
 #   For reference, feeding the CSD reference bond orders to the same charge rule gives `Sq_L`
 #   .8528 — this metric was being held down by **how it was counted**, not by our bond orders.
-#   No flag: counting a charge on half-integer valences is not a policy anyone would pick.
+#   No flag: reporting a charge the emitted structure does not carry is not a policy anyone
+#   would pick.
 #   ⚠️ ⑤ still calls `_qfrag` (the 4-class count) to ask how far the fragment is from its
-#      EHT target, because at that point no Kekule structure exists yet. That count has
-#      the same -0.5 leak, so ⑤ can chase a delta that is off. **Not yet measured.**
+#      EHT target, because at that point no Kekule structure exists yet. Measured 2026-09-08
+#      (400 holdout structures · 3,632 step-⑤ fragment evaluations): it disagrees with the
+#      Kekule count on **19 (0.52%, 6 structures)**, always by a whole electron pair, so ⑤ can
+#      chase a delta that is 2 off on ~0.5% of fragments. Whether fixing it helps is untested;
+#      the ceiling is small. `_qfrag` never returns a half-integer (0/3,632).
 # ★ `R6SWAP` — **for same-element bonds on one center, distance order and bond-order order must
 #   agree** (2026-09-03).
 #   Sites where **two or more atoms of the same element** hang off one center — nitro
