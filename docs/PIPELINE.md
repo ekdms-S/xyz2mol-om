@@ -217,8 +217,18 @@ that are not yet contaminated by the metal budget (see 5″).
          ⚠️ **No bond disappears** — both M–L bonds stay and 7 assigns their orders too.
 
 6.  [T6] η^k     k = number of atoms in that π fragment that passed 5     no parameters
-         counted per fragment (ferrocene is two η⁵, not one η¹⁰)
+         counted **per ligand**, which is what the reference (tmQMg-L `n_haptic_bound`) counts.
+         Ferrocene's two rings are two ligands, so it comes out as two η⁵.
          an atom entering via 5′ is counted in that Y's fragment
+
+         ⚠️ **A bridged (ansa) metallocene comes out as one η¹⁰, not η⁵:η⁵.** The two rings are
+            joined — by `SiMe₂` in the usual Ziegler–Natta catalyst — so they are **one ligand**,
+            and counting per ligand adds them together. The chemical convention writes η⁵:η⁵.
+            This is the counting rule, not a detection error: the ten atoms really are haptic, and
+            `ml_bonds` says which ten. To recover the per-ring numbers, group the haptic
+            coordinating atoms by ring yourself.
+            Seen in practice: over a 2,000-structure sample of a homogeneous-catalysis reaction
+            set, 22 blocks had η ≥ 7 and 7 were η¹⁰ — every one of them an ansa-zirconocene.
 
 7.  [T8] M–L order (non-haptic bonds only)
            Single ⟺ w < t₁(M,X)    Double ⟺ t₁ ≤ w < t₂    Triple ⟺ w ≥ t₂

@@ -71,7 +71,8 @@ r["ligands"] == [
    "ml_bonds": {(0, 1): {"type": "sigma",   # sigma | haptic | bridge
                          "order": 3,        # None if haptic
                          "bridge": None}},  # if bridging, "3c2e" | "dative"
-   "eta": {},                  # {metal: k}
+   "eta": {},                  # {metal: k} — counted **per ligand**, so a bridged
+                               #   (ansa) metallocene is one η¹⁰, not η⁵:η⁵
    "charge": -3,               # ligand charge q_L
    "residual_charge": None},   # residual charge not expressible by the skeleton
   … ]
