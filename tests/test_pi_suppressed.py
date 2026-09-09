@@ -3,7 +3,8 @@ likelihood preferred `Double`.
 
 Why it is reported: a `Single` there costs the fragment **two** extra negative charges (a lone
 pair on each end instead of the π bond), and with the fragment on a metal that lands on the metal
-as **oxidation state +2**. Measured on Gold-DIGR (`dev/analysis/scratch/260909_golddigr_os_out_of_range.py`).
+as **oxidation state +2**. What the flag is for, and its rate, are in the README under
+`## ⚠️ Limits`.
 """
 
 # ruff: noqa: E501

@@ -345,28 +345,21 @@ def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q
 
 def pi_suppressed(bonds_kekule, qat, w):
     """Bonds ⑥ wrote `Single` between **two anionic atoms** where the ③ distance likelihood
-    preferred `Double`. Returns the sorted bond list (empty when there is none).
+    preferred `Double`. Returns the sorted bond list, empty when there is none.
 
-    Rule: `suspect(i,j) ⟺ bonds_kekule[(i,j)] == 1 AND qat[i] < 0 AND qat[j] < 0 AND w[(i,j)] > 0`
-    — `w = score[Double] − score[Single]`, the same quantity ⑥ already uses as its tie-break, so
-    this introduces **no new threshold**.
+        suspect(i,j) ⟺ bonds_kekule[(i,j)] == 1 AND qat[i] < 0 AND qat[j] < 0 AND w[(i,j)] > 0
 
-    Why it is worth reporting rather than hiding: a `Single` there is not one error but a
-    **charge** error. The π bond becomes a lone pair on each end, so the fragment charge comes out
-    **2 too negative**, and on a metal-bearing molecule the metal absorbs it as
-    **oxidation state +2**. The usual cause is upstream: a weak M–X contact taken as a σ bond
-    spends the atom's last valence unit, and ④ then has no headroom left to raise the π bond
-    (`failures/README.md` `01_cap_not_raised / no_headroom`).
+    `w = score[Double] − score[Single]` is the margin ⑥ already uses as its tie-break, so this
+    adds **no threshold**. It must be the *raw* margin: ④'s `−10⁶` promise is a matching
+    constraint, not a likelihood, and it lands on exactly these edges (`rules.pipeline`
+    `w_raw_out`).
 
-    ⚠️ **This is a flag, not a correction** — the orders and charges are returned unchanged.
+    Such a bond is a **charge** error, not only an order error — the π bond becomes a lone pair on
+    each end, so the fragment charge comes out **2 too negative** and, on a metal-bearing molecule,
+    the metal's oxidation state **2 too high**.
 
-    Measured on **Gold-DIGR 21,196 sides** (2026-09-09 · out-of-sample · reference = that
-    dataset's own mapped `rxn_smiles` metal formal charge, which uses the same ionic convention):
-    fires on **660 sides (3.11%)**, of which **382 (57.9%)** disagree with the reference metal
-    oxidation state against a **9.9%** base rate where it does not fire, and **365 of those 382
-    (96%)** disagree by **exactly +2**. Recall on the +2 population: **365 / 634 (57.6%)**.
-    Of the 660, only **72** put the metal outside a physical oxidation-state range, so a range
-    check alone does not see this. `dev/analysis/scratch/260909_pi_suppressed_flag_score.py`.
+    ⚠️ **A flag, not a correction** — the orders and charges are returned unchanged. What it
+    catches, with the numbers, is in the README under `## ⚠️ Limits`.
     """
     return sorted(e for e, o in bonds_kekule.items()
                   if o == 1 and qat.get(e[0], 0) < 0 and qat.get(e[1], 0) < 0

@@ -169,16 +169,13 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     #   and the `CAPINESS` promise (`−1e6`, added below). Both are unconditional — the
     #   tie-break was measured at 28 harmful `Double` on holdout (see `config`).
     w = {e: v.get(1, 0.0) - v.get(0, 0.0) for e, v in sc.items()}
-    # 🔴 `w_raw_out` is filled **here**, before the `CAPINESS` penalty below. A reader that wants
-    #   to know *"did the distance likelihood prefer `Double` on this bond"* must not see the
-    #   `−1e6`: that term is a matching **constraint**, not a likelihood, and it lands on edges
-    #   where ④ granted headroom — exactly the edges a π-suppression report is about. Reading the
-    #   penalized `w` made `charge.formal.pi_suppressed` silent on precisely those (codex).
-    #   🔴 `1 in v` is required, not `v.get(1, 0.0)`. Two shipped `scores4` rows (`As-C`, `B-B`)
-    #   have **no `Double` class fitted at all** — only `Single` and `Conj`. Reading a missing
-    #   `Double` as 0.0 makes `0 − score[Single]` come out positive on almost every such bond, so
-    #   a `Double` preference would be reported where none was ever fitted (codex). `w` itself
-    #   keeps the old form: it is ⑥'s tie-break and changing it would change the output.
+    # 🔴 `w_raw_out` — the likelihood margin **before** the `CAPINESS` penalty added below, for a
+    #   reader asking *"did the geometry want `Double` here"* (`charge.formal.pi_suppressed`).
+    #   The `−1e6` is a matching **constraint**, not a likelihood, and it lands on exactly the
+    #   edges such a reader is about. `1 in v` is required rather than `v.get(1, 0.0)`: `As-C` and
+    #   `B-B` ship with **no `Double` class fitted**, and a missing score read as 0.0 makes
+    #   `0 − score[Single]` positive on almost every such bond. `w` itself keeps the old form —
+    #   it is ⑥'s tie-break and changing it would change the output.
     if w_raw_out is not None:
         w_raw_out.clear()
         w_raw_out.update({e: v[1] - v.get(0, 0.0) for e, v in sc.items() if 1 in v})

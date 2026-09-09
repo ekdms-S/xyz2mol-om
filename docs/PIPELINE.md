@@ -469,6 +469,22 @@ kekulize(G, el, cls, b_ML) → (orders, frag_q)
           measured 202 / 26,074 fragments = 0.8%
 ```
 
+**What ⑥ reports about itself — `pi_suppressed`.** When ④ could not afford a π bond, ⑥ writes it
+`Single` and the charge step puts a lone pair on each end. That is not just an order error: the
+fragment charge comes out **2 too negative**, and on a metal-bearing molecule the metal's
+oxidation state **2 too high**. Every fragment therefore carries the bonds where that happened:
+
+```
+suspect(i,j) ⟺ orders[(i,j)] == 1  AND  q(i) < 0  AND  q(j) < 0
+                AND  score(Double) − score(Single) > 0
+```
+
+The margin is the **raw** likelihood one, taken before ④'s `−10⁶` promise is folded into the
+matching weight — that term is a constraint, not a likelihood, and it lands on exactly these
+edges. Element pairs with no `Double` class fitted (`As–C`, `B–B`) are excluded. ⚠️ It is a
+**flag, not a correction**: the orders and charges are returned unchanged. Rate and what it
+catches: README `## ⚠️ Limits`.
+
 ---
 
 ## §Charge — `q_L` and `OS(M)` (0 fitted parameters)

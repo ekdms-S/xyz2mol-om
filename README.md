@@ -248,6 +248,28 @@ Everything a caller normally needs is re-exported at the top: `from xyz2mol_om i
 read_xyz, draw, save_json`. The subpackages are there for reading the code, and each one's
 `__init__` says what it is for.
 
+## Tests
+
+`pytest` — 50 tests, no workspace and no network. Every one is a small hard-coded structure with
+its Mayer bond orders pinned as constants, so the suite runs on a bare install.
+
+| file | what it pins |
+|---|---|
+| `test_api_smoke.py` | one `[Mo(≡N)(OH)Cl₃]⁻` through every stage — T1 · T4 · T8 `Mo≡N` · `q_L` · `OS(Mo)=+6` · ⑥ · ligand SMILES round trip |
+| `test_molecules.py` | a disconnected input splits into molecules, and `OS` is solved **inside** one |
+| `test_radical.py` | `n_unpaired=1` — the electron on a ligand, on the metal, and the refusals |
+| `test_ml_budget_and_eta.py` | agostic and haptic spend nothing in the ④ budget · η^k is per ligand |
+| `test_bridging_carbonyl.py` | μ-CO comes out `3c2e` with the `C≡O` intact |
+| `test_complex_smiles_and_bridge.py` | the complex SMILES, the bridge tags, the 3c2e budget exclusion |
+| `test_r7_haptic_ring.py` | R7 fires — the S of an η⁵-thienyl turns haptic |
+| `test_pi_suppressed.py` | the `pi_suppressed` report: when it fires, when it must stay silent, that it reads the raw likelihood margin, and that it survives the JSON round trip as tuples |
+| `test_invariants.py` | geometry-free unit tests on the decision functions themselves |
+| `test_assemble.py` · `test_serialize.py` · `test_draw.py` | reassembly, `save_json`/`load_json` bond keys, and that `draw()` renders every bond kind it claims to |
+
+```bash
+pip install -e ".[dev]" && pytest -q
+```
+
 ## Performance
 
 holdout **6,793 structures** (not used in the fit) · reference labels: CSD `bond_type`,
@@ -363,13 +385,11 @@ them well.
   homonuclear M–M bonds (refcode 5-fold CV: distance .9305 · Mayer .9295 · all-`Single` baseline
   .9071) and is **not shipped** — the gain over the trivial baseline is small and the sample is
   thin where it matters (`Double` 147 · `Triple` 96 · `Quadruple` 131).
-- **A suppressed π bond costs the metal `+2`, and the output says so but does not fix it.**
+- **A suppressed π bond costs the metal `+2`, and the output reports it rather than fixing it.**
   When a weak M–X contact is taken as a σ bond it spends that atom's last valence unit, ④ then has
   no headroom to raise the neighbouring π bond, and ⑥ writes it `Single` with a lone pair on each
-  end. The fragment charge comes out **2 too negative** and the metal's oxidation state **2 too
-  high**. Every such bond is listed in the fragment's `pi_suppressed`
-  (`bonds_kekule == 1` and both ends anionic and `score[Double] > score[Single]` — no new
-  threshold), so a caller can drop those structures:
+  end — so the fragment charge comes out **2 too negative** and the metal's oxidation state **2 too
+  high**. Every such bond is listed in that fragment's `pi_suppressed`:
 
   ```python
   from xyz2mol_om import all_fragments
@@ -377,14 +397,14 @@ them well.
       ...   # this structure's ligand charges and metal oxidation state are suspect
   ```
 
-  Measured on **Gold-DIGR 21,196 sides** (2026-09-09 · out-of-sample · reference = the dataset's
-  own mapped `rxn_smiles` metal formal charge, same ionic convention):
-  the flag fires on **660 sides (3.11%)**; **382 of them (57.9%)** disagree with that reference
-  against a **9.9%** base rate on the 20,536 it does not fire on, and **365 of the 382 (96%)**
-  disagree by **exactly +2**. It catches **365 of the 634 (57.6%)** sides that are off by exactly
-  +2. ⚠️ A per-element oxidation-state range check sees far less of this: of the 660, only **72**
-  land outside a physical range at all. Script:
-  `dev/analysis/scratch/260909_pi_suppressed_flag_score.py`.
+  On **Gold-DIGR 21,196 reaction endpoints** (out-of-sample — DFT geometries, not the CSD pool
+  above; reference = that dataset's own mapped `rxn_smiles` metal formal charge, same ionic
+  convention) it fires on **660 (3.11%)**. Of those, **57.9%** disagree with the reference metal
+  oxidation state against a **9.9%** base rate where it does not fire, and **96% of the
+  disagreements are exactly `+2`**. It catches **57.6%** of the endpoints that are off by exactly
+  `+2`. ⚠️ **A per-element oxidation-state range check sees much less of this** — only **72** of
+  the 660 put the metal outside a physical range at all, so the two screens do not replace each
+  other.
 - **3c2e and clusters** are outside the two-center formalism — a ligand with a bridging H is **deliberately** rejected by the SMILES round-trip check, and the fragment charge of a carborane cage uses the EHT value.
 
 Every decision rule, with its thresholds, is in [docs/PIPELINE.md](docs/PIPELINE.md).

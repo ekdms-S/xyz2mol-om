@@ -406,12 +406,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                                "closed-shell answer is returned unchanged")
 
     # ⚠️ **π suppression report** — a flag, not a correction (`charge.formal.pi_suppressed`).
-    #   Each bond listed makes that fragment's charge 2 too negative, and on a metal-bearing
-    #   molecule the metal's oxidation state 2 too high.
-    #   🔴 Built **after** the radical block, not inside the fragment loop: placing the unpaired
-    #   electron raises one atom's charge back to 0, so a bond flagged before it ran could come
-    #   back with an endpoint that is no longer anionic — the flag would describe a charge
-    #   assignment that is not the one returned (codex).
+    # 🔴 Built **after** the radical block, not inside the fragment loop: placing the unpaired
+    #   electron returns one atom's charge to 0, and the flag has to describe the charges that are
+    #   actually returned.
     for fr in fragments:
         fr["pi_suppressed"] = pi_suppressed(fr["bonds_kekule"],
                                             {a: qat_all[a] for a in fr["atoms"]}, w_raw)
