@@ -156,6 +156,60 @@ CAPDUP_MAX = int(os.environ.get("CAPDUP_MAX", "6"))
 #   Measured and rejected: `Double` peaks +0.0006 at τ = 0.5 (inside fold noise) and falls after,
 #   because τ lifts every `Double` candidate at once, so the true ones gain no ground on the false.
 TAUD = float(os.environ.get("TAUD", "0"))
+# `QCOST` — the **charge-cost term in ④'s objective**, and with it the two-stage form of ④:
+#     stage 1  minimise the formal charge the assignment has to pay for
+#     stage 2  among the assignments that pay the same, take the one the distances like
+#   Set it large (>= 50) and the objective is lexicographic — a true two-stage solve. Set it
+#   small and the two blend. 0 = off (the old one-sided, distance-primary objective).
+#
+#   🔴 Why this is the right outer objective, and why "satisfy the valence" is **not**.
+#   ④'s constraint is one-sided (`b_int + b_ML <= CAP`), so it can only say *"no room to raise
+#   this bond"*, never *"this atom is paying for a charge it should not have to"*. Charge is then
+#   free: `q = v + b - 8` is applied unconditionally, so **one bond-order error becomes a
+#   2-electron ligand-charge error and a 2-unit oxidation-state error**.
+#   But the fix cannot be a hard valence constraint. Measured on CSD: of 968 reference `Triple`
+#   bonds, **876 (90.5%) are impossible under neutral valence** — 863 of them `C-O`, i.e. **CO
+#   ligands**, where free CO gives C `deg 1` (room 3) and O `deg 1` (room 1) so neutral counting
+#   stops at `C=O`; the bond is triple only because the species is **charge-separated**
+#   `[O+]#[C-]`. Hypervalent `S=O`/`P=O` and nitro `N+` are the same story.
+#   So the outer objective has to make a formal charge **expensive, not impossible**.
+#
+#   Form: raising a bond by one unit moves `b_int` at both ends by +1, so the matching weight gets
+#     `g += QCOST * (dq(a) + dq(b))`,  dq(x) = |q(b)| - |q(b+1)|   — see `solvers._qcost_step`
+#   `q` is the real `charge.formal.q_atom`, not a `VTGT` proxy: that is what makes the sulfone
+#   (`S` b4->5->6) and the phosphine oxide (`P` b4->5) come out as **+1 each** (raise) where a
+#   neutral-valence proxy says 0 and never raises them. On `CO` the two ends give `+1` and `-1`,
+#   so the charge term is exactly neutral and the **distance** decides — which is the two-stage
+#   behaviour working as intended.
+#   A coordinating atom is **waived**: under the ionic cut an anionic donor (`Cl-`, `RO-`, `Cp-`)
+#   is normal, and costing it would push ④ to raise bonds just to neutralise it.
+#   **On by default at 1.0.** Holdout: T3 `Double` **+0.0037** (.7701 -> .7738) · `OS` **+0.0011**
+#   · T8 `Double` +0.0011 · `Sq_L` +-0 · violations +-0; nothing regresses. This is the first form
+#   of the fix that **improves** CSD rather than trading against it — the earlier neutral-valence
+#   proxy cost T3 `Double` -0.0067 and `OS` -0.0040, because it scored 0 on exactly the
+#   hypervalent sites where the real `|q|` says "raise".
+#   ⚠️ A **blend** beats the strictly lexicographic form: `QCOST=50` puts T3 `Double` back to
+#   baseline. The charge cost is a good prior, not an absolute one.
+#   ⚠️ It does **not** move the Gold-DIGR frame-to-frame charge flips (78 -> 79). Those residuals
+#   are ④ headroom competition, not charge: see `CAPQ`.
+QCOST = float(os.environ.get("QCOST", "1"))
+# `CAPQ` — the same canonicalisation `KEKQ` applies to ⑥, applied to ④'s matching weight.
+#   ④ picks which bond gets an atom's remaining headroom by `score[Double] − score[Single]`, a
+#   continuous function of the bond lengths, so two bonds competing for the same headroom can
+#   swap places on a few thousandths of an Angstrom. Between two frames of one reaction path that
+#   is a bond-order change that did not happen. Measured on Gold-DIGR: of the residual S/D/T
+#   charge flips on geometrically unchanged atoms, **98.2% have an unchanged `Conj` membership**
+#   (so not Rule A) and stage ⑤ is not responsible either (disabling it makes them worse) —
+#   what is left is this competition.
+#   Quantised **per element pair** for the same reason as `KEKQ`: within a pair the small
+#   differences are noise, across pairs they are the whole signal.
+#   🔴 **Measured and NOT adopted (default 0).** `CAPQ=8` takes the Gold-DIGR charge flips
+#   79 -> 68, but unlike `KEKQ` it changes the **class assignment** itself, not just how a `Conj`
+#   bond is turned into an integer, and the holdout pays: T3 `Double` **-0.0046** ·
+#   T8 `Double` **-0.0064** · T8 `Triple` **-0.0075**. `CAPQ=32` is far worse (T3 `Double`
+#   -0.0295). Turning it on is a domain choice for reaction-path geometry, like the old `VLAM`.
+CAPQ = float(os.environ.get("CAPQ", "0"))
+
 # `CAPMILP` — solve ④ exactly (a MILP) instead of through the matching reduction. The matching
 #   confirms `Triple` greedily first, so 0.92% of ④ calls are not optimal (median objective loss
 #   4.58, about one bond decision). Measured and left off: the ④ metrics rise but the deployment
@@ -181,6 +235,47 @@ EHTCOST = float(os.environ.get("EHTCOST", "-1"))  # likelihood cost ⑤ may spen
 # `ETAEXO` — in ⑥, let an atom of an η-coordinated ring pair only inside that ring. Measured and
 #   not adopted.
 ETAEXO = os.environ.get("ETAEXO", "0") == "1"
+
+# `KEKQ` — ⑥'s Kekule matching is weighted by `score[Double] − score[Single]`, which is a
+#   **continuous function of the bond lengths**. Inside a symmetric aromatic ring the two
+#   alternating Kekule structures are chemically identical and their weights differ only by ring
+#   distortion, so a few thousandths of an Angstrom flips which one is emitted. Between two frames
+#   of one reaction path that reads as a bond-order change that did not happen: measured on
+#   Gold-DIGR IRC endpoints, **94.6% of all order flips on geometrically unchanged bonds
+#   (1,540 / 1,628) are `Conj`↔`Conj`** — the same 4-class answer, a different arbitrary integer,
+#   1,443 of them aromatic `C–C`.
+#   `KEKQ > 0` rounds the weight to that grid and breaks what is left canonically by atom index,
+#   so a sub-threshold length difference can no longer decide. Genuine preferences (`EMAXAR`:
+#   a 1.234 Å `C=O` against a 1.440 Å `C–C`) are orders of magnitude above any sane grid and are
+#   unaffected. 0 = off.
+#   ⚠️ Consumers that do not need integers should read `bonds_4class` instead — it already says
+#      `Conj` in both frames, so this degeneracy is invisible there.
+#   🔴 The grid is applied **per element pair, around that pair's own median in the fragment**,
+#   not globally. Measured on CSD: resolving the aromatic labels by distance gives
+#   `Conj→Single` median **1.394 Å** against `Conj→Double` **1.386 Å` — **0.008 Å apart**, so
+#   distance carries essentially no information about which `C–C` of a ring is the double one.
+#   Across element pairs it carries a great deal (`EMAXAR`: `C=O` 1.234 Å vs `C–C` 1.440 Å).
+#   A single global grid big enough to flatten a ring also erases that (`KEKQ=16` global:
+#   `Σq_L` −0.0034); scoping to the element pair flattens the first and leaves the second alone.
+#   **On by default at 8.0.** Holdout: T3 `Double` +0.0002 · `OS` +0.0004 · `Σq_L` ±0.0000 ·
+#   violations +0.0001 (2 structures); every other task byte-identical, since it only touches how
+#   a `Conj` bond is turned into an integer. Gold-DIGR: charge flips on geometrically unchanged
+#   atoms from this cause **55 → 8** per 400 reactions. `KEKQ=0` restores the old behaviour.
+KEKQ = float(os.environ.get("KEKQ", "8"))
+# `KEKQMODE` — where the quantisation grid is anchored.
+#   `abs`  absolute grid (origin 0). Geometry-independent, so the bin a bond falls in cannot
+#          move when the geometry does.
+#   `pair` per element pair, anchored on **that pair's median in this fragment** (the default).
+#   Measured on the **full 10,598-reaction** Gold-DIGR set (charge flips on unchanged geometry):
+#          原본 3,382 | `pair` **2,440** | `abs` 2,925
+#          resonance bucket   1,469 | **487** | 972       <- `pair` is much the better anchor
+#          `Conj`-boundary      345 |   514   | 513
+#   ⚠️ Both modes raise the `Conj`-boundary bucket by the same ~170, so that regression is **not**
+#      anchor drift (the hypothesis this switch was added to test — it was wrong). It comes from
+#      `KEKQ` itself. The likeliest reading is that those `Conj`-boundary errors were always
+#      there and the old Kekule placement happened to cancel them in the charge; canonicalising
+#      stops the cancellation and they become visible. **Not confirmed** — it is the open item.
+KEKQMODE = os.environ.get("KEKQMODE", "pair")
 
 # ═══ Charge and output ════════════════════════════════════════════════════════════════════════
 
@@ -213,6 +308,30 @@ ETA1SIG = os.environ.get("ETA1SIG", "1") == "1"
 #   (sulfone S, perchlorate Cl) keep the hypervalent form, which is legitimate for them.
 #   See `charge.formal.octet_fix_period2`.
 NOCTET = os.environ.get("NOCTET", "1") == "1"
+# `HALW` — Mayer floor for an M–halogen bond **whose halogen already carries an internal
+#   covalent bond**. A terminal halide (`M–Cl`, `M–F`) has no internal bond and is untouched.
+#   Why it is needed: `d_bond.csv` has **no `w_veto` worth the name for halogens** — 92 of the 96
+#   fitted M–halogen rows carry `w_veto = 0.000`, and pairs such as `Pd–F` have **no row at all**,
+#   so they fall back to `c1g·(RCOV[X] + RCOV[M])` with `RCOV` holding no metal radius (default
+#   1.6 Å) — a 2.82 Å window with no Mayer floor whatever. That is not sloppy fitting: in the CSD
+#   reference **the negative examples do not exist** (no CSD structure puts a metal 2.6 Å from a
+#   CF₃ fluorine), so the fit had nothing to learn a floor from. Reaction-path endpoints are full
+#   of them — triflate, `CF₃`, `BF₄⁻`, `PF₆⁻`.
+#   Measured on Gold-DIGR (accepted M–halogen bonds, split by whether the halogen is already
+#   bonded to a non-metal):
+#         F  bound (CF₃·OTf)   n=152  median w 0.157   96.7% below 0.30   ← the spurious ones
+#         F  terminal          n= 26  median w 0.859    3.8% below 0.30
+#         Cl bound (R–Cl, OA)  n= 97  median w 0.354    0.0% below 0.30   ← must survive
+#         I  bound (R–I, OA)   n= 26  median w 0.556    0.0% below 0.30   ← must survive
+#   So 0.30 removes ~97% of the false M–F and keeps **every** genuine oxidative-addition halide.
+#   ⚠️ This is not the rejected global `WMIN`. `WMIN` failed because a **haptic** M–C is weak by
+#      construction (the π electrons are shared over five or six carbons) and a global floor
+#      cannot tell that from a weak contact — T5 .9778 → .7241. A halogen is never part of a π
+#      system, so it can never be haptic, and this floor cannot reach that failure.
+#   0 = off.
+HALW = float(os.environ.get("HALW", "0.30"))
+HALOGENS = {"F", "Cl", "Br", "I", "At"}
+
 # `WMIN` — a global Mayer floor for M–L candidates, on top of the per-element-pair `w_veto`.
 #   Measured and rejected. A **haptic** M–C is weak by construction — the π electrons are shared
 #   over five or six carbons, so each individual M–C is small — and a floor cannot tell that from

@@ -52,6 +52,13 @@ salt with its counter-ion — and everything below is solved inside one molecule
           }, ... ],
       }, ... ]
 
+    r["charge_balance"] = {"shortfall", "ok", "note"}
+                        A self-check that only a **metal-free** structure can fail: with no
+                        oxidation state to absorb it, the emitted formal charges must add up to
+                        the `total_charge` passed in. `shortfall` is the gap (0 is healthy, and
+                        `None` when a metal is present or no `total_charge` was given). A
+                        non-zero one means a bond order was written too low and the missing pi
+                        became two lone pairs -- not a real ion.
     r["radical"]      = {"n_unpaired", "atom", "site", "note"}
                         Where the unpaired electron went when `n_unpaired=1`. `site` is
                         `"organic"` (on `atom`), `"metal"` (the oxidation state carries it, and
@@ -274,16 +281,18 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         # 🔴 For a cluster fragment (carborane and the like) the formal-charge sum cannot be
         #    trusted — use the EHT fragment charge. For the rule and its evidence see the
         #    `charge.is_cluster_frag` comment.
-        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q))
-        q_all[key] = qL
         coord = sorted({x for _m, x in ml_pred if x in cs})
+        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord)))
+        q_all[key] = qL
         coord_of[key] = coord
+        coord_set = set(coord)
         # per-atom formal charge — stamped into the SMILES as-is
         qat = {}
         for x in comp:
             bsum = sum(bk.get((min(x, w), max(x, w)), 1) for w in G[x])
             qat[x] = int(round(q_atom(el[x], float(bsum), G.degree(x),
-                                      tuple(sorted(el[w] for w in G[x])))))
+                                      tuple(sorted(el[w] for w in G[x])),
+                                      n_ml=(1 if x in coord_set else 0))))
         qat_all.update(qat)
         smi, _map = ligand_smiles(el, comp, bk, qat, coord)
         ok, why = False, "SMILES generation failed"
@@ -378,7 +387,38 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         free_atoms = [a for m in molecules if not m["metals"] for a in m["atoms"]]
         cand = sorted(a for a in free_atoms
                       if qat_all.get(a, 0) < 0 and VAL.get(el[a], 0) - bsum[a] >= 1)
-        if not cand:
+        # 🔴 A **structural** formal charge is not a radical site. `q = v + b - 8` writes nitro,
+        #   an N-oxide, a diazo and an azide with a negative atom next to its own complementary
+        #   positive one, and those pairs are the notation, not an unpaired electron. The
+        #   valence test above cannot see it — a nitro O has `v - b = 6 - 1 = 5`, far above 1.
+        #   Exclude a candidate that has a positively charged **neighbour**.
+        _adj_pos = {a for a in cand
+                    if any(qat_all.get(b, 0) > 0 for b in G[a])}
+        if _adj_pos and len(_adj_pos) < len(cand):
+            cand = [a for a in cand if a not in _adj_pos]
+        # 🔴 With **no metal anywhere** there is no oxidation state to absorb a charge error, so
+        #   the emitted charges must add up to what the caller passed. Placing `n_unpaired`
+        #   electrons raises that sum by exactly `n_unpaired`, so the placement is only justified
+        #   when the shortfall **is** `n_unpaired`. When it is not, the structure is wrong for a
+        #   different reason (a bond order written too low inflates the charge — nitromethane
+        #   comes out `[O-]` twice, a shortfall of 2), and picking a "radical site" would paper
+        #   over it. Say so instead. With a metal present this quantity is identically 0 — the
+        #   oxidation state absorbs it by construction — so the test only applies without one.
+        if not mets and total_charge is not None:
+            # `mol["charge"]` is only filled in further down, so sum the fragments directly —
+            #   the same sum that assignment uses.
+            _qf = {fr["atoms"][0]: fr["charge"] for fr in fragments}
+            need = total_charge - sum(_qf[i] for m in molecules for i in m["fragments"])
+            if need != n_unpaired:
+                radical["note"] = (
+                    f"charge shortfall {need} does not match n_unpaired={n_unpaired} - with no "
+                    "metal to absorb it the emitted charges should add up to total_charge, so "
+                    "this is a bond-order/charge error rather than a radical site. No electron "
+                    "was placed")
+                cand = []
+        if not cand and radical["note"]:
+            pass
+        elif not cand:
             radical["site"] = "metal" if mets else None
             if not mets:
                 radical["note"] = ("no site for the unpaired electron - no metal, and no atom of "
@@ -404,6 +444,53 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             radical["note"] = (f"{len(cand)} candidate sites for the unpaired electron - a genuine "
                                "anion and a radical read as an anion are the same graph, so the "
                                "closed-shell answer is returned unchanged")
+
+    # ── charge balance — a self-check the caller can act on ───────────────────────────────
+    # 🔴 With **no metal** in the structure there is no oxidation state to absorb a charge error,
+    #   so the emitted formal charges have to add up to the `total_charge` the caller passed.
+    #   When they do not, a bond order was written too low and the missing π became two lone
+    #   pairs: nitromethane comes out `[H]C([H])([H])N([O-])[O-]`, charge -2 against a
+    #   `total_charge=0`. Nothing downstream can tell that from a genuine dianion, so it is
+    #   reported here. `shortfall = total_charge - Σ(emitted charges)`; 0 is the healthy value.
+    #   ⚠️ With a metal present the sum matches **by construction** (the oxidation state takes
+    #      the remainder), so the check cannot see anything and `shortfall` is None.
+    charge_balance = {"shortfall": None, "ok": True, "sites": [], "note": ""}
+    if total_charge is not None and not mets:
+        _qf = {fr["atoms"][0]: fr["charge"] for fr in fragments}
+        _sf = total_charge - sum(_qf[i] for m in molecules for i in m["fragments"])
+        charge_balance["shortfall"] = _sf
+        # 🔴 **Where** the missing electrons are, not just how many. A consumer that only gets the
+        #   scalar has to open the geometry and count bonds by hand to find out what happened —
+        #   which is exactly what the first version made them do. Each site is one atom sitting
+        #   below its neutral-atom bond total, so `v - b_int` is the deficit that produced it.
+        if _sf:
+            _b = collections.Counter()
+            for (i, j), o in orders.items():
+                _b[i] += o
+                _b[j] += o
+            for a in sorted(qat_all):
+                if qat_all[a] >= 0:
+                    continue
+                charge_balance["sites"].append({
+                    "atom": a, "element": el[a], "charge": int(qat_all[a]),
+                    "deg": G.degree(a), "b_int": float(_b[a]),
+                    "neighbors": tuple(sorted(el[y] for y in G[a])),
+                })
+        # 🔴 This runs **after** the radical block, so an electron that was placed has already
+        #   cancelled its own -1. What should be left is only the unpaired electrons that could
+        #   **not** be placed.
+        _left = n_unpaired - (1 if radical["atom"] is not None else 0)
+        if _sf != _left:
+            charge_balance["ok"] = False
+            charge_balance["note"] = (
+                f"emitted charges sum to {total_charge - _sf} against total_charge="
+                f"{total_charge} (shortfall {_sf}, unplaced unpaired electrons {_left}); with no "
+                "metal to absorb it, that many electrons are unaccounted for. `sites` lists the "
+                "atoms carrying the unexplained charge - each is one short of its neutral bond "
+                "total. 🔴 The cause is NOT determined: a suppressed pi bond, a carbene the "
+                "closed-shell formalism cannot write, and a genuine radical all land here. When "
+                "two sites ARE the ends of one bond, `pi_suppressed` says whether the geometry "
+                "wanted a pi there; when they are far apart it is not one suppressed bond")
 
     # ⚠️ **π suppression report** — a flag, not a correction (`charge.formal.pi_suppressed`).
     # 🔴 Built **after** the radical block, not inside the fragment loop: placing the unpaired
@@ -527,6 +614,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         })
 
     return {
+        "charge_balance": charge_balance,
         "radical": radical,
         "molecules": out_mols,
         "total_charge": total_charge,

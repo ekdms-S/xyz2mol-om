@@ -10,7 +10,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (BML3C_COST, ETA1SIG, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
+from ..config import (BML3C_COST, ETA1SIG, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -182,7 +182,8 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     # ④ hard valence-cap constraint (M–L up to Triple) — a matching reduction, not the
     #   exact maximum; see `_solve_cap` and the `CAPMILP` comment in `config`
     iness = set()
-    cls, mlout = _solve_cap(G, el, sc, conj, bml, ml_sc, ml_max=2, iness_out=iness)
+    cls, mlout = _solve_cap(G, el, sc, conj, bml, ml_sc, ml_max=2, iness_out=iness,
+                            coord=coord or set())
     if iness:
         # 🔴 `CAPINESS` gave these atoms headroom **on the promise that ⑥ leaves them unmatched**.
         #   ⑥ runs its own matching and will happily pair one up, and then the cap it was granted
@@ -332,6 +333,38 @@ def drop_saturated(el, G, ml_raw):
             if el[x] == "H" or el[x] in MLIKE_EXTRA
             or any(el[y] in MLIKE_EXTRA for y in G[x])
             or G.degree(x) < CAP.get(el[x], 99)]
+
+
+def drop_bound_halide(el, G, ml_raw, wbo):
+    """Remove a weak M–X candidate where **X is a halogen that already carries an internal
+    covalent bond** (`HALW`).
+
+        remove ⟺ el[X] ∈ {F, Cl, Br, I}          — never part of a π system, so never haptic
+                 AND X has ≥ 1 internal neighbour  — i.e. it is not a terminal halide
+                 AND w(M, X) < HALW
+
+    A terminal halide (`M–Cl⁻`, `M–F⁻`) has **no** internal neighbour and is never touched, so
+    the ordinary halide ligand is untouched. What this catches is the fluorine of a `CF₃`, a
+    triflate, a `BF₄⁻` or a `PF₆⁻` sitting 2.6 Å from a late metal — a contact `d_bond.csv`
+    cannot veto because it has no fitted row for the pair (or a `w_veto` of 0), and the radii
+    fallback opens a 2.8 Å window with no Mayer floor at all.
+
+    🔴 It does **not** remove a genuine oxidative-addition halide. At an `R–I`/`R–Cl` oxidative
+    addition the halogen is still bonded to carbon *and* genuinely bonded to the metal, and its
+    Mayer order is far above the floor (measured on Gold-DIGR: `Cl` bound median 0.354, `I` bound
+    median 0.556, **0.0% of either below 0.30**, against `F` bound median 0.157 with 96.7% below).
+    That gap is what the rule reads.
+
+    With `wbo=None` there is nothing to test, so nothing is removed.
+    """
+    if HALW <= 0 or not wbo:
+        return ml_raw
+    return [
+        (m, x) for m, x in ml_raw
+        if el[x] not in HALOGENS
+        or G.degree(x) == 0
+        or wbo.get((m, x), 1.0) >= HALW
+    ]
 
 
 def drop_eta1(hapset, G, el):
@@ -525,7 +558,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     if bml_model is None:
         bml_model, bml_fb = load_b_ml_mayer()
     coord = {x for _m, x in ml_raw}
-    ml_pred = drop_saturated(el, G, drop_agostic(el, G, ml_raw))
+    ml_pred = drop_bound_halide(el, G, drop_saturated(el, G, drop_agostic(el, G, ml_raw)), wbo)
     # pass 1 — budget 0 · no M–L optimization
     cls0, _ = predict_T3_EHT(el, xyz, G, scores4, {}, None, q_eht, coord, rop)
     unsat0 = {x for e, v in cls0.items() if v in (1, 2, 3) for x in e}

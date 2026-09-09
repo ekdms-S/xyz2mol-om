@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 
+import collections
+
 import networkx as nx
 
-from ..config import (ALT, CAP, FULL, HUCKEL, NAMEEL, ORD4, PAT, PATM, QHV, ROMAN, VAL)
+from ..config import (ALT, CAP, FULL, HUCKEL, KEKQ, KEKQMODE, NAMEEL, ORD4, PAT, PATM, QHV,
+                      ROMAN, VAL)
 
 
-def q_atom(e, b, deg=None, nb=()):
+def q_atom(e, b, deg=None, nb=(), n_ml=0):
     """(a) q_i = v + b − quota (octet assumption `lp = 4 − b`).
 
     ★ (a′) covers only the sites where the octet breaks (, (`docs/PIPELINE.md`).
@@ -34,6 +37,17 @@ def q_atom(e, b, deg=None, nb=()):
     if QHV and b > 4.0 + 1e-9:
         return VAL.get(e, 4) - b
     nO, nN = nb.count("O"), nb.count("N")
+    if e == "C" and deg == 2 and b == 2.0 and nN + nO == 0 and n_ml == 0:
+        # ★ **free carbene** — a divalent carbon with no heteroatom neighbour *and* no bond to a
+        #   metal. The octet formula calls it −2, and that −2 is paired by a spurious +2 on the
+        #   metal: measured on `joc.6b02957__14_14`, C40 (neighbours C·C, nearest H 1.53 Å, no
+        #   Ni bond) came out `[C-2]` and put Ni at +2, while the other IRC endpoint — where the
+        #   H has arrived and the carbon is a plain `C=C` — put the same Ni at 0.
+        #   🔴 The `n_ml == 0` half is what keeps the Schrock case correct. An **M-coordinated**
+        #   alkylidene really is −2 under the ionic cut (`C–H` 465 · `C–C` 397 · `H–H` 111 in the
+        #   reference), and it is separated from this one by the metal bond, not by the
+        #   neighbours. A **free** carbene is a neutral 6-electron singlet.
+        return 0
     if e == "C" and deg == 2 and b == 2.0 and nN + nO >= 1:
         # heteroatom-stabilized carbene — 6 electrons. The octet formula gives −2 (`nO` added
         #   after the owner's remark).
@@ -91,7 +105,34 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None)
         # Same cardinality, but among those prefer the assignment the bond lengths prefer
         #   (`CONJW`: `w[e]` is `score[Double] − score[Single]` from the ③ likelihood) and
         #   never pair an atom the ④ budget promised to leave unmatched (`CAPINESS`: `−1e6`).
-        G.add_edges_from((a, b, {"weight": w.get((min(a, b), max(a, b)), 0.0)}) for a, b in edges)
+        ew = {(min(a, b), max(a, b)): w.get((min(a, b), max(a, b)), 0.0) for a, b in edges}
+        if KEKQ > 0:
+            # 🔴 Quantize **within an element pair**, then break what is left canonically by atom
+            #   index (see the `KEKQ` comment). Scoping to the element pair is the whole point:
+            #   measured on CSD, the two Kekule alternants of an aromatic carbocycle differ by
+            #   **0.008 Å** (`Conj→Single` median 1.394 vs `Conj→Double` 1.386), i.e. distance
+            #   carries no signal about which C–C of a ring is the double one — but it carries a
+            #   great deal about `C=O` 1.234 Å against `C–C` 1.440 Å (`EMAXAR`). Quantizing each
+            #   element pair around **its own median in this fragment** flattens the first and
+            #   leaves the second untouched; a single global grid large enough to flatten a ring
+            #   also erases the cross-pair preference (measured: `KEKQ=16` global cost `Σq_L`
+            #   −0.0034).
+            order = {e: i for i, e in enumerate(sorted(ew))}
+            eps = KEKQ / (10.0 * max(len(order), 1))
+            if KEKQMODE == "abs":
+                # absolute grid — the bin cannot move when the geometry does
+                ew = {e: round(v / KEKQ) * KEKQ - eps * order[e] for e, v in ew.items()}
+            else:
+                grp = collections.defaultdict(list)
+                for e in ew:
+                    grp[tuple(sorted((el[e[0]], el[e[1]])))].append(e)
+                out2 = {}
+                for _k, es in grp.items():
+                    base = sorted(ew[e] for e in es)[len(es) // 2]
+                    for e in es:
+                        out2[e] = base + round((ew[e] - base) / KEKQ) * KEKQ - eps * order[e]
+                ew = out2
+        G.add_edges_from((a, b, {"weight": ew[(min(a, b), max(a, b))]}) for a, b in edges)
     else:
         G.add_edges_from(edges)
     match = nx.max_weight_matching(G, maxcardinality=True)
@@ -312,7 +353,7 @@ def is_cluster_frag(G, el, cls, comp, orders=None):
     return False
 
 
-def _qfrag_kek(G, el, comp, orders, frag_q=None):
+def _qfrag_kek(G, el, comp, orders, frag_q=None, coord=None):
     """Fragment charge counted on the **emitted Kekule integers**.
 
     Why this and not `_qfrag`: `_qfrag` sums `ORD4[cls]`, and a `Conj` bond counts **1.5** there,
@@ -327,11 +368,13 @@ def _qfrag_kek(G, el, comp, orders, frag_q=None):
     q = sum(v for k, v in (frag_q or {}).items() if k in comp)
     for v in comp:
         b = sum(orders.get((min(v, w), max(v, w)), 1.0) for w in G[v])
-        q += q_atom(el[v], float(b), G.degree(v), tuple(sorted(el[w] for w in G[v])))
+        q += q_atom(el[v], float(b), G.degree(v), tuple(sorted(el[w] for w in G[v])),
+                    n_ml=(1 if coord and v in coord else 0))
     return q
 
 
-def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q=None):
+def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q=None,
+                      coord=None):
     """Fragment charge — the **EHT fragment charge** for a cluster, otherwise the formal-charge
     sum."""
     if is_cluster_frag(G, el, cls, comp, orders):
@@ -339,7 +382,7 @@ def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q
         if q is not None:
             return float(q)
     if orders is not None:
-        return _qfrag_kek(G, el, comp, orders, frag_q)
+        return _qfrag_kek(G, el, comp, orders, frag_q, coord)
     return _qfrag(G, el, cls, comp, w)  # only when the caller has no Kekule structure yet
 
 

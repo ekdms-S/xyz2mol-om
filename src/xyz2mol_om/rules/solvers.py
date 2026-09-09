@@ -11,9 +11,32 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (CAP, CAPDUP_MAX, CAPMILP, CAPMILP_MAX, ORD4,
+from ..config import (CAP, CAPDUP_MAX, CAPMILP, CAPMILP_MAX, CAPQ, ORD4, QCOST,
                      R6SWAP, TAUD, VTGT)
 from ..charge.formal import _qfrag, frag_charge, q_atom
+
+
+def _qcost_step(x, el, b_int, deg, nb, coord):
+    """One end's contribution to the `QCOST` term — how much **formal charge** raising this bond
+    buys back at `x`.
+
+        dq(x) = |q(b_int)| - |q(b_int + 1)|      +1 raising removes a charge
+                                                  0 it changes nothing
+                                                 -1 raising creates one
+
+    `q` is the real `charge.formal.q_atom`, so the hypervalent branch and the (a') exceptions are
+    included. That matters: a sulfone `S` at `b 4` scores **+1** here (its `|q|` runs 2 -> 1 -> 0
+    as it is raised) where a neutral-valence proxy scores 0 and never raises it. On `CO` the two
+    ends give `+1` and `-1`, so the term cancels and the distance decides.
+
+    A **coordinating** atom is waived. Under the ionic cut an anionic donor (`Cl-`, `RO-`) carries
+    its charge legitimately, and costing it would push ④ to raise bonds just to neutralise it.
+    """
+    if x in coord:
+        return 0.0
+    q0 = q_atom(el[x], float(b_int), deg, nb)
+    q1 = q_atom(el[x], float(b_int + 1), deg, nb)
+    return abs(q0) - abs(q1)
 
 
 def _kek_val(G, el, cls):
@@ -146,7 +169,7 @@ def _solve_cap_exact(G, el, sc, conj, bml, ml_sc, ml_max, base):
     return out, mlout
 
 
-def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
+def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord=None):
     """The cap-respecting assignment — high likelihood subject to the valence cap, via a matching
     reduction (Blossom, polynomial time).
 
@@ -163,6 +186,8 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
     twice ⇒ `ml_max=2` allows Triple).
     Returns `(internal classes, M–L classes)`.
     """
+    coord = coord or set()
+    nb_of = {x: tuple(sorted(el[y] for y in G[x])) for x in G.nodes} if QCOST else {}
     k_of = collections.Counter()
     for e in conj:
         k_of[e[0]] += 1
@@ -257,6 +282,15 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
             #   with `g <= 0` is simply ignored (measured — τ = 0.5/1/2 were byte-identical to
             #   τ = 0). The cost-sensitive form is `g + τ > 0`, i.e. `τ = log(C_FN/C_FP)`.
             g = s3[1] - s3[0] + TAUD
+            if QCOST:
+                # ★ the charge-cost term (see `config`). `use - bml + spent` is the atom's
+                #   current **internal** bond total — M-L sits outside the ionic cut — so this
+                #   updates as earlier rounds fill atoms up.
+                g += QCOST * sum(
+                    _qcost_step(x, el, use[x] - bml.get(x, 0.0) + spent[x],
+                                G.degree(x), nb_of[x], coord)
+                    for x in e
+                )
             if g <= 0 or r.get(e[0], 0) < 1 or r.get(e[1], 0) < 1:
                 continue
             for ia in range(r[e[0]]):
@@ -278,6 +312,27 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None):
                     du = ("_mlu", m_, x_, u)
                     for ia in range(r[x_]):
                         H.add_edge((x_, ia), du, weight=g, e=("ML", key))
+        if CAPQ > 0 and H.number_of_edges():
+            # 🔴 Canonicalise the near-ties, per element pair (see `CAPQ`). Same construction as
+            #   `KEKQ`: quantise around the pair's own median, then break what is left by a
+            #   deterministic edge order, with `eps` sized so the tie term can never outweigh a
+            #   real grid step.
+            grp = collections.defaultdict(list)
+            for u, v, dat in H.edges(data=True):
+                tg = dat["e"]
+                key = ("ML",) if (isinstance(tg, tuple) and tg and tg[0] == "ML") else \
+                      tuple(sorted((el[tg[0]], el[tg[1]])))
+                grp[key].append((u, v))
+            order = {ed: i for i, ed in enumerate(sorted(
+                (tuple(sorted(map(str, uv))) for uv in H.edges()), key=str))}
+            eps = CAPQ / (10.0 * max(len(order), 1))
+            for _k, eds in grp.items():
+                ws = sorted(H[u][v]["weight"] for u, v in eds)
+                base = ws[len(ws) // 2]
+                for u, v in eds:
+                    key = tuple(sorted(map(str, (u, v))))
+                    H[u][v]["weight"] = (base + round((H[u][v]["weight"] - base) / CAPQ) * CAPQ
+                                         - eps * order[key])
         if not H.number_of_edges():
             break
         cnt, mlc = collections.Counter(), collections.Counter()

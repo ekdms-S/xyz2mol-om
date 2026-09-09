@@ -102,3 +102,65 @@ def test_a_structural_negative_charge_is_not_a_radical_site():
     assert r["radical"]["site"] == "metal" and r["radical"]["atom"] is None
     borate = [m for m in r["molecules"] if not m["metals"]][0]
     assert borate["charge"] == -1 and borate["smiles_ok"]
+
+
+# ── the metal-free reports (UniTS-Lib batch, 2026-09-10) ────────────────────────────────────
+#   Six of ten recognition failures were metal-free doublets where **every** formal negative
+#   charge became a candidate site. Two different causes hide behind that one symptom, and the
+#   pipeline now separates them instead of reporting "N candidate sites".
+
+def _nitromethane():
+    el = ["C", "N", "O", "O", "H", "H", "H"]
+    xyz = [[0, 0, 0], [0, 0, 1.489], [0, 1.067, 2.093], [0, -1.067, 2.093],
+           [1.03, 0, -0.36], [-0.515, 0.892, -0.36], [-0.515, -0.892, -0.36]]  # fmt: skip
+    return el, np.array(xyz, float)
+
+
+def test_a_charge_inflated_structure_is_reported_as_such_not_as_a_radical_site():
+    """🔴 `N=O` written `Single` makes nitromethane `N([O-])[O-]`, charge -2 against the
+    `total_charge=0` the caller passed. Both invented `O-` used to become radical candidates and
+    the answer was "2 candidate sites". With no metal to absorb it, that shortfall is a
+    bond-order error, and saying so is the useful answer."""
+    el, xyz = _nitromethane()
+    r = predict(el, xyz, total_charge=0, n_unpaired=1)
+    assert r["radical"]["atom"] is None and r["radical"]["site"] is None
+    assert "charge shortfall 2" in r["radical"]["note"]
+    assert "bond-order/charge error" in r["radical"]["note"]
+
+
+def test_a_structural_charge_pair_is_not_a_radical_site():
+    """Diazomethane is `CH2=N+=N-`: the `N-` is the notation, not an unpaired electron. The
+    emitted charges already add up to `total_charge`, so there is no shortfall to explain."""
+    el = ["C", "N", "N", "H", "H"]
+    xyz = np.array([[0, 0, 0], [0, 0, 1.300], [0, 0, 2.430],
+                    [0.94, 0, -0.55], [-0.94, 0, -0.55]], float)  # fmt: skip
+    r = predict(el, xyz, total_charge=0, n_unpaired=1)
+    (mol,) = r["molecules"]
+    assert mol["charge"] == 0 and "[N+]" in mol["smiles"] and "[N-]" in mol["smiles"]
+    assert r["radical"]["atom"] is None
+    assert "charge shortfall 0" in r["radical"]["note"]
+
+
+def test_the_metal_free_shortfall_test_does_not_touch_the_metal_case():
+    """With a metal the shortfall is identically 0 by construction (the oxidation state absorbs
+    it), so the new test must not fire there — `Cu(I)Cl + CH3-` still gets its electron."""
+    el, xyz, wbo = _cu_ch3()
+    r = predict(el, xyz, total_charge=0, wbo=wbo, n_unpaired=1)
+    assert r["radical"]["site"] == "organic" and r["radical"]["note"] == ""
+
+
+def test_charge_balance_flags_a_charge_inflated_metal_free_structure():
+    """`charge_balance` is the same test as above, exposed for `n_unpaired=0` too — the case the
+    consumer hits as "Sq = -2 != 0" with no radical involved."""
+    el, xyz = _nitromethane()
+    r = predict(el, xyz, total_charge=0, n_unpaired=0)
+    assert r["charge_balance"]["shortfall"] == 2 and not r["charge_balance"]["ok"]
+
+    # a healthy metal-free molecule, and a metal-bearing one where the test cannot apply
+    r2 = predict(["C", "N", "N", "H", "H"],
+                 np.array([[0, 0, 0], [0, 0, 1.300], [0, 0, 2.430],
+                           [0.94, 0, -0.55], [-0.94, 0, -0.55]], float),
+                 total_charge=0)  # fmt: skip
+    assert r2["charge_balance"]["ok"] and r2["charge_balance"]["shortfall"] == 0
+    el3, xyz3, wbo3 = _cu_ch3()
+    assert predict(el3, xyz3, total_charge=0, wbo=wbo3)["charge_balance"]["shortfall"] is None
