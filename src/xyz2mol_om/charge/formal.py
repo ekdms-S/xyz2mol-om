@@ -117,11 +117,21 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None)
             #   leaves the second untouched; a single global grid large enough to flatten a ring
             #   also erases the cross-pair preference (measured: `KEKQ=16` global cost `Σq_L`
             #   −0.0034).
-            order = {e: i for i, e in enumerate(sorted(ew))}
-            eps = KEKQ / (10.0 * max(len(order), 1))
+            # 🔴 The tie-break key must not depend on **which** edges are in the set. Ranking
+            #   inside `ew` did, and that is what made the canonicalisation counter-productive
+            #   exactly where the `Conj` set differs between two frames of one reaction path
+            #   (the "`Conj` boundary" atoms): the set changes, every rank shifts, and the two
+            #   frames get different placements from a rule meant to make them identical.
+            #   Measured before this: `KEKQ` created 27 such disagreements while fixing 21.
+            #   The atom indices are the same in both frames, so key on them alone.
+            _sc = KEKQ / (10.0 * max(len(atoms), 1))
+            eps = 1.0
+
+            def order(e, _s=_sc):
+                return _s * ((e[0] * 1048576 + e[1]) / 1099511627776.0)
             if KEKQMODE == "abs":
                 # absolute grid — the bin cannot move when the geometry does
-                ew = {e: round(v / KEKQ) * KEKQ - eps * order[e] for e, v in ew.items()}
+                ew = {e: round(v / KEKQ) * KEKQ - eps * order(e) for e, v in ew.items()}
             else:
                 grp = collections.defaultdict(list)
                 for e in ew:
@@ -130,7 +140,7 @@ def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None)
                 for _k, es in grp.items():
                     base = sorted(ew[e] for e in es)[len(es) // 2]
                     for e in es:
-                        out2[e] = base + round((ew[e] - base) / KEKQ) * KEKQ - eps * order[e]
+                        out2[e] = base + round((ew[e] - base) / KEKQ) * KEKQ - eps * order(e)
                 ew = out2
         G.add_edges_from((a, b, {"weight": ew[(min(a, b), max(a, b))]}) for a, b in edges)
     else:
