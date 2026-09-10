@@ -125,7 +125,28 @@ LPCOND = os.environ.get("LPCOND", "1") == "1"
 # `LPCOND_NOCONJ` — keep `Conj` on the **global** prior. The `C–C` deg-3/3 cell has P(Conj) = .908,
 #   which drags `Double` into `Conj`.
 LPCOND_NOCONJ = os.environ.get("LPCOND_NOCONJ", "1") == "1"
-LPCOND_NMIN = int(os.environ.get("LPCOND_NMIN", "300"))  # samples a cell needs for its own prior
+# `LPCOND_NMIN` — samples a cell needs for its own prior; below it the bond falls back to the
+#   **element-pair global** prior. ⚠️ The shipped `scores4.json` was fitted at 300
+#   (`_meta.n_min_cell`), so lowering this at runtime does nothing — the cells are not in the
+#   file. Changing it means refitting (`dev/analysis/scratch/260903_export_scores4.py`).
+#   🔴 **The fallback is the weakness, not the threshold.** Falling back to the global prior
+#   hands the bond the *most common* cell's answer, which is exactly the one a rare cell needs
+#   to be told apart from. `C–O` is the worked case (`260910_lpcond_cell_gap.py`, train):
+#       cell (1,1)  n 22,294   98% Triple     a terminal / metal carbonyl
+#       cell (2,1)  n    238   93% Double     a carbon with two neighbours — CO₂, an acyl
+#   `(2,1)` is **62 samples short of 300**, so it is dropped and CO₂ inherits the carbonyl prior:
+#   at 1.145 Å that scores Triple −1.01 against Double −6.81, the cap forces the other C–O to
+#   `Single`, and free CO₂ comes out **`[O+]#C[O-]`** (owner: "CO2는 아주 간단한 화학종인데
+#   이걸 왜 triple로 표기하게 되는거지?").
+#   **Refitting at 150 was measured and is not adopted.** Cells 57 → 75; `(2,1)` then reads
+#   `Double` at both 1.145 and 1.198 Å, as it should. Holdout 6,793:
+#       T3 `Double` .7748 → .7753 · T6 .9865 → .9867   (better)
+#       T8 `Triple` .7228 → **.7183** · T5 .9795 → .9793 · T3 `Triple` .9772 → .9771  (worse)
+#       `Sq_L` .8587 · `OS` .8938 · violations .0125   (**unchanged**)
+#   ⇒ it buys nothing on the two metrics this was meant to fix, because `QSHIFT` already
+#   repairs the CO₂ shape after ⑥, and it regresses T8 `Triple`. 60 gives the same numbers as
+#   150. Revisit only with a fallback that respects the degree instead of the global prior.
+LPCOND_NMIN = int(os.environ.get("LPCOND_NMIN", "300"))
 # `LPA` — prior temperature: `score = distance term + LPA·ln P(c)`. **The one fitted parameter in
 #   the rules.** The prior is right about the base rate (`Double` is 2.2% of internal bonds) but
 #   in a cell such as `C(3)–N(3)` the amines and amides dominate so heavily that it overrides the
