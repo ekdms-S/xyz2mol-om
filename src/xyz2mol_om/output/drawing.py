@@ -46,7 +46,6 @@ ML_STYLE = {"sigma": "-", "haptic": ":", "bridge": "--"}
 METAL_COLOR = "#8000a0"
 MM_COLOR = "#8000a0"
 HIGHLIGHT_COLOR = "#d00000"
-LIGCHG_COLOR = "#0060c0"   # 조각(리간드) 전하 배지
 
 # ── projection score weights (`_clutter` · `projection_axes`) ──────────────────────────────────
 # Tuned against the hand-judge set, where the owner could not read several figures. They are
@@ -259,6 +258,27 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
         projection = projection_axes(xyz, keep, list(kek), list(ml), list(met), el)
     pos = xyz @ projection.T
 
+    # ★ **떨어져 있는 분자는 그림에서도 떼어 놓는다.** 하나의 투영으로는 서로 다른 분자가
+    #   겹쳐 그려지는 일이 잦고, 그러면 어느 선이 어느 분자의 것인지 읽을 수가 없다.
+    #   분자마다 **평행이동만** 한다 — 회전도 축소도 하지 않으므로 **분자 안의 기하는 그대로**다.
+    #   ⚠️ 잃는 것은 **분자 사이의 상대 위치**다. 해리해 나가는 조각이 얼마나 멀어졌는지는 이
+    #   그림으로 못 읽는다 — 그 값이 필요하면 좌표를 봐야 한다.
+    _mols = [[i for i in mol["atoms"] if i in set(keep)] for mol in result["molecules"]]
+    _mols = [m for m in _mols if m]
+    if len(_mols) > 1:
+        _bl = [float(np.linalg.norm(pos[a] - pos[b])) for a, b in kek
+               if a not in hide and b not in hide]
+        gap = 0.9 * (float(np.median(_bl)) if _bl else 1.0)
+        order = sorted(range(len(_mols)), key=lambda k: -len(_mols[k]))
+        xcur = 0.0
+        for k in order:
+            at = _mols[k]
+            lo, hi = pos[at].min(0), pos[at].max(0)
+            shift = np.array([xcur - lo[0], -(lo[1] + hi[1]) / 2.0])
+            for i in result["molecules"][k]["atoms"]:
+                pos[i] = pos[i] + shift
+            xcur += (hi[0] - lo[0]) + gap
+
     fig, ax = plt.subplots(figsize=(9.5, 7.2), dpi=130)
 
     # internal bonds — one line per order, offset sideways
@@ -301,10 +321,15 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
             k = 0.55 * length / (sa + sb)
             sa, sb = sa * k, sb * k
         kind = d.get("type", "sigma")
+        # ★ haptic·bridge 는 σ 보다 굵고 위에 그린다. 이들은 **점선·파선**이라 같은 굵기면
+        #   실선보다 훨씬 옅게 읽히고, 하필 η² 의 두 선은 강조된(`lw` 3.0 빨간) π 결합 바로
+        #   옆에 놓이는 일이 잦다 — 오너가 η² 를 η¹ 로 읽은 것이 그 경우였다. 두 선 다
+        #   그려져 있었지만 굵은 빨간 선에 묻혔다.
+        thick = kind != "sigma"
         ax.annotate(
-            "", xy=pos[m], xytext=pos[x], zorder=1,
+            "", xy=pos[m], xytext=pos[x], zorder=3 if thick else 1,
             arrowprops=dict(
-                arrowstyle="-|>", lw=1.4, color=ML_COLOR.get(kind, "k"),
+                arrowstyle="-|>", lw=2.2 if thick else 1.4, color=ML_COLOR.get(kind, "k"),
                 linestyle=ML_STYLE.get(kind, "-"), shrinkA=sa, shrinkB=sb,
             ),
         )
@@ -315,6 +340,9 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
     #   1 올린 이유인데, 그리지 않으면 독자가 그 +1 이 어디서 왔는지 알 길이 없다 (오너, on
     #   `C_acyclic_DS_flip__02__P`: "왜 W가 +1이지? H- 때문에?"). 탄소에 붙어 안 그려지는 H 는
     #   `keep` 에 없으므로 애초에 여기 오지 않는다.
+    #   ⚠️ 조각(리간드) 전하를 **별도 배지**로 그리는 것도 해봤고 **되돌렸다** — 원소 옆 윗첨자가
+    #   이미 같은 정보를 담고 있어 중복이고, 배지가 그 원소를 가려서 오히려 못 읽게 된다
+    #   (오너: "그냥 원소에 윗첨자로 전하 달면 되잖아"). 조각 합계는 부제에 남아 있다.
     qat = {}
     for i in keep:
         if i in met:
@@ -347,27 +375,6 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
                 color=CPK.get(e, "#606060"), fontweight="bold",
                 bbox=dict(boxstyle="round,pad=0.12", fc="white", ec="none"), zorder=3,
             )
-
-    # ★ **하전된 리간드는 그 자리에 전하를 적는다.** 부제의 `q0=… q1=…` 만으로는 어느 그림이
-    #   어느 조각인지 알 수 없어서, 금속 산화수가 왜 그 값인지 따라갈 수 없다.
-    #   중성 조각은 적지 않는다 — 대부분이 중성이라 다 적으면 도리어 안 읽힌다.
-    for lg in (fr for mol in result["molecules"] for fr in mol["fragments"]):
-        q = lg.get("charge")
-        at = [i for i in lg["atoms"] if i in set(keep)]
-        if not q or not at:
-            continue
-        # 단원자 조각(하이드라이드 · 할라이드 · 시아나이드 한 원자)은 원자 라벨 자체가 이미
-        #   그 자리에 있으므로, 배지를 겹치지 않게 옆으로 비켜 놓는다.
-        c = pos[at].mean(0)
-        if len(at) == 1:
-            v = c - pos[keep].mean(0)
-            nv = float(np.linalg.norm(v)) or 1.0
-            c = c + v / nv * 0.42 * (float(np.linalg.norm(np.ptp(pos[keep], axis=0))) / 12.0 + 0.5)
-        ax.text(c[0], c[1], f"{q:+d}".replace("+1", "+").replace("-1", "−"),
-                ha="center", va="center", fontsize=13, fontweight="bold",
-                color=LIGCHG_COLOR, alpha=0.85,
-                bbox=dict(boxstyle="round,pad=0.18", fc="white", ec=LIGCHG_COLOR, lw=0.9),
-                zorder=4)
 
     ax.set_aspect("equal")
     ax.axis("off")

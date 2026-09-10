@@ -37,6 +37,38 @@ def test_co2_written_as_an_acylium_collapses_to_o_c_o():
     assert orders == {(0, 1): 2, (1, 2): 2}
 
 
+def test_formaldehyde_written_as_a_dianion_gets_its_double_back():
+    """`[C-](H)(H)[O-]` → `H₂C=O`. **같은 부호**의 `k = 1` — 결합 하나를 올리면 양 끝이 동시에
+    중성이 된다.
+
+    Gold-DIGR 의 IRC 끝점에서 **떨어져 나온 자유 분자**가 이렇게 나왔다. 아세트알데하이드
+    `[C-]([O-])(H)CH₃` 도 같은 꼴이다. 금속이 없는 분자라 산화수가 차이를 흡수해 주지도 않아,
+    그대로 `-2` 짜리 유기 분자가 훈련 데이터에 들어간다.
+    """
+    el = ["C", "O", "H", "H"]
+    G = nx.Graph([(0, 1), (0, 2), (0, 3)])
+    orders = {(0, 1): 1, (0, 2): 1, (0, 3): 1}
+    assert shift_pi_to_cancel(orders, el, G, {})
+    assert orders[(0, 1)] == 2
+
+
+def test_a_peroxide_keeps_its_single_bond():
+    """`[O⁻]–[O⁻]` 는 올리지 않는다 — 과산화 이음이온은 실재하는 화학종이고 금속 착물의 흔한
+    리간드다. 같은 원소 음이온 쌍 중 **O–O 만** 막는다."""
+    orders = {(0, 1): 1}
+    assert shift_pi_to_cancel(orders, ["O", "O"], nx.Graph([(0, 1)]), {}) == []
+    assert orders == {(0, 1): 1}
+
+
+def test_an_ethylene_dianion_does_get_its_double():
+    """`[C⁻]–[C⁻]` 는 에텐이 맞다 — O–O 예외가 탄소까지 막지 않는지 확인한다."""
+    el = ["C", "C", "H", "H", "H", "H"]
+    G = nx.Graph([(0, 1), (0, 2), (0, 3), (1, 4), (1, 5)])
+    orders = dict.fromkeys(G.edges, 1)
+    assert shift_pi_to_cancel(orders, el, G, {})
+    assert orders[(0, 1)] == 2
+
+
 def test_free_carbon_monoxide_is_never_touched():
     """`[C-]#[O+]` 는 결합이 하나뿐이라 `k = 1` — 관례가 맞는 자리이고, 건드리면 금속 카보닐이
     전부 무너진다."""

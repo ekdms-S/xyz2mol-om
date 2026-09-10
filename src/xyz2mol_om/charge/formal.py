@@ -493,8 +493,38 @@ def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5):
                 except nx.NetworkXNoPath:
                     continue
                 k = len(path) - 1
-                if not (2 <= k <= kmax):
-                    continue        # k = 1 은 CO · 아민 옥사이드 · 일리드 — 관례가 맞다
+                if k > kmax:
+                    continue
+                if k == 1 and q[a] * q[c] < 0:
+                    # 🔴 **반대 부호**의 k = 1 은 건드리지 않는다 — 양쪽성 이온을 그대로 두라는
+                    #   관례가 맞는 자리다: 일산화탄소 `[C⁻]≡[O⁺]` · 아민 옥사이드 `R₃N⁺–O⁻` ·
+                    #   인 일리드 `R₃P⁺–C⁻`. 여기서 차수를 옮기면 금속 카보닐이 전부 무너진다.
+                    continue
+                if k == 1:
+                    # ★ **같은 부호**의 k = 1 은 다르다. 결합 하나를 올리면 **양 끝이 동시에**
+                    #   중성이 된다 — `[C⁻](H)(H)[O⁻]` 는 폼알데하이드 `H₂C=O` 이고,
+                    #   `[C⁻]([O⁻])(H)CH₃` 는 아세트알데하이드다. 둘 다 Gold-DIGR 의 IRC 끝점에서
+                    #   **떨어져 나온 자유 분자**로 이렇게 나왔다. 상한과 |전하| 감소는 아래에서
+                    #   그대로 검사하므로, 여는 것은 이 부호 조건 하나뿐이다.
+                    #   ⚠️ **과산화물은 예외.** `[O⁻]–[O⁻]` 를 올리면 `O=O` 가 되는데, 과산화
+                    #   이음이온은 실재하는 화학종이고 금속 착물의 흔한 리간드다. 같은 원소끼리의
+                    #   음이온 쌍 중 O–O 만 막는다 — `[C⁻]–[C⁻]`(에틸렌 이음이온 → 에텐) 는
+                    #   올리는 것이 맞다.
+                    if el[a] == "O" and el[c] == "O":
+                        continue
+                    d = [1 if q[a] < 0 else -1]
+                    e = [(min(a, c), max(a, c))]
+                    if not 1 <= orders[e[0]] + d[0] <= 3:
+                        continue
+                    if any(b[x] + d[0] + bml.get(x, 0.0) > cap.get(el[x], 4) + 1e-9
+                           for x in (a, c) if d[0] > 0):
+                        continue
+                    orders[e[0]] += d[0]
+                    if sum(abs(v) for x, v in charges()[1].items() if el[x] != "H") < tot:
+                        hit = e
+                        break
+                    orders[e[0]] -= d[0]
+                    continue
                 da = -1 if q[a] > 0 else 1
                 dc = -1 if q[c] > 0 else 1
                 if da * (-1) ** (k - 1) != dc:
