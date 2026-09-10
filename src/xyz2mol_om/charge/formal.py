@@ -12,7 +12,7 @@ import collections
 import networkx as nx
 
 from ..config import (ALT, CAP, FULL, HUCKEL, KEKQ, KEKQMODE, NAMEEL, ORD4, PAT, PATM, QHV,
-                      ROMAN, VAL)
+                      QSHIFT, ROMAN, VAL)
 
 
 def q_atom(e, b, deg=None, nb=(), n_ml=0):
@@ -408,6 +408,90 @@ def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q
     if orders is not None:
         return _qfrag_kek(G, el, comp, orders, frag_q, coord)
     return _qfrag(G, el, cls, comp, w)  # only when the caller has no Kekule structure yet
+
+
+def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None):
+    """⑥ 이후 후처리 — **같은 부호 전하 2개가 교대 경로의 양 끝에 있으면 π 를 그 경로로 옮긴다.**
+
+    오너가 지목한 꼴 (`10.1021_jo802516k__05`, Gold-DIGR):
+
+        C0⁻ – C2 = C3 – O4⁻        →        C0 = C2 – C3 = O4
+        조각 −2 · Au **+3**                  조각 0 · Au **+1**
+
+    R 프레임은 오른쪽을, P 프레임은 왼쪽을 냈다. **골격도 M–L 도 하나도 안 변했는데** 산화수만
+    두 단계 뛴다 — 산화적 부가 없이 Au(I)→Au(III) 는 화학이 아니고, 반응 예측 모델에는 "아무 일도
+    없었는데 그 방향으로 반응이 일어난다" 고 가르치는 것이라 가장 유해한 부류다.
+
+    🔴 **이건 모호함이 아니라 해결 가능한 실패다.** 같은 결합 집합 위에 |전하| 가 더 작은 유효한
+    배치가 **존재하는데** 솔버가 그걸 안 골랐다. 거리 우도가 전하 비용을 이겼기 때문인데,
+    `QCOST` 를 16 까지 올려도 안 움직인다 — 이 선택은 ② 의 Double 매칭이 아니라 ③ 에서 이미
+    하드 클래스로 굳는다. 그래서 ⑥ 뒤에서 되돌린다. 이것이 오너가 지시한 **"1단 전하 비용 최소
+    해집합 → 2단 그 안에서 거리로 선택"** 을 출력 단계에서 강제하는 형태다.
+
+    적용 조건 (전부 만족해야 한다 — 하나라도 어긋나면 손대지 않는다)
+      · 두 원자의 형식전하가 **같은 부호**이고 둘 다 0 이 아니다
+      · 둘을 잇는 경로의 차수가 `1,2,1,…,2,1` 로 **교대**한다 (원자 짝수 · 결합 홀수)
+      · 뒤집은 뒤 경로 위 어느 원자도 **원자가 상한을 넘지 않는다** (M–L 예산 `bml` 포함)
+      · 뒤집으면 |전하 합| 이 **실제로 줄어든다**
+      · 양 끝 중 **금속에 배위하는 것이 하나 이하**다 🔴
+
+    🔴 마지막 조건이 결정적이다. 두 음이온 자리가 **둘 다** 금속에 배위하면 그것은 잘못 놓인 π 가
+    아니라 **진짜 이음이온 킬레이트**다 — 다이싸이올렌 `[S⁻]C(R)=C(R)[S⁻]` · 벤젠-1,2-다이싸이
+    올레이트 · 카테콜레이트 · 아미디네이트가 전부 이 꼴이고, CSD 규약은 이들을 이음이온으로
+    적는다. 게이트 없이 돌리면 다이싸이올렌이 중성 다이싸이온 `S=C–C=S` 가 되고 금속이 2 내려간다.
+    실측 (holdout · 게이트 전): 145 구조가 바뀌어 `Σq_L` 맞→틀 **15** · 틀→맞 4, `Σq_L`
+    .8553 → .8458 · `OS` .8899 → .8802. 틀린 15 건은 전부 `[S⁻]…[S⁻]` 또는 `[C⁻]…[O⁻]` 킬레
+    이트였다. 오너가 지목한 케이스는 `C0⁻` 가 배위하지 않아 이 게이트를 통과한다.
+
+    ⚠️ `pi_suppressed` 와 다르다. 저쪽은 **인접한** 두 음이온 사이의 `Single` 을 보고하되
+    고치지 않는다 — 캡이 막고 있어서 고칠 수가 없기 때문이다. 이쪽은 캡이 허용하는 배치가
+    이미 존재하므로 **고칠 수 있고**, 고치지 않으면 금속 산화수가 2 씩 틀린다.
+    """
+    if not QSHIFT or not orders:
+        return []
+    cap = CAP if cap is None else cap
+    bml = bml or {}
+    g = nx.Graph()
+    g.add_edges_from(orders)
+    moved = []
+    for _ in range(4):
+        b = collections.Counter()
+        deg = collections.Counter()
+        for (i, j), o in orders.items():
+            b[i] += o; b[j] += o; deg[i] += 1; deg[j] += 1
+        nbr = {a: tuple(el[y] for y in g[a]) for a in g}
+        q = {a: q_atom(el[a], float(b[a]), deg[a], nbr[a]) for a in g}
+        ch = [a for a in g if q[a] and el[a] != "H"]
+        hit = None
+        for n, a in enumerate(ch):
+            for c in ch[n + 1:]:
+                if q[a] * q[c] <= 0:
+                    continue
+                try:
+                    path = nx.shortest_path(g, a, c)
+                except nx.NetworkXNoPath:
+                    continue
+                if len(path) < 4 or len(path) % 2:
+                    continue
+                e = [(min(x, y), max(x, y)) for x, y in zip(path, path[1:])]
+                if any(orders[k] != (1 if t % 2 == 0 else 2) for t, k in enumerate(e)):
+                    continue
+                # 뒤집은 뒤의 원자가를 미리 검사한다 — 경로 **안쪽** 원자는 합이 그대로지만
+                # 양 끝은 +1 이 되므로 상한을 넘을 수 있다
+                if any(b[x] + 1 + bml.get(x, 0.0) > cap.get(el[x], 4) + 1e-9 for x in (a, c)):
+                    continue
+                if (a in coord) and (c in coord):
+                    continue   # 이음이온 킬레이트 — 잘못 놓인 π 가 아니다
+                hit = e
+                break
+            if hit:
+                break
+        if not hit:
+            break
+        for k in hit:
+            orders[k] = 3 - orders[k]   # 1 <-> 2
+        moved.append(tuple(hit))
+    return moved
 
 
 def pi_suppressed(bonds_kekule, qat, w):

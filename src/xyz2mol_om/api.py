@@ -44,6 +44,9 @@ salt with its counter-ion — and everything below is solved inside one molecule
               "charge":       int,          fragment charge q_L
               "residual_charge": int | None,  charge the skeleton cannot express (if any)
               "pi_suppressed": [(i,j), ...],  bonds ⑥ wrote `Single` between two anionic atoms
+                                            (⚠️ a charge ⑥ *could* have cancelled by moving a π
+                                            along an alternating path is not reported here — it
+                                            is **corrected**, see `config.QSHIFT`)
                                             where the ③ likelihood preferred `Double`. **A flag,
                                             not a correction** — each one means this fragment's
                                             charge is 2 too negative and, on a metal-bearing
@@ -102,7 +105,8 @@ import warnings
 import networkx as nx
 import numpy as np
 
-from .charge import frag_charge_or_eht, kekulize, octet_fix_period2, pi_suppressed, q_atom
+from .charge import (frag_charge_or_eht, kekulize, octet_fix_period2, pi_suppressed,
+                     q_atom, shift_pi_to_cancel)
 from .config import NOCTET, RCOV, VAL, WMIN, centers
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
@@ -245,6 +249,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     orders, frag_q = kekulize(G, el, cls, dict(bml), w)
     if NOCTET:
         octet_fix_period2(el, G, orders)
+    # ★ `QSHIFT` — 같은 골격 위에 |전하| 가 더 작은 유효한 배치가 있으면 π 를 옮긴다
+    shift_pi_to_cancel(orders, el, G, bml, {x for _m, x in ml_pred})
 
     # ⑦ M–M bonds (those T4 called with a metal at both ends) — the order is left at 1 because
     #   no distance boundary is implemented yet

@@ -332,6 +332,29 @@ NOCTET = os.environ.get("NOCTET", "1") == "1"
 HALW = float(os.environ.get("HALW", "0.30"))
 HALOGENS = {"F", "Cl", "Br", "I", "At"}
 
+# `QSHIFT` — ⑥ 뒤에서, 같은 부호 전하 2개가 교대 경로의 양 끝에 있으면 π 를 그 경로로 옮겨
+#   전하를 상쇄한다 (`charge.formal.shift_pi_to_cancel`).
+#   같은 결합 집합 위에 |전하| 가 더 작은 **유효한** 배치가 존재하는데 솔버가 그것을 고르지 못한
+#   경우만 건드린다 — 캡을 넘기지 않고, 배위하는 음이온 자리가 둘이 아니고, 전하 합이 실제로 줄 때만.
+#   오너 지목 (`10.1021_jo802516k__05`): `C0⁻–C2=C3–O4⁻` (조각 −2 · Au **+3**) 가 R 프레임에서는
+#   `C0=C2–C3=O4` (조각 0 · Au **+1**) 로 나온다. **골격도 M–L 도 하나도 안 변했는데 산화수만 두
+#   단계 뛴다** — 산화적 부가 없이 Au(I)→Au(III) 는 화학이 아니고, 반응 예측 모델에는 "아무 일도
+#   없었는데 그 방향으로 반응이 일어난다" 고 가르치는 것이라 가장 유해한 부류다.
+#   🔴 `QCOST` 를 16 까지 올려도 안 움직인다 — 이 선택은 ② 의 Double 매칭이 아니라 ③ 에서 하드
+#   클래스로 굳기 때문이다. 그래서 ⑥ **뒤**에서 되돌린다. 오너가 지시한 "1단 전하 비용 최소
+#   해집합 → 2단 그 안에서 거리로 선택" 을 출력 단계에서 강제하는 형태다.
+#   **On by default.** holdout 6,793: 17 구조가 바뀌어 `Σq_L` **틀→맞 2 · 맞→틀 0**,
+#     `Sq_L` .8553 → **.8570** · `OS` .8899 → **.8913** ·
+#     T1/T3 네 클래스/T4/T5/T6/T8/위반 **소수점 넷째 자리까지 전부 불변**
+#   Gold-DIGR (표본 800 반응 · 1,600 프레임): 12 프레임(0.75%)에서 발동하고 **전부** 금속
+#     산화수를 옳은 방향으로 2 내린다 — `Pd +5 → +3` (존재하지 않는 산화수) · `Pt +4 → +2` ·
+#     `Mo +6 → +4` · `Os +2 → 0` · `Ru +4 → +2` · `V +4 → +2` · `Ni +3 → +1`.
+#   ⚠️ **배위 게이트가 없으면 반대로 망가진다.** 두 음이온 자리가 둘 다 금속에 배위하면 그것은
+#      잘못 놓인 π 가 아니라 진짜 이음이온 킬레이트다 (다이싸이올렌 `[S⁻]C(R)=C(R)[S⁻]` ·
+#      벤젠-1,2-다이싸이올레이트 · 카테콜레이트 · 아미디네이트). 게이트 없이 재면 holdout 145
+#      구조가 바뀌어 `Σq_L` 맞→틀 **15** 대 틀→맞 4, `Sq_L` .8458 · `OS` .8802 로 떨어진다.
+QSHIFT = os.environ.get("QSHIFT", "1") == "1"
+
 # `SATML` — rule A's pi-headroom test counts the **sigma M-L bonds** as well as the internal
 #   degree: `deg(X) + b_ML(X) >= CAP(X)` keeps X out of the ring that rule A pins `Conj`.
 #   Why. A ring carbon carrying an H *and* a sigma bond to the metal already has four sigma
@@ -393,12 +416,13 @@ SATML = os.environ.get("SATML", "1") == "1"
 #         in all 42. `SATML` now fixes those at the root, and holdout violations stay .0125
 #         without `SIGCAP` doing the work.
 #   What keeps it on: the *other* class it catches is real -- an aryl C-H sigma-complex, where
-#   the ring genuinely is aromatic and the M-C genuinely is not a plain sigma bond. Turning it
-#   off (measured, `SATML=1 SIGCAP=0`) costs **322 more Gold-DIGR reactions** and gains only the
-#   eta-1 label back. Making it pair-only (an eta-2 needs two atoms) was measured too: eta-1
-#   goes to **0**, holdout T5 .9775 -> .9796, but violations .0125 -> .0187 and Gold-DIGR falls
-#   to 6,393 reactions. ⇒ **left as is until the eta-2 (C,H) rule replaces it**, which is what
-#   both classes actually want.
+#   the ring genuinely is aromatic and the M-C genuinely is not a plain sigma bond.
+#   🔴 **And `SATML` shrank the eta-1 problem to almost nothing on its own** (re-measured
+#   2026-09-10 on the shipped path): eta-1 is **0.42% of Gold-DIGR reactions** (5 of 1,200), not
+#   the 7.8% measured *before* `SATML`. Turning `SIGCAP` off takes eta-1 to 0 but costs **418
+#   reactions and 1,002 valence-violating rows** (7,113 -> 6,695). And the 5 that remain have
+#   **no H on the carbon** (0 of 3 audited), so an eta-2 (C,H) rule would not reach them either
+#   -- that follow-up is **dropped, not deferred**. ⇒ **left as is.**
 SIGCAP = os.environ.get("SIGCAP", "1") == "1"
 
 # `WMIN` — a global Mayer floor for M–L candidates, on top of the per-element-pair `w_veto`.
