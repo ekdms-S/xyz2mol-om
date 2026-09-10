@@ -240,11 +240,26 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord
         if _r is not None:
             return _r
     out = {e: 3 for e in conj}
-    for e in nonc:  # ① Triple — only where the likelihood argmax is Triple and both ends have
-        #                        headroom of at least 2
+    # ① Triple — only where the likelihood argmax is Triple and both ends have headroom of at
+    #    least 2. ★ **Strongest margin first.** The pass is greedy and cannot be anything else
+    #    here (the `Triple`/`Double` trade-off is what `CAPMILP` exists for), but it used to walk
+    #    `G.edges` — **atom-index order, unrelated to the scores** — so when two `Triple`
+    #    candidates shared an atom's headroom the one that happened to be indexed first won.
+    #    🔴 `10.1021_acs.inorgchem.3c02611__09_Int3` P is that failure: the C₅ chain
+    #    `C24–C20–C21–C19–C22` has `Triple` as the argmax on all four bonds
+    #    (−1.67 · −1.48 · −2.03 · **−0.61**) and C19 has room for exactly one. Index order gave
+    #    it to `C21–C19` (−2.03) and left `C19–C22` (−0.61, the strongest evidence in the chain)
+    #    as a `Single`, stranding **−3 on C22**. Ranking by margin gives it to `C19–C22`.
+    #    The margin is over the runner-up, so a bond that is `Triple` by a hair yields to one
+    #    that is `Triple` outright.
+    _cands = []
+    for e in nonc:
         s3 = sc.get(e)
         if not s3 or max(s3, key=s3.get) != 2:
             continue
+        _cands.append((s3[2] - max(v for c, v in s3.items() if c != 2), e))
+    for _m, e in sorted(_cands, key=lambda t: (-t[0], t[1])):
+        s3 = sc[e]
         if all(CAP.get(el[x], 4) - use[x] >= 2 - 1e-9 for x in e):
             out[e] = 2
             use[e[0]] += 2

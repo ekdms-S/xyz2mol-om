@@ -10,7 +10,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (BML3C_COST, SATML, ETA1SIG, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
+from ..config import (BML3C_COST, SATML, ETA1SIG, ETAEXO, ETAPI, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -690,4 +690,33 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                     continue
                 if not any(e[0] in r_ and e[1] in r_ for r_ in eta_ring):
                     w[e] = w.get(e, 0.0) - 1e6
+    if ETAPI and hap:
+        # ★ `ETAPI` — **a bond whose two ends are both haptic to the same metal gets the π.**
+        #   A haptic M–L bond *is* the metal binding a π bond side-on, so an η² written across a
+        #   `Single` is self-contradictory — and worse than untidy for a model trained on this
+        #   output, which then learns that haptic can appear on a single bond (owner: "이 표현을
+        #   보고 학습하는 모델이 일관되게 pi bonding이 있는 부분에서 haptic이 나온다고 생각을
+        #   못하고 single에서도 나올 수 있는 것처럼 학습해버리기 때문").
+        #   🔴 It is a **weight, not a constraint**, and that is the whole point. `w` is ⑥'s
+        #   max-weight Kekule matching tie-break, so the bonus is taken whenever a perfect
+        #   matching still exists without it — "D-S-D-S 순서를 바꾸는게 문제가 없으면" — and is
+        #   silently given up when the alternating pattern cannot afford it. Nothing else moves:
+        #   the 4-class labels, the haptic set and the valence budget are all already decided.
+        #   ⚠️ **η² only.** For every higher η the alternation itself forbids what the request
+        #   asks for, and the emitted output is already at that floor. A ring of `k` atoms has a
+        #   maximum matching of `⌊k/2⌋`, so `⌈k/2⌉` of its bonds **must** be `Single`:
+        #       η⁵ Cp   5 ring bonds · matching 2 ⇒ **60% single** — measured 60%
+        #       η⁶ arene 6 ring bonds · matching 3 ⇒ **50% single** — measured 50%
+        #       η⁴ diene 3 bonds · matching 2 ⇒ 33% — measured 33% · η³ 50% — measured 49%
+        #   η² is the only one whose floor is **0%** (one bond, one double), and it is the only
+        #   one out of line: **59 of 350 (17%)** come out `Single` (Gold-DIGR, 600 reactions,
+        #   `260910_haptic_on_single.py`). Those are the ones this weight is for.
+        #   📌 For π membership a consumer should read `bonds_4class` (`Conj`), not
+        #   `bonds_kekule` — the integers are a lossy projection of exactly this alternation.
+        _hm = collections.defaultdict(set)
+        for m, x in hap:
+            _hm[m].add(x)
+        for e in cls:
+            if any(len(xs) == 2 and e[0] in xs and e[1] in xs for xs in _hm.values()):
+                w[e] = w.get(e, 0.0) + ETAPI
     return cls, mlout, hap, ml_pred, btag, w
