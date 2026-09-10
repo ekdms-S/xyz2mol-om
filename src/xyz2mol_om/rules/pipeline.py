@@ -10,7 +10,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (BML3C_COST, SATML, ETA1SIG, ETAEXO, ETAPI, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
+from ..config import (BML3C_COST, SATML, ETA1SIG, ETA2NEAR, ETAEXO, ETAPI, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -509,7 +509,7 @@ def _closest_mid(xyz, x, m, cand):
     return min(cand, key=lambda q: float(np.linalg.norm((xyz[x] + xyz[q]) / 2 - xyz[m])))
 
 
-def _eta2_pair(el, xyz, G, ml_pred, cls_now):
+def _eta2_pair(el, xyz, G, ml_pred, cls_now, dbond=None):
     """η² is a property of the **bond**, so both of its atoms are haptic (see `config`).
 
     A slipped η² has a large angle at the near atom and a small one at the far atom, so asking
@@ -526,12 +526,43 @@ def _eta2_pair(el, xyz, G, ml_pred, cls_now):
     coord = collections.defaultdict(set)
     for m, x in ml_pred:
         coord[m].add(x)
+    near = collections.defaultdict(set)
+    if ETA2NEAR and xyz is not None and dbond is not None:
+        # ★ `ETA2NEAR` — the **partner** of an accepted η² end may sit just outside T4.
+        #   The docstring above says η² is a property of the *bond*, but requiring `b in xs`
+        #   puts a per-atom condition back in: both ends must have passed T4 on their own. A
+        #   side-on alkyne fails that routinely, because the far carbon is further from the
+        #   metal than the near one by construction.
+        #   🔴 `10.1021_acs.organomet.8b00684__45_Int9-2` R is the case: Ni–C0 2.089 Å is
+        #   accepted, Ni–C1 is **2.651 Å against a 2.594 Å threshold — 0.057 Å out**, so no pair
+        #   forms, `drop_eta1` turns the lone tag back into σ, that σ eats one of C0's four
+        #   valence units, and `C0≡C1` (1.218 Å) drops to a `Double` with **−1 on each carbon**
+        #   ⇒ Ni **+4**. The P frame, where the same contact does become haptic, reads `C≡C`
+        #   and Ni **+2**.
+        #   ⚠️ The alternative — *dropping* the accepted Ni–C0 so the σ stops costing anything —
+        #   is the wrong lever and unsafe: that bond is real (Mayer 0.274), T4 is the most
+        #   accurate stage in the pipeline (F1 .9918), and letting a later stage revoke it makes
+        #   the answer flip with 0.01 Å of noise. Admitting the partner never revokes anything.
+        for m, xs in coord.items():
+            for a in xs:
+                for b in G[a]:
+                    if b in xs or el[b] == "H" or el[a] == "H":
+                        continue
+                    lim = dbond.get((el[m], el[b]))
+                    if lim is None:
+                        continue
+                    lim = lim[0] if isinstance(lim, tuple) else lim
+                    if float(np.linalg.norm(xyz[m] - xyz[b])) <= lim + ETA2NEAR:
+                        near[m].add(b)
     out = set()
-    for m, xs in coord.items():
+    for m, xs0 in coord.items():
+        xs = xs0 | near[m]
         for a in xs:
             for b in G[a]:
                 if b <= a or b not in xs or el[a] == "H" or el[b] == "H":
                     continue
+                if a not in xs0 and b not in xs0:
+                    continue   # 완화로 들어온 원자끼리만의 짝은 만들지 않는다
                 if cls_now.get((a, b)) not in (1, 2, 3):
                     continue  # the bond must have π character to be an η² donor
                 if _angle_ok(xyz, m, a, b, THETA_HAPTIC) or _angle_ok(xyz, m, b, a, THETA_HAPTIC):
@@ -541,7 +572,7 @@ def _eta2_pair(el, xyz, G, ml_pred, cls_now):
 
 
 def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
-                  q_eht=None, rop=None, w_raw_out=None):
+                  q_eht=None, rop=None, w_raw_out=None, dbond=None):
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
     the haptic set** end to end.
 
@@ -576,7 +607,13 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     # A slipped η² whose far end misses the per-atom angle test. Applied **here** as well as
     #   below, because what it buys is the ④ budget: an M–L bond it turns haptic stops costing a
     #   valence unit, which is exactly what pass 2 needs to raise the π bond.
-    hap_pre |= _eta2_pair(el, xyz, G, ml_pred, cls0)
+    _extra = _eta2_pair(el, xyz, G, ml_pred, cls0, dbond)
+    # ★ a partner admitted by `ETA2NEAR` becomes a real M–L bond, not a haptic tag on a bond the
+    #   output does not carry — an eta reported over an atom with no M–L entry is the eta-1
+    #   problem wearing a different hat.
+    for _p in sorted(_extra - set(ml_pred)):
+        ml_pred.append(_p)
+    hap_pre |= _extra
     hap_pre = drop_eta1(hap_pre, G, el)
     keep = [p for p in ml_pred if p not in hap_pre]
     # 🔴 T7 bridge tags — computed **here**, between the two passes, because pass 2's budget
@@ -618,6 +655,8 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         if nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
             hap.add((m, x))
             hap_by_m[m].add(x)
+    # pass 1 already appended any `ETA2NEAR` partner to `ml_pred`, so the relaxation is not
+    #   needed again here — asking for it twice would let a second shell in.
     for m, x in _eta2_pair(el, xyz, G, ml_pred, cls):
         hap.add((m, x))
         hap_by_m[m].add(x)

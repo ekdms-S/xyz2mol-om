@@ -237,7 +237,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # `w_raw` is the ③ likelihood margin `score[Double] − score[Single]` **before** ④'s
     #   `CAPINESS` penalty is folded into `w`. Only the π-suppression report reads it.
     w_raw = {}
-    cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, q_eht=q_eht,
+    cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, dbond=dbond,
+                                                     q_eht=q_eht,
                                                       w_raw_out=w_raw)
     # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
     # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
