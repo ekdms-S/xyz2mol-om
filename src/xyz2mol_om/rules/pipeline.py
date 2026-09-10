@@ -10,7 +10,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (BML3C_COST, SATML, ETA1SIG, ETA2NEAR, ETAEXO, ETAPI, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
+from ..config import (AGOC, BML3C_COST, SATML, ETA1SIG, ETA2NEAR, ETAEXO, ETAPI, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -310,6 +310,63 @@ def drop_agostic(el, G, ml_raw):
     return out
 
 
+def drop_agostic_carbon(el, xyz, G, ml_raw, cut=None):
+    """`C–H···M` 의 **탄소 쪽** 후보도 지운다 — 단, 그 조각이 그 금속에서 떨어지지 않을 때만.
+
+    `drop_agostic` 은 M–**H** 만 지운다. 그것은 맞다. 문제는 **남는 M–C** 다: 아고스틱에서 금속은
+    탄소의 네 번째 결합손을 차지한 것이 아니라 **이미 있는 C–H 결합의 전자쌍을 옆에서 빌려 쓴다.**
+    그런데 이 형식에는 `sigma`(원자가 1 소비) 와 `haptic`(0 소비) 둘뿐이라, 남은 M–C 를 `sigma`
+    말고는 부를 이름이 없고, 그 1 이 탄소를 질식시킨다.
+
+    🔴 `10.1039_D2QO00332E__14_TS3A-Me` R 이 그 예다.
+
+        Ru···H39 **1.799 Å**  <  Ru–C36 **2.279 Å**       ∠Ru–C–H **51.2°**
+        C36–H39 1.089 → **1.141 Å** (전자쌍을 나눠 써서 늘어남)
+
+        σ 로 세면   C36 = 고리C + 고리C + H + Ru = **4 = CAP** ⇒ π 불가 ⇒ 페닐 탈방향족
+                    ⇒ 카바니온 2 개 ⇒ 조각 −2 ⇒ **Ru +3**
+        빼고 세면   C36 = 고리C + 고리C + H = **3** ⇒ 방향족 유지 ⇒ 중성 ⇒ **Ru +1**  (P 프레임과 일치)
+
+    판정 (기하만 쓴다 — 적합 파라미터 없음)::
+
+        el[X] = C  AND  X 에 붙은 H 가 있고  d(M,H) < d(M,C)  AND  d(M,H) < `AGOC`
+
+    ⚠️ **떼면 그 조각이 금속에서 완전히 떨어지는 경우에는 떼지 않는다.** 아고스틱 접촉이 유일한
+    연결이면(실측 Gold-DIGR 3,000 프레임 · 해당 조각 55 개 중 **17 개 = 30.9%**) 떼는 순간
+    자유 분자가 되어, σ 과대평가라는 오류를 «해리했다» 는 더 나쁜 오류로 바꾼다. 그런 (금속,
+    조각) 짝은 통째로 손대지 않는다. 나머지 **69.1%** 는 다른 M–L 로 붙어 있어 안전하다.
+
+    ⚠️ **CSD 채점은 이것을 손해로 본다** — 정답지는 이런 접촉(H 가 더 가깝고 탄소가 포화)의
+    **93.8%(30/32)** 를 `Single` M–C 라고 적는다. 상온 결정 구조에 활성화 직전 기하가 거의 없어
+    정답지가 이 구분을 가르쳐주지 않기 때문이다. **오너 판단으로 채택한다** — 아고스틱 상호작용은
+    지금 이 형식이 맞출 수 있는 대상이 아니고, 그렇다면 라벨을 지우는 쪽이 옳다.
+    """
+    cut = AGOC if cut is None else cut
+    if not cut or not ml_raw:
+        return ml_raw
+    comp = {x: i for i, c in enumerate(nx.connected_components(G)) for x in c}
+    drop = set()
+    for m, x in ml_raw:
+        if el[x] != "C":
+            continue
+        hs = [h for h in G[x] if el[h] == "H"]
+        if not hs:
+            continue
+        dmc = float(np.linalg.norm(xyz[m] - xyz[x]))
+        dmh = min(float(np.linalg.norm(xyz[m] - xyz[h])) for h in hs)
+        if dmh < dmc and dmh < cut:
+            drop.add((m, x))
+    if not drop:
+        return ml_raw
+    # 떼고 나서 그 (금속, 조각) 이 연결을 하나도 못 가지면, 그 짝은 통째로 되돌린다
+    left = collections.Counter()
+    for m, x in ml_raw:
+        if (m, x) not in drop:
+            left[(m, comp.get(x))] += 1
+    drop = {(m, x) for m, x in drop if left[(m, comp.get(x))]}
+    return [p for p in ml_raw if p not in drop]
+
+
 def drop_saturated(el, G, ml_raw):
     """Remove an M–X candidate to an atom whose **internal neighbours already fill its valence**
     (`SATVETO`).
@@ -595,7 +652,9 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     if bml_model is None:
         bml_model, bml_fb = load_b_ml_mayer()
     coord = {x for _m, x in ml_raw}
-    ml_pred = drop_bound_halide(el, G, drop_saturated(el, G, drop_agostic(el, G, ml_raw)), wbo)
+    ml_pred = drop_bound_halide(
+        el, G, drop_saturated(el, G, drop_agostic_carbon(
+            el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
     # pass 1 — budget 0 · no M–L optimization
     cls0, _ = predict_T3_EHT(el, xyz, G, scores4, {}, None, q_eht, coord, rop)
     unsat0 = {x for e, v in cls0.items() if v in (1, 2, 3) for x in e}
