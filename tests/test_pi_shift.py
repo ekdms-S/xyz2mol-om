@@ -23,6 +23,37 @@ import networkx as nx
 from xyz2mol_om.charge import shift_pi_to_cancel
 
 
+def test_co2_written_as_an_acylium_collapses_to_o_c_o():
+    """`[O+]#C[O-]` → `O=C=O`. 반대 부호 쌍 · 경로 결합 2 개.
+
+    ⑥ 이 여기까지 오는 이유는 `config.SATML` 아래 기록해 둔 대로다 — C–O `Triple` 클래스는
+    중앙값 1.146 Å 로 사실상 **금속 카보닐**이고, CO₂ 의 C=O(1.145–1.16 Å) 는 거리로 구별이
+    안 되며, 가르는 이웃수 셀 `(2,1)` 이 적합 표에 없어 전역(카보닐 지배) 사전확률로 폴백한다.
+    """
+    el = ["O", "C", "O"]
+    G = nx.Graph([(0, 1), (1, 2)])
+    orders = {(0, 1): 3, (1, 2): 1}
+    assert shift_pi_to_cancel(orders, el, G, {})
+    assert orders == {(0, 1): 2, (1, 2): 2}
+
+
+def test_free_carbon_monoxide_is_never_touched():
+    """`[C-]#[O+]` 는 결합이 하나뿐이라 `k = 1` — 관례가 맞는 자리이고, 건드리면 금속 카보닐이
+    전부 무너진다."""
+    orders = {(0, 1): 3}
+    assert shift_pi_to_cancel(orders, ["C", "O"], nx.Graph([(0, 1)]), {}) == []
+    assert orders == {(0, 1): 3}
+
+
+def test_an_amine_oxide_keeps_its_zwitterion():
+    """`R₃N⁺–O⁻` 도 `k = 1`. N=O 로 만들면 N 이 +2 가 되어 |전하| 가 줄지도 않는다."""
+    el = ["N", "O", "C", "C", "C"]
+    G = nx.Graph([(0, 1), (0, 2), (0, 3), (0, 4)])
+    orders = dict.fromkeys(G.edges, 1)
+    assert shift_pi_to_cancel(orders, el, G, {}) == []
+    assert orders[(0, 1)] == 1
+
+
 def _chain():
     """`C0–C1=C2–O3` — 아크롤레인 골격. 양 끝이 각각 −1 이고, π 를 옮기면 둘 다 사라진다.
 

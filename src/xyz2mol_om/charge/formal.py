@@ -410,29 +410,38 @@ def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q
     return _qfrag(G, el, cls, comp, w)  # only when the caller has no Kekule structure yet
 
 
-def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None):
-    """⑥ 이후 후처리 — **같은 부호 전하 2개가 교대 경로의 양 끝에 있으면 π 를 그 경로로 옮긴다.**
+def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5):
+    """⑥ 이후 후처리 — **결합차수를 경로를 따라 재분배해서 형식전하를 상쇄한다.**
 
-    오너가 지목한 꼴 (`10.1021_jo802516k__05`, Gold-DIGR):
+    같은 결합 집합 위에 |전하| 가 더 작은 **유효한** 배치가 존재하는데 솔버가 그것을 고르지 못한
+    경우만 건드린다. 모호함이 아니라 해결 가능한 실패다.
 
-        C0⁻ – C2 = C3 – O4⁻        →        C0 = C2 – C3 = O4
-        조각 −2 · Au **+3**                  조각 0 · Au **+1**
+    ## 규칙
 
-    R 프레임은 오른쪽을, P 프레임은 왼쪽을 냈다. **골격도 M–L 도 하나도 안 변했는데** 산화수만
-    두 단계 뛴다 — 산화적 부가 없이 Au(I)→Au(III) 는 화학이 아니고, 반응 예측 모델에는 "아무 일도
-    없었는데 그 방향으로 반응이 일어난다" 고 가르치는 것이라 가장 유해한 부류다.
+    전하를 가진 두 원자 `a`, `c` 와 그 사이 경로(결합 `k` 개)에 대해 차수를 **±1 씩 번갈아**
+    바꾼다. 번갈아 바꾸면 경로 **안쪽** 원자의 차수 합은 그대로이고 양 끝만 움직인다.
 
-    🔴 **이건 모호함이 아니라 해결 가능한 실패다.** 같은 결합 집합 위에 |전하| 가 더 작은 유효한
-    배치가 **존재하는데** 솔버가 그걸 안 골랐다. 거리 우도가 전하 비용을 이겼기 때문인데,
-    `QCOST` 를 16 까지 올려도 안 움직인다 — 이 선택은 ② 의 Double 매칭이 아니라 ③ 에서 이미
-    하드 클래스로 굳는다. 그래서 ⑥ 뒤에서 되돌린다. 이것이 오너가 지시한 **"1단 전하 비용 최소
-    해집합 → 2단 그 안에서 거리로 선택"** 을 출력 단계에서 강제하는 형태다.
+        δ_i = δ_a · (−1)^i        ⇒  안쪽은 δ_i + δ_{i+1} = 0
 
-    적용 조건 (전부 만족해야 한다 — 하나라도 어긋나면 손대지 않는다)
-      · 두 원자의 형식전하가 **같은 부호**이고 둘 다 0 이 아니다
-      · 둘을 잇는 경로의 차수가 `1,2,1,…,2,1` 로 **교대**한다 (원자 짝수 · 결합 홀수)
-      · 뒤집은 뒤 경로 위 어느 원자도 **원자가 상한을 넘지 않는다** (M–L 예산 `bml` 포함)
-      · 뒤집으면 |전하 합| 이 **실제로 줄어든다**
+    `q = v + b − 8` 이므로 **b 를 늘리면 q 가 오른다** — 음전하는 늘리고 양전하는 줄인다.
+    `k` 가 홀수면 양 끝이 같은 방향으로, 짝수면 반대 방향으로 움직인다. 그래서
+
+      · `k` 홀수 → **같은 부호** 전하 쌍   `C⁻–C=C–O⁻`  →  `C=C–C=O`   (오너 지목, Au 케이스)
+      · `k` 짝수 → **반대 부호** 전하 쌍   `O⁺≡C–O⁻`    →  `O=C=O`     (CO₂)
+
+    ## 🔴 `k ≥ 2` 여야 한다
+
+    `k = 1` 은 **양쪽성 이온을 그대로 두라는 관례가 맞는** 자리다 — 일산화탄소 `[C⁻]≡[O⁺]` ·
+    아민 옥사이드 `R₃N⁺–O⁻` · 인 일리드 `R₃P⁺–C⁻`. 여기서 차수를 옮기면 CO 가 `C=O` 가 되고
+    금속 카보닐 전체가 무너진다. 두 원자 사이 결합이 하나뿐이면 손대지 않는다.
+
+    ## 적용 조건 (전부 만족해야 한다)
+
+      · 경로 결합 수 `2 ≤ k ≤ kmax`
+      · 번갈아 바꾼 뒤 모든 차수가 `1..3` 안에 있다
+      · 양 끝이 **원자가 상한**을 넘지 않는다 (M–L 예산 `bml` 포함)
+      · **|전하 합| 이 실제로 줄어든다** — 특수 규칙(카벤·설폭사이드·나이트로)까지 반영해
+        다시 계산해서 비교한다
       · 양 끝 중 **금속에 배위하는 것이 하나 이하**다 🔴
 
     🔴 마지막 조건이 결정적이다. 두 음이온 자리가 **둘 다** 금속에 배위하면 그것은 잘못 놓인 π 가
@@ -440,8 +449,7 @@ def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None):
     올레이트 · 카테콜레이트 · 아미디네이트가 전부 이 꼴이고, CSD 규약은 이들을 이음이온으로
     적는다. 게이트 없이 돌리면 다이싸이올렌이 중성 다이싸이온 `S=C–C=S` 가 되고 금속이 2 내려간다.
     실측 (holdout · 게이트 전): 145 구조가 바뀌어 `Σq_L` 맞→틀 **15** · 틀→맞 4, `Σq_L`
-    .8553 → .8458 · `OS` .8899 → .8802. 틀린 15 건은 전부 `[S⁻]…[S⁻]` 또는 `[C⁻]…[O⁻]` 킬레
-    이트였다. 오너가 지목한 케이스는 `C0⁻` 가 배위하지 않아 이 게이트를 통과한다.
+    .8553 → .8458 · `OS` .8899 → .8802.
 
     ⚠️ `pi_suppressed` 와 다르다. 저쪽은 **인접한** 두 음이온 사이의 `Single` 을 보고하되
     고치지 않는다 — 캡이 막고 있어서 고칠 수가 없기 때문이다. 이쪽은 캡이 허용하는 배치가
@@ -453,43 +461,56 @@ def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None):
     bml = bml or {}
     g = nx.Graph()
     g.add_edges_from(orders)
-    moved = []
-    for _ in range(4):
-        b = collections.Counter()
-        deg = collections.Counter()
+
+    def charges():
+        b = collections.Counter(); deg = collections.Counter()
         for (i, j), o in orders.items():
             b[i] += o; b[j] += o; deg[i] += 1; deg[j] += 1
-        nbr = {a: tuple(el[y] for y in g[a]) for a in g}
-        q = {a: q_atom(el[a], float(b[a]), deg[a], nbr[a]) for a in g}
+        q = {}
+        for a in g:
+            nb = tuple(el[y] for y in g[a])
+            q[a] = q_atom(el[a], float(b[a]), deg[a], nb)
+        return b, q
+
+    moved = []
+    for _ in range(4):
+        b, q = charges()
+        tot = sum(abs(v) for a, v in q.items() if el[a] != "H")
         ch = [a for a in g if q[a] and el[a] != "H"]
         hit = None
         for n, a in enumerate(ch):
             for c in ch[n + 1:]:
-                if q[a] * q[c] <= 0:
-                    continue
+                if (a in coord) and (c in coord):
+                    continue        # 이음이온 킬레이트 — 잘못 놓인 π 가 아니다
                 try:
                     path = nx.shortest_path(g, a, c)
                 except nx.NetworkXNoPath:
                     continue
-                if len(path) < 4 or len(path) % 2:
-                    continue
+                k = len(path) - 1
+                if not (2 <= k <= kmax):
+                    continue        # k = 1 은 CO · 아민 옥사이드 · 일리드 — 관례가 맞다
+                da = -1 if q[a] > 0 else 1
+                dc = -1 if q[c] > 0 else 1
+                if da * (-1) ** (k - 1) != dc:
+                    continue        # 번갈아 바꿔서는 이 부호 조합을 못 맞춘다
                 e = [(min(x, y), max(x, y)) for x, y in zip(path, path[1:])]
-                if any(orders[k] != (1 if t % 2 == 0 else 2) for t, k in enumerate(e)):
+                d = [da * (-1) ** t for t in range(k)]
+                if any(not 1 <= orders[k2] + d[t] <= 3 for t, k2 in enumerate(e)):
                     continue
-                # 뒤집은 뒤의 원자가를 미리 검사한다 — 경로 **안쪽** 원자는 합이 그대로지만
-                # 양 끝은 +1 이 되므로 상한을 넘을 수 있다
-                if any(b[x] + 1 + bml.get(x, 0.0) > cap.get(el[x], 4) + 1e-9 for x in (a, c)):
+                if any(b[x] + dx + bml.get(x, 0.0) > cap.get(el[x], 4) + 1e-9
+                       for x, dx in ((a, da), (c, dc)) if dx > 0):
                     continue
-                if (a in coord) and (c in coord):
-                    continue   # 이음이온 킬레이트 — 잘못 놓인 π 가 아니다
-                hit = e
-                break
+                for t, k2 in enumerate(e):
+                    orders[k2] += d[t]
+                if sum(abs(v) for x, v in charges()[1].items() if el[x] != "H") < tot:
+                    hit = e
+                    break
+                for t, k2 in enumerate(e):      # 되돌린다 — 실제로 줄지 않았다
+                    orders[k2] -= d[t]
             if hit:
                 break
         if not hit:
             break
-        for k in hit:
-            orders[k] = 3 - orders[k]   # 1 <-> 2
         moved.append(tuple(hit))
     return moved
 
