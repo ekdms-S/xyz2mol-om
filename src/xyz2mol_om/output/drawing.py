@@ -46,6 +46,7 @@ ML_STYLE = {"sigma": "-", "haptic": ":", "bridge": "--"}
 METAL_COLOR = "#8000a0"
 MM_COLOR = "#8000a0"
 HIGHLIGHT_COLOR = "#d00000"
+LIGCHG_COLOR = "#0060c0"   # 조각(리간드) 전하 배지
 
 # ── projection score weights (`_clutter` · `projection_axes`) ──────────────────────────────────
 # Tuned against the hand-judge set, where the owner could not read several figures. They are
@@ -310,9 +311,13 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
 
     # per-atom formal charge, recomputed with the library's own rule — the ligand total alone
     # would not say which atom carries the charge
+    # ★ **H 도 전하를 받는다.** 하이드라이드는 이온 절단하면 `H⁻` 이고, 그것이 금속 산화수를
+    #   1 올린 이유인데, 그리지 않으면 독자가 그 +1 이 어디서 왔는지 알 길이 없다 (오너, on
+    #   `C_acyclic_DS_flip__02__P`: "왜 W가 +1이지? H- 때문에?"). 탄소에 붙어 안 그려지는 H 는
+    #   `keep` 에 없으므로 애초에 여기 오지 않는다.
     qat = {}
     for i in keep:
-        if i in met or el[i] == "H":
+        if i in met:
             continue
         bsum = sum(o for (x, y), o in kek.items() if i in (x, y))
         nbs = tuple(sorted(el[y if x == i else x] for (x, y) in kek if i in (x, y)))
@@ -330,6 +335,10 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
             )
         elif e == "C" and not qat.get(i):
             ax.plot(pos[i][0], pos[i][1], "o", ms=3.2, color=CPK["C"], zorder=2)
+        elif e == "H" and not qat.get(i):
+            ax.text(pos[i][0], pos[i][1], "H", ha="center", va="center", fontsize=10,
+                    color="#808080", bbox=dict(boxstyle="round,pad=0.10", fc="white", ec="none"),
+                    zorder=3)
         else:
             q = qat.get(i, 0)
             lab = e if not q else f"{e}$^{{{q:+d}}}$".replace("+1", "+").replace("-1", "−")
@@ -338,6 +347,27 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
                 color=CPK.get(e, "#606060"), fontweight="bold",
                 bbox=dict(boxstyle="round,pad=0.12", fc="white", ec="none"), zorder=3,
             )
+
+    # ★ **하전된 리간드는 그 자리에 전하를 적는다.** 부제의 `q0=… q1=…` 만으로는 어느 그림이
+    #   어느 조각인지 알 수 없어서, 금속 산화수가 왜 그 값인지 따라갈 수 없다.
+    #   중성 조각은 적지 않는다 — 대부분이 중성이라 다 적으면 도리어 안 읽힌다.
+    for lg in (fr for mol in result["molecules"] for fr in mol["fragments"]):
+        q = lg.get("charge")
+        at = [i for i in lg["atoms"] if i in set(keep)]
+        if not q or not at:
+            continue
+        # 단원자 조각(하이드라이드 · 할라이드 · 시아나이드 한 원자)은 원자 라벨 자체가 이미
+        #   그 자리에 있으므로, 배지를 겹치지 않게 옆으로 비켜 놓는다.
+        c = pos[at].mean(0)
+        if len(at) == 1:
+            v = c - pos[keep].mean(0)
+            nv = float(np.linalg.norm(v)) or 1.0
+            c = c + v / nv * 0.42 * (float(np.linalg.norm(np.ptp(pos[keep], axis=0))) / 12.0 + 0.5)
+        ax.text(c[0], c[1], f"{q:+d}".replace("+1", "+").replace("-1", "−"),
+                ha="center", va="center", fontsize=13, fontweight="bold",
+                color=LIGCHG_COLOR, alpha=0.85,
+                bbox=dict(boxstyle="round,pad=0.18", fc="white", ec=LIGCHG_COLOR, lw=0.9),
+                zorder=4)
 
     ax.set_aspect("equal")
     ax.axis("off")
