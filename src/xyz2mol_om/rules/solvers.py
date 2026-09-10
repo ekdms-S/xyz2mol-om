@@ -323,16 +323,36 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord
                 key = ("ML",) if (isinstance(tg, tuple) and tg and tg[0] == "ML") else \
                       tuple(sorted((el[tg[0]], el[tg[1]])))
                 grp[key].append((u, v))
-            order = {ed: i for i, ed in enumerate(sorted(
-                (tuple(sorted(map(str, uv))) for uv in H.edges()), key=str))}
-            eps = CAPQ / (10.0 * max(len(order), 1))
+            # 🔴 Key the tie-break on the **atoms**, never on a position inside the current
+            #   edge set. `H` is rebuilt every round (and differs between two frames of one
+            #   reaction path), so a set-position rank moves under it and the canonicalisation
+            #   works against itself — the same defect that made `KEKQ` counter-productive at
+            #   the `Conj` boundary until it was keyed on atom indices instead.
+            _n = max(G.number_of_nodes(), 1)
+            eps = CAPQ / (10.0 * _n)
+
+            def _nk(nd):
+                # `H` holds two node kinds: an atom replica `(atom, i)` and an M-L unit dummy
+                #   `("_mlu", metal, atom, u)`. Both have to map into one integer space, and it
+                #   must be the **atom indices** that decide - they are what is identical between
+                #   two frames of a reaction path.
+                if isinstance(nd, tuple) and nd and nd[0] == "_mlu":
+                    return 1 << 21 | (nd[1] << 10) | (nd[2] & 1023)
+                if isinstance(nd, tuple) and nd:
+                    return int(nd[0])
+                return 0
+
+            def order(uv):
+                a, b = _nk(uv[0]), _nk(uv[1])
+                lo, hi = (a, b) if a <= b else (b, a)
+                return (lo * (1 << 22) + hi) / float(1 << 45)
+
             for _k, eds in grp.items():
                 ws = sorted(H[u][v]["weight"] for u, v in eds)
                 base = ws[len(ws) // 2]
                 for u, v in eds:
-                    key = tuple(sorted(map(str, (u, v))))
                     H[u][v]["weight"] = (base + round((H[u][v]["weight"] - base) / CAPQ) * CAPQ
-                                         - eps * order[key])
+                                         - eps * order((u, v)))
         if not H.number_of_edges():
             break
         cnt, mlc = collections.Counter(), collections.Counter()

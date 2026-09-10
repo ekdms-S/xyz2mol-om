@@ -113,3 +113,49 @@ def test_eta_is_per_ligand():
     types = [d["type"] for d in lg["ml_bonds"].values()]
     assert types == ["haptic"] * 5, types
     assert lg["eta"] == {0: 5}, lg["eta"]
+
+
+def test_capq_does_not_break_the_ml_order_path():
+    """🔴 `CAPQ` canonicalises ④'s matching, and ④'s graph holds **two node kinds**: an atom
+    replica `(atom, i)` and an M–L unit dummy `("_mlu", metal, atom, u)`. A tie-break key that
+    assumed one kind raised `TypeError` on every structure with an M–L order candidate — 657 of
+    6,793 holdout structures — and the failure was invisible because no test ran with `CAPQ` on.
+    """
+    import os
+    import importlib
+    import numpy as np
+    import xyz2mol_om.config as cfg
+
+    old = os.environ.get("CAPQ")
+    os.environ["CAPQ"] = "8"
+    try:
+        importlib.reload(cfg)
+        import xyz2mol_om.rules.solvers as solvers
+        importlib.reload(solvers)
+        import xyz2mol_om.rules.pipeline as pipe
+        importlib.reload(pipe)
+        import xyz2mol_om.api as api
+        importlib.reload(api)
+
+        el = ["Mo", "C", "O", "C", "O", "Cl"]
+        xyz = np.array([[0, 0, 0], [1.95, 0, 0], [3.10, 0, 0],
+                        [0, 1.95, 0], [0, 3.10, 0], [-2.4, 0, 0]], float)  # fmt: skip
+        wbo = {(0, x): 0.0 for x in range(1, 6)}
+        wbo[(0, 1)] = wbo[(0, 3)] = 1.1
+        wbo[(0, 5)] = 0.8
+        r = api.predict(el, xyz, total_charge=0, wbo=wbo)
+        orders = [d["order"] for m in r["molecules"] for fg in m["fragments"]
+                  for d in fg["ml_bonds"].values()]
+        assert orders and all(o is not None for o in orders)
+    finally:
+        if old is None:
+            os.environ.pop("CAPQ", None)
+        else:
+            os.environ["CAPQ"] = old
+        importlib.reload(cfg)
+        import xyz2mol_om.rules.solvers as solvers
+        importlib.reload(solvers)
+        import xyz2mol_om.rules.pipeline as pipe
+        importlib.reload(pipe)
+        import xyz2mol_om.api as api
+        importlib.reload(api)
