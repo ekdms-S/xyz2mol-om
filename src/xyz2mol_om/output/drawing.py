@@ -47,6 +47,15 @@ METAL_COLOR = "#8000a0"
 MM_COLOR = "#8000a0"
 HIGHLIGHT_COLOR = "#d00000"
 
+# ── projection score weights (`_clutter` · `projection_axes`) ──────────────────────────────────
+# Tuned against the hand-judge set, where the owner could not read several figures. They are
+# **relative**, and the ordering is the point: hiding an atom under the metal is worse than
+# crowding two labels, which is worse than a slightly foreshortened M–L arrow.
+METAL_DISC = 0.62      # metal circle radius, in mean-bond-length units (matches `boxstyle=circle`)
+METAL_OCCLUSION = 6.0  # cost of one labelled atom inside that circle — the largest occluder
+ON_BOND = 1.5          # cost of a labelled atom sitting on a bond it is not part of
+ML_FORESHORTEN = 3.0   # cost of an M–L bond the projection shortens by more than half
+
 
 def _import_pyplot():
     try:
@@ -63,35 +72,97 @@ def _import_pyplot():
     return plt
 
 
-def _clutter(pts, bonds):
-    """How crowded a 2D layout is — pairs of non-bonded atoms closer than 0.55 mean bond lengths."""
+def _clutter(pts, bonds, heavy=None, metals=()):
+    """How unreadable a 2D layout is. **Lower is better.** Units are "one bad overlap".
+
+    🔴 Rewritten 2026-09-10. The old score counted *pairs of atoms closer than 0.55 mean bond
+    lengths* and nothing else, which is blind to the three things that actually made the
+    hand-judge figures unreadable (owner, on `A_dOS2_no_topo_change__09__P`: "P쪽이 도무지 어떻게
+    생긴건지 모르겠고… atom 들이 너무 겹쳐보이면 내가 인지하기가 어려움"):
+
+      ① **it was a step function.** Two atoms at 0.56 scored the same as two atoms 3 Å apart, so
+         a rotation that pulls a pair from "just touching" to "clearly apart" won nothing and the
+         scan had no gradient to follow. Now every pair contributes `(1 − d/lim)²`.
+      ② **the metal's disc was invisible to it.** The metal is drawn as a circle with a bold
+         label, far larger than an atom label, and anything under it is simply gone. An atom
+         inside that disc now costs `METAL_OCCLUSION` each — the dominant term, because it is
+         the one that hides a whole ligand.
+      ③ **an atom sitting on an unrelated bond was free.** That is what makes a bond look like it
+         ends nowhere. A non-incident atom within half a label width of a bond segment now costs.
+
+    `heavy` restricts the pairwise terms to the atoms that get a **label** (non-H, non-metal) —
+    a hydrogen drawn as a small dot is not what ruins a figure, and counting it drowns out ①.
+    """
     if len(bonds) == 0:
-        return 0
+        return 0.0
     bl = np.linalg.norm(pts[bonds[:, 0]] - pts[bonds[:, 1]], axis=1)
-    lim = 0.55 * bl.mean()
-    d = np.linalg.norm(pts[:, None, :] - pts[None, :, :], axis=-1)
+    mean_bl = float(bl.mean()) or 1.0
+    lim = 0.55 * mean_bl
+    sel = np.arange(len(pts)) if heavy is None else np.asarray(sorted(heavy), dtype=int)
+    if len(sel) < 2:
+        return 0.0
+    d = np.linalg.norm(pts[sel][:, None, :] - pts[sel][None, :, :], axis=-1)
     np.fill_diagonal(d, 9e9)
+    where = {a: k for k, a in enumerate(sel)}
     for a, b in bonds:
-        d[a, b] = d[b, a] = 9e9
-    return int((d < lim).sum() // 2)
+        if a in where and b in where:
+            d[where[a], where[b]] = d[where[b], where[a]] = 9e9
+    near = np.clip(1.0 - d / lim, 0.0, None)
+    sc = float((near ** 2).sum()) / 2.0
+    # ② the metal disc — radius in the same units as the coordinates
+    if len(metals):
+        r = METAL_DISC * mean_bl
+        for m in metals:
+            dm = np.linalg.norm(pts[sel] - pts[m], axis=1)
+            sc += METAL_OCCLUSION * float(np.clip(1.0 - dm / r, 0.0, None).sum())
+    # ③ a labelled atom lying on a bond it is not part of
+    if len(sel) and len(bonds):
+        a = pts[bonds[:, 0]][None, :, :]
+        b = pts[bonds[:, 1]][None, :, :]
+        pt = pts[sel][:, None, :]
+        ab = b - a
+        t = np.clip(((pt - a) * ab).sum(-1) / ((ab * ab).sum(-1) + 1e-9), 0.0, 1.0)
+        foot = a + t[..., None] * ab
+        dist = np.linalg.norm(pt - foot, axis=-1)
+        own = (bonds[None, :, 0] == sel[:, None]) | (bonds[None, :, 1] == sel[:, None])
+        dist = np.where(own, 9e9, dist)
+        sc += ON_BOND * float(np.clip(1.0 - dist / (0.30 * mean_bl), 0.0, None).sum())
+    return sc
 
 
-def projection_axes(xyz, keep, bonds, ml_bonds=()):
+def projection_axes(xyz, keep, bonds, ml_bonds=(), metals=(), elements=None):
     """Pick the least cluttered viewing plane. Returns a `(2, 3)` matrix — project with `xyz @ ax.T`.
 
     The principal-component plane is only the starting point; a ring seen edge-on is flat there.
     Azimuth and elevation are scanned around it and the lowest-scoring rotation wins.
 
-    score = crowded atom pairs + 3 × (M–L bonds that the projection shortens by more than half)
+    score = `_clutter` (overlaps · metal occlusion · atoms on bonds)
+          + `ML_FORESHORTEN` × (M–L bonds the projection shortens by more than half)
 
     The M–L term matters: an M–L bond close to the viewing direction collapses in projection, and
     the little that is left hides under the metal's circle and the coordinating atom's label — the
     atom then looks unbonded. Trimming the arrow margins does not help, because what covers the
     line is the label box.
+
+    ⚠️ `metals` and `elements` are optional only so old callers keep working; **pass them.**
+    Without `metals` the score cannot see the largest occluder on the page, and without
+    `elements` it weighs a hydrogen dot as heavily as a labelled heteroatom.
+
+    ★ **`xyz` may be a stack** — `(n_frames, n_atoms, 3)`. The axis returned is then the one that
+    is best for **every frame at once**, scored as the sum. That is what an R/P pair needs: the
+    two must share an axis to be comparable at all, but optimising the axis on R alone and
+    handing it to P is how `A_dOS2_no_topo_change__09__P` came out unreadable (owner: "P쪽이
+    도무지 어떻게 생긴건지 모르겠고"). Pass `np.stack([xyz_R, xyz_P])` and both are legible.
+    `bonds` and `ml_bonds` should then be the **union** over the frames.
     """
-    sub = xyz[keep] - xyz[keep].mean(0)
-    _u, _s, vt = np.linalg.svd(sub, full_matrices=False)
+    stack = np.asarray(xyz, dtype=float)
+    if stack.ndim == 2:
+        stack = stack[None]
+    ref = stack[0]
+    sub = np.stack([f[keep] - f[keep].mean(0) for f in stack])
+    _u, _s, vt = np.linalg.svd(sub[0], full_matrices=False)
     idx = {a: k for k, a in enumerate(keep)}
+    del ref
     # 🔴 M–L bonds count as bonds here. Without them a complex whose ligands are single atoms
     #    (`[Re₂Cl₈]²⁻`: eight Cl⁻, no internal bond anywhere) has an empty bond list, the clutter
     #    score is 0 for every rotation, and the scan silently returns the first candidate — which
@@ -100,21 +171,30 @@ def projection_axes(xyz, keep, bonds, ml_bonds=()):
     bb = np.array([[idx[a], idx[b]] for a, b in pairs if a in idx and b in idx], dtype=int)
     if bb.size == 0:
         bb = np.zeros((0, 2), dtype=int)
+    mset = {idx[m] for m in metals if m in idx}
+    lab = None
+    if elements is not None:
+        lab = {k for a, k in idx.items() if elements[a] != "H" and k not in mset}
     mlb = np.array([[m, x] for m, x in ml_bonds], dtype=int) if len(ml_bonds) else None
-    d3 = np.linalg.norm(xyz[mlb[:, 0]] - xyz[mlb[:, 1]], axis=1) if mlb is not None else None
     best, score = vt[:2], None
-    for th in np.linspace(0, np.pi, 13, endpoint=False):
-        for ph in np.linspace(0, np.pi, 13, endpoint=False):
+    # 🔴 The scan is 24 × 24, not 13 × 13. With the smooth score there is a gradient to follow,
+    #    and the extra resolution is what finds the rotation that clears the metal disc — the
+    #    coarse grid regularly missed it by a few degrees. Cost is ~0.02 s for a 100-atom complex.
+    for th in np.linspace(0, np.pi, 24, endpoint=False):
+        for ph in np.linspace(0, np.pi, 24, endpoint=False):
             ct, st, cp, sp = np.cos(th), np.sin(th), np.cos(ph), np.sin(ph)
             rot = np.array([[ct, -st, 0], [st, ct, 0], [0, 0, 1]]) @ np.array(
                 [[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]]
             )
             ax2 = (rot @ vt.T).T[:2]
-            sc = _clutter(sub @ ax2.T, bb)
-            if mlb is not None:
-                proj = xyz @ ax2.T
-                d2 = np.linalg.norm(proj[mlb[:, 0]] - proj[mlb[:, 1]], axis=1)
-                sc += 3 * int((d2 < 0.5 * d3).sum())
+            sc = 0.0
+            for f, s2 in zip(stack, sub):
+                sc += _clutter(s2 @ ax2.T, bb, lab, mset)
+                if mlb is not None:
+                    proj = f @ ax2.T
+                    d2 = np.linalg.norm(proj[mlb[:, 0]] - proj[mlb[:, 1]], axis=1)
+                    d3f = np.linalg.norm(f[mlb[:, 0]] - f[mlb[:, 1]], axis=1)
+                    sc += ML_FORESHORTEN * float((d2 < 0.5 * d3f).sum())
             if score is None or sc < score:
                 best, score = ax2, sc
     return best
@@ -157,18 +237,25 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
     for a, b in kek:
         nbr.setdefault(a, set()).add(b)
         nbr.setdefault(b, set()).add(a)
-    # ★ a **highlighted** H is kept as well. `highlight` means "look here", so hiding its
-    #   atom defeats the argument: an R/P pair whose only change is a proton transfer came out
-    #   as two identical-looking skeletons with a red bond floating at nothing.
+    # ★ Which H to draw. The skeletal convention: **an H on carbon is implied, an H on a
+    #   heteroatom is written.** N–H · O–H · S–H are exactly what fix the formal charge, and a
+    #   reader cannot check a charge they cannot see — an amido `Ar–N(H)⁻` looked like a nitrogen
+    #   with one bond and an unexplained minus (owner, on `B_ML_type_flip_only__07__P`: "여기서
+    #   N은 왜 N-지? 결합이 ML 제외하고 한개밖에 없잖아").
+    #   Kept for the same reason: an H bound to a metal, and a **highlighted** H — `highlight`
+    #   means "look here", so hiding its atom defeats the argument. An R/P pair whose only change
+    #   is a proton transfer came out as two identical-looking skeletons with a red bond floating
+    #   at nothing.
     _hlatoms = {a for e_ in hl for a in e_}
     hide = {
         i for i, e in enumerate(el)
         if e == "H" and len(nbr.get(i, ())) <= 1 and i not in _hlatoms
         and not any((m, i) in ml for m in met)
+        and all(el[y] == "C" for y in nbr.get(i, ()))
     }
     keep = [i for i in range(len(el)) if i not in hide]
     if projection is None:
-        projection = projection_axes(xyz, keep, list(kek), list(ml))
+        projection = projection_axes(xyz, keep, list(kek), list(ml), list(met), el)
     pos = xyz @ projection.T
 
     fig, ax = plt.subplots(figsize=(9.5, 7.2), dpi=130)
