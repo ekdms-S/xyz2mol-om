@@ -481,7 +481,13 @@ def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5):
         for n, a in enumerate(ch):
             for c in ch[n + 1:]:
                 if (a in coord) and (c in coord):
-                    continue        # 이음이온 킬레이트 — 잘못 놓인 π 가 아니다
+                    # 이음이온 킬레이트 — 잘못 놓인 π 가 아니다.
+                    # ⚠️ "한쪽이 |q| ≥ 2 면 게이트를 풀자" 를 측정했다 (진짜 킬레이트는 각
+                    #   자리가 −1 이므로 −3 은 솔버가 흘린 전하라는 논리). **채택 안 함** —
+                    #   holdout `OS` .8938 → .8935 로 떨어지고, 그 논리를 만든 케이스
+                    #   (`10.1021_acs.inorgchem.3c02611__09_Int3` 의 `[C-3]`) 는 어차피 안
+                    #   고쳐진다. 유일한 경로가 이미 원자가 상한에 닿은 원자를 지나기 때문이다.
+                    continue
                 try:
                     path = nx.shortest_path(g, a, c)
                 except nx.NetworkXNoPath:
