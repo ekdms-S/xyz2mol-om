@@ -10,7 +10,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (BML3C_COST, ETA1SIG, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
+from ..config import (BML3C_COST, ETA1SIG, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -641,6 +641,34 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                     if nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
                         hap.add((m, x))
                         hap_by_m[m].add(x)
+    if SIGCAP:
+        # ★ a sigma M-L that breaks the cap is an eta-2 that the angle test missed (see `config`)
+        # 🔴 Skip exactly what the violation tally skips: a `3c2e` atom and `B` are outside the
+        #   two-centre formalism, so "b_int + n_ML > CAP" is not a violation for them. A mu-CO
+        #   carbon has `C#O` (b_int 3) and two M-L bonds, but as a 3c2e bridge it spends
+        #   `BML3C_COST` **in total** - 3 + 1 = 4 = CAP, which is fine. Counting its M-L bonds
+        #   one each read 5 and turned a bridging carbonyl haptic.
+        _pi = {x for e, v in cls.items() if v in (1, 2, 3) for x in e}
+        _skip = {x for x, t in btag.items() if t == "3c2e"} | {
+            x for x in G if el[x] == "B"}
+        for _ in range(3):
+            b_int = _kek_val(G, el, cls)
+            n_sig = collections.Counter()
+            for m, x in ml_pred:
+                if (m, x) not in hap:
+                    n_sig[x] += 1
+            moved = False
+            for m, x in ml_pred:
+                if (m, x) in hap or x not in _pi or x in _skip:
+                    continue
+                cap = CAP.get(el[x])
+                if cap is None or b_int.get(x, 0.0) + n_sig[x] <= cap + 1e-9:
+                    continue
+                hap.add((m, x))
+                n_sig[x] -= 1
+                moved = True
+            if not moved:
+                break
     for e in hap:  # haptic bonds get no order
         mlout.pop(e, None)
     if ETAEXO and hap:

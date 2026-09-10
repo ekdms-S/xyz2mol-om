@@ -332,6 +332,33 @@ NOCTET = os.environ.get("NOCTET", "1") == "1"
 HALW = float(os.environ.get("HALW", "0.30"))
 HALOGENS = {"F", "Cl", "Br", "I", "At"}
 
+# `SIGCAP` — a **sigma** M-L bond that would push its coordinating atom past its valence cap is
+#   re-read as **haptic**, when that atom belongs to a pi fragment.
+#   The violation is itself the evidence: a carbon cannot hold five bonds, so if `b_int + n_ML`
+#   exceeds `CAP` the sigma reading is wrong, and an atom that already carries a `Double`/
+#   `Triple`/`Conj` bond has the one alternative that costs no budget — eta-2. This is the same
+#   argument rule 5* makes ("eta-2 is a property of the bond, not of each atom"), applied where
+#   the angle test alone got it wrong.
+#   Measured on Gold-DIGR: **every** valence violation is this one shape — 101 of 101 on carbon,
+#   every one over by exactly 1, every one caused by a sigma M-L landing on an atom whose
+#   internal bonds already fill it, and 69 of 73 on a `deg 3 / b_int 4` sp2 carbon (an alkene,
+#   aryl or carbonyl carbon). Those contacts are also weak for an M-C: Mayer median **0.254**
+#   against 0.460 for M-C at large, so they are exactly the marginal side-on approaches the
+#   81.02 deg angle test is least reliable on.
+#   ⚠️ T4's `SATVETO` cannot catch these: it tests `deg_int >= CAP`, and an sp2 carbon has
+#      `deg 3 < CAP 4`. It counts neighbours rather than bond orders on purpose - a `b_int` form
+#      would veto every alkene, arene and Cp coordination (`rules.pipeline.drop_saturated`).
+#   **On by default.** CSD holdout: violations **.0187 -> .0125** (a third of them; the excess
+#   over the reference baseline of 0.4% nearly halves) at a cost of haptic F1 .9787 -> .9738.
+#   **Every other task is unchanged to four decimals** - T1, all four T3 classes, T4, T6, all
+#   three T8 classes, `Sq_L` and `OS`. Gold-DIGR: valence violations **10.7% -> 0.0%** of
+#   reactions, which takes the fraction passing every self-check from 75.9% to **84.5%**.
+#   ⚠️ The haptic cost is real: some of these reclassifications disagree with the CSD `Pi` label,
+#      so the rule does over-apply. It is kept in this unconditioned form because the argument
+#      it encodes has no free parameter - the violation *is* the evidence - and because a
+#      chemically impossible output is a different kind of error from a mislabelled one.
+SIGCAP = os.environ.get("SIGCAP", "1") == "1"
+
 # `WMIN` — a global Mayer floor for M–L candidates, on top of the per-element-pair `w_veto`.
 #   Measured and rejected. A **haptic** M–C is weak by construction — the π electrons are shared
 #   over five or six carbons, so each individual M–C is small — and a floor cannot tell that from
