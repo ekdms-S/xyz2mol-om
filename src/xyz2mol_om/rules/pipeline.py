@@ -10,7 +10,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (BML3C_COST, ETA1SIG, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
+from ..config import (BML3C_COST, SATML, ETA1SIG, ETAEXO, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -104,7 +104,13 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     if q_eht is None:
         q_eht = eht_frag_charges(el, xyz, G)
     # ① rule A — applies only to atoms of a planar ring (size >= 5) that **still have π headroom**
-    sat = {x for x in G.nodes if G.degree(x) >= CAP.get(el[x], 4)}
+    # ★ `SATML` -- the headroom test counts the **sigma M-L bonds** (`bml`), not only the
+    #   internal degree. A ring carbon carrying an H *and* a sigma bond to the metal has four
+    #   sigma bonds and is sp3, but the ring still passes `TAU_P`, so rule A pinned it `Conj`
+    #   anyway -- and a pinned bond is not the ④ matching's to move, so nothing downstream
+    #   could take the pi back. See `config.SATML`.
+    sat = {x for x in G.nodes
+           if G.degree(x) + (bml.get(x, 0.0) if SATML else 0.0) >= CAP.get(el[x], 4)}
     ringA = set()
     for r in nx.cycle_basis(G):
         if rule_a_ok(len(r)) and plane_rms(xyz[np.array(r)]) <= TAU_P:

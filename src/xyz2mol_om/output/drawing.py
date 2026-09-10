@@ -157,9 +157,14 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
     for a, b in kek:
         nbr.setdefault(a, set()).add(b)
         nbr.setdefault(b, set()).add(a)
+    # ★ a **highlighted** H is kept as well. `highlight` means "look here", so hiding its
+    #   atom defeats the argument: an R/P pair whose only change is a proton transfer came out
+    #   as two identical-looking skeletons with a red bond floating at nothing.
+    _hlatoms = {a for e_ in hl for a in e_}
     hide = {
         i for i, e in enumerate(el)
-        if e == "H" and len(nbr.get(i, ())) <= 1 and not any((m, i) in ml for m in met)
+        if e == "H" and len(nbr.get(i, ())) <= 1 and i not in _hlatoms
+        and not any((m, i) in ml for m in met)
     }
     keep = [i for i in range(len(el)) if i not in hide]
     if projection is None:

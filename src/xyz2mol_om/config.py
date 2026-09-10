@@ -332,6 +332,29 @@ NOCTET = os.environ.get("NOCTET", "1") == "1"
 HALW = float(os.environ.get("HALW", "0.30"))
 HALOGENS = {"F", "Cl", "Br", "I", "At"}
 
+# `SATML` — rule A's pi-headroom test counts the **sigma M-L bonds** as well as the internal
+#   degree: `deg(X) + b_ML(X) >= CAP(X)` keeps X out of the ring that rule A pins `Conj`.
+#   Why. A ring carbon carrying an H *and* a sigma bond to the metal already has four sigma
+#   bonds and is sp3, but the ring is still planar enough to pass `TAU_P`, so rule A pinned it
+#   anyway -- and a **pinned** bond is not the ④ matching's to move, so nothing downstream
+#   could take the pi back. That is where `b_int(X) + b_ML(X) > CAP(X)` was coming from.
+#   Measured (CSD holdout 6,793): 42 structures carried exactly this violation, and in **every
+#   one** the reference calls both ring bonds at that atom `Single` -- KOZFIS C13/C39, ZEJNUZ
+#   C8/C16, AGOJOW C0, all `C(H)(N)(N)->M` aminal carbons (`260910_sigcap_decline_audit.py`).
+#   **On by default.** Holdout, over `QCOST=1 KEKQ=8 HALW=.3` + the boron sextet:
+#     T3 `Single` .9905 -> .9906 · `Double` .7747 -> .7748 · `Triple` .9772 (=) ·
+#     `Conj` .9615 -> **.9618** · T5 .9784 -> **.9795** · `OS` .8910 -> .8899 ·
+#     `Sq_L` .8553 (=) · violations .0125 (=)
+#   ⚠️ **The cost is on Gold-DIGR: step2 reactions 7,435 -> 7,113 (-322).** `pi_suppressed`
+#      rises 1,832 -> 2,030 structures. Those are **aryl C-H sigma-complexes**: an approaching
+#      metal gets a sigma M-C to a ring carbon that still carries its H, `SATML` then correctly
+#      refuses it the pi, and the ring dearomatizes (`[C-][C-]`, fragment 2 too negative).
+#      The M-C bond is the thing that is wrong there -- it is an eta-2 (C,H) interaction, not a
+#      sigma bond -- and `drop_agostic` cannot see it because it only removes M-**H**.
+#      Sampled 300 reactions: 13 frames, **13 of 13** an aromatic C-C at 1.37-1.45 A with both
+#      atoms `deg 3` (`260910_satml_pi_suppressed.py`). ⇒ the eta-2 (C,H) rule is the follow-up.
+SATML = os.environ.get("SATML", "1") == "1"
+
 # `SIGCAP` — a **sigma** M-L bond that would push its coordinating atom past its valence cap is
 #   re-read as **haptic**, when that atom belongs to a pi fragment.
 #   The violation is itself the evidence: a carbon cannot hold five bonds, so if `b_int + n_ML`
@@ -357,6 +380,25 @@ HALOGENS = {"F", "Cl", "Br", "I", "At"}
 #      so the rule does over-apply. It is kept in this unconditioned form because the argument
 #      it encodes has no free parameter - the violation *is* the evidence - and because a
 #      chemically impossible output is a different kind of error from a mislabelled one.
+#   🔴 **Half of that argument is now known to be wrong** (2026-09-10). The violation says
+#   the *atom* has too much; `SIGCAP` relabels the *bond*, so the tally stops counting the atom
+#   while the atom keeps its bond orders. Two things follow.
+#     (a) With no second atom to make a face out of it writes **eta-1** -- a sigma bond under
+#         another name, which `drop_eta1` exists to forbid. `drop_eta1` runs *before* this
+#         block, so those are never re-checked: on Gold-DIGR (400 reactions) **25 of 25** eta-1
+#         fragments came from here, none from R7 or the angle test
+#         (`260910_boron_and_eta1.py`). 7.8% of reactions carry one.
+#     (b) Of the violations it removed on the CSD holdout, **42 were our own ③ error** -- rule A
+#         pinning an sp3 aminal carbon `Conj` -- and the reference calls the M-L bond `Single`
+#         in all 42. `SATML` now fixes those at the root, and holdout violations stay .0125
+#         without `SIGCAP` doing the work.
+#   What keeps it on: the *other* class it catches is real -- an aryl C-H sigma-complex, where
+#   the ring genuinely is aromatic and the M-C genuinely is not a plain sigma bond. Turning it
+#   off (measured, `SATML=1 SIGCAP=0`) costs **322 more Gold-DIGR reactions** and gains only the
+#   eta-1 label back. Making it pair-only (an eta-2 needs two atoms) was measured too: eta-1
+#   goes to **0**, holdout T5 .9775 -> .9796, but violations .0125 -> .0187 and Gold-DIGR falls
+#   to 6,393 reactions. ⇒ **left as is until the eta-2 (C,H) rule replaces it**, which is what
+#   both classes actually want.
 SIGCAP = os.environ.get("SIGCAP", "1") == "1"
 
 # `WMIN` — a global Mayer floor for M–L candidates, on top of the per-element-pair `w_veto`.

@@ -36,6 +36,20 @@ def q_atom(e, b, deg=None, nb=(), n_ml=0):
     #   single `b ≤ 4` site changes.
     if QHV and b > 4.0 + 1e-9:
         return VAL.get(e, 4) - b
+    if e == "B":
+        # ★ **boron fills a sextet, not an octet.** The default `v + b - 8` comes from the
+        #   octet assumption `lp = 4 - b`; boron carries no lone pair until it reaches four
+        #   bonds, so its quota is 6 and `lp = max(0, 3 - b)`:
+        #       b 4 -> -1 (BF4-, the N->B adduct `[N+]=[B-]`)  -- same as the octet formula
+        #       b 3 ->  0 (B(OH)3, a boronic ester, B2pin2)    -- the octet formula said **-2**
+        #       b 2 -> -1 (a boryl ligand `[BR2]-` after the ionic cut)
+        #   🔴 The -2 does not stay local: it is a real charge on the fragment, so a
+        #   metal-bearing molecule pays for it with **+2 on the oxidation state**.
+        #   Measured on Gold-DIGR (1,200 reactions): **all 55** trivalent borons came out -2, in
+        #   35 reactions (2.9%). `10.1039_D2CY01506D__46_TS8b` is one -- a Suzuki intermediate
+        #   whose B(OH)2(OAr) read `[B-2]`, fragment -3, and put Pd at **+4** instead of +2.
+        #   This is `QHV`'s `lp = max(0, quota/2 - b)` statement with the quota 6 instead of 8.
+        return VAL["B"] - b - 2 * max(0.0, 3.0 - b)
     nO, nN = nb.count("O"), nb.count("N")
     if e == "C" and deg == 2 and b == 2.0 and nN + nO == 0 and n_ml == 0:
         # ★ **free carbene** — a divalent carbon with no heteroatom neighbour *and* no bond to a
