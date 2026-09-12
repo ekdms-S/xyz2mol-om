@@ -10,20 +10,23 @@ Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q
 `b_ML(X)` sum of M–L bond orders · `n_ML(X)` **number** of M–L bonds of X · `n_lp(X)` lone pairs X still has to give ·
 `v` number of valence electrons.
 
-## Current performance — shipped defaults, measured 2026-09-08
+## Current performance — shipped defaults, measured 2026-09-13
 
 | task | holdout 6,793 | train 27,294 |
 |---|---|---|
 | T1 internal bond existence | .9998 | .9998 |
-| T3 `Single`/`Double`/`Triple`/`Conj` | **.9904 / .7701 / .9769 / .9615** | .9896 / .7624 / .9782 / .9592 |
+| T3 `Single`/`Double`/`Triple`/`Conj` | **.9906 / .7753 / .9771 / .9618** | .9896 / .7624 / .9782 / .9592 |
 | T4 M–L·M–M existence | **.9916** | .9928 |
-| T5 haptic | **.9783** | .9797 |
+| T5 haptic | **.9796** | .9797 |
 | T6 η^k | .9865 | .9835 |
-| T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7461 / .7228** | .9935 / .7527 / .7734 |
-| T10 `Σq_L` · `OS` | **.8536 · .8841** | .8505 · .8782 |
-| valence-violating structures | **.0185** | .0191 |
+| T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7473 / .7228** | .9935 / .7527 / .7734 |
+| T10 `Σq_L` · `OS` | **.8596 · .8971** | .8505 · .8782 |
+| valence-violating structures | **.0125** | .0191 |
 | harmful `Double` errors | **283 bonds · 158 structures (2.33%)** | — |
 | reported fragment charge ≠ the emitted structure's | **129 (1.90%)** | — |
+
+⚠️ Only the **holdout** column is from the 2026-09-13 run. The `train` column and the last two
+rows were last measured 2026-09-08 and are not directly comparable with it.
 
 *harmful `Double`* is the deployment error metric: a reference `Double` the emitted Kekulé
 structure does not call 2, excluding positions where the fragment has an equally good alternative
@@ -37,7 +40,9 @@ Lewis notation against tmQMg-L's rather than our bond orders, and what is left o
 notation, not order prediction.
 
 **Fitted parameters in the rules: one.** The prior temperature `LPA = 0.8` (§T3 ③). Every other
-rule is a structural condition with no number to tune; the per-element-pair tables (`d_int`,
+rule is a structural condition with no number to tune, apart from two tolerances set by
+measurement — the planarity tolerance `τ_plane = 0.05 Å` (§T3 ①②) and the Mayer ceiling
+`SIGCUTW = 0.40` (§T3 post-⑥); the per-element-pair tables (`d_int`,
 `d_bond`, `b_ml_t8forms`, `scores4`) are fits and are listed at the end of this document.
 
 Class codes: `0 Single · 1 Double · 2 Triple · 3 Conj` (delocalized, formal order 1.5).
@@ -266,7 +271,7 @@ that are not yet contaminated by the metal budget (see 5″).
 
 ## §T3 — internal bond orders within a ligand
 
-This is the core. Every other task is one threshold; T3 answers **five questions in order**, each
+This is the core. Every other task is one threshold; T3 answers **six questions in order**, each
 constraining the next.
 
 | | question | how |
@@ -276,6 +281,7 @@ constraining the next.
 | **④** | what can the **valence budget** afford? | hard constraint, maximum-weight matching |
 | **⑤** | does the fragment's **electron count** agree? | extended-Hückel fragment charge as a target |
 | **⑥** | emit **integers** | Kekulé matching |
+| **post-⑥** | is there a **valid assignment with less charge** on the same bonds? | `QSHIFT` · `QGEM` · `SIGCUT`, accepted only if `Σ|q|` falls |
 
 Stages ④–⑥ can each overrule the one before it, so a bond that ③ wants as `Double` may still come
 out `Single`. That is the usual reason for a wrong `Double`: of the 283 harmful ones, **172**
@@ -485,6 +491,65 @@ edges. Element pairs with no `Double` class fitted (`As–C`, `B–B`) are exclu
 **flag, not a correction**: the orders and charges are returned unchanged. Rate and what it
 catches: README `## ⚠️ Limits`.
 
+### Post-⑥ repairs — a π in the wrong place, and a σ M–L that pays for it
+
+④ treats the valence ceiling as a **hard** constraint and formal charge as a **soft** cost, so
+"raise the bond and both ends go neutral" is never compared against "leave it and carry two
+charges" — the raised order is not in the feasible set at all. Three rules undo that on the
+emitted integers, and all three obey the same discipline: they fire only where a **valid**
+assignment with a smaller `Σ|q|` exists on the same bond set, and the result is kept only if
+`Σ|q|` actually falls.
+
+```
+QSHIFT  two like- or opposite-signed charges at the ends of an **alternating path** — flip the path
+        odd path length  → both ends move the same way   `C⁻–C=C–O⁻ → C=C–C=O`
+        even path length → they move oppositely          `O⁺≡C–O⁻ → O=C=O`  (CO₂)
+        k = 1 splits on sign: an **opposite**-sign pair is left alone (CO `[C⁻]≡[O⁺]`, amine
+        oxide `R₃N⁺–O⁻`, phosphorus ylide `R₃P⁺–C⁻`); a **like**-sign pair is raised, which
+        neutralizes both ends at once (`[C⁻](H)(H)[O⁻]` → formaldehyde)
+
+QGEM    two like-signed anions sharing **one common neighbour** — raise **both** bonds together
+        an alternating ±1 shift cannot reach this shape. `[O⁻]–C–[O⁻]` → `O=C=O` (metal-bound CO₂),
+        nitromethane `C–N([O⁻])[O⁻]` → `C–N⁺(=O)O⁻` with no metal present
+        moves only when the length fits both raised orders
+
+SIGCUT  the pair could cancel, and **only the σ M–L valence budget** blocks it — drop that σ M–L,
+        then re-solve ③④⑤⑥ from scratch
+        ⚠️ the orders cannot be patched in place: without the M–L the haptic set, η, the budget
+           and the fragment split all change, so the whole solve is repeated (one extra solve,
+           on the structures that carry the signal)
+```
+
+Exclusions, all structural:
+
+- **`QSHIFT`·`SIGCUT`: a pair whose two anionic sites both coordinate the same metal is left
+  alone.** It is not a misplaced π but a genuine dianionic ligand — dithiolene
+  `[S⁻]C(R)=C(R)[S⁻]`, benzene-1,2-dithiolate, catecholate, amidinate; for `SIGCUT`, benzyne, an
+  alkyne-derived metallacyclopropene, a C,C-chelate.
+- **peroxide `[O⁻]–[O⁻]` is never raised** — it is a real species and a common ligand. `[C⁻]–[C⁻]`
+  (→ ethene) is raised, so only O–O is blocked.
+
+What `SIGCUT` may cut:
+
+```
+SIGCUTW = 0.40    Mayer ceiling. A σ M–L at or above it is a real covalent bond and is kept;
+                  with no Mayer available nothing is cut
+B · Al centres    never cut. `MLIKE_EXTRA` makes them centres, but their C bonds are the
+                  cage/skeleton covalent bonds of a carborane or a boryl, not donations
+SIGCUTFIT         ceiling **exception**: a Mayer above `SIGCUTW` is still cut when the raised
+                  order fits the bond **length** better — `|d − med[raised]| < |d − med[cur]|`
+                  and the current order is outside its own distribution (`|d − med[cur]| > scl[cur]`),
+                  both read from `scores4`. A comparison of two fitted medians, so no new constant
+```
+
+The ligand's own length is a fact about the ligand and says nothing about how strong the M–L is,
+which is why it is allowed to overrule the Mayer ceiling: a `Double`-looking alkyne near a
+transition state has a Mayer indistinguishable from a real bond, and only its 1.21 Å C–C separates
+the two.
+
+🔴 **(a″) is applied twice** — once right after ⑥ and once after the repairs. `QGEM` raising both
+`N–O` of a nitro group re-creates the five-bonded `N(=O)=O` that (a″) exists to remove.
+
 ---
 
 ## §Charge — `q_L` and `OS(M)` (0 fitted parameters)
@@ -583,7 +648,7 @@ violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
 
 | Evaluation | Violating structures | Reference-label baseline (same count) |
 |---|---|---|
-| **holdout 6,793** | **1.85%** | **0.4%** |
+| **holdout 6,793** | **1.25%** | **0.4%** |
 | train 27,294 | 1.91% | 0.4% |
 
 ⚠️ **The baseline is not 0** — feeding the CSD reference labels as they are, **0.4%** of structures

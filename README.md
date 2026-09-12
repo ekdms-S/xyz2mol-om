@@ -41,7 +41,7 @@ r = predict(elements, coords, total_charge=-1, wbo=wbo)
 
 ⚠️ **You may run with `wbo=None`**, but it costs more than it looks. The M–L decision falls back to
 distances alone; **internal** bond orders are essentially unchanged, but everything that touches the
-metal degrades (holdout 6,793):
+metal degrades (holdout 6,793, both columns from the 2026-09-08 run — read the gap, not the levels):
 
 | | with `wbo` | without |
 |---|---|---|
@@ -107,7 +107,8 @@ nothing, and that is how a free organic molecule appears.
 `ml_bonds` holds exactly the M–L bonds the pipeline decided on, so it **always agrees with the
 molecule's SMILES**. Contacts that T4 rejects are not in it: an agostic `C–H···M`, and a contact
 to an atom whose own bonds already fill its valence. Both are real close approaches, but neither
-is treated as a bond, so nothing in the output reports them.
+is treated as a bond, so nothing in the output reports them. A weak σ M–L that the post-⑥ repair
+drops (`SIGCUT`) is gone for the same reason — nothing downstream reports it either.
 
 To walk the whole result without nesting loops:
 
@@ -222,10 +223,17 @@ draw(el, xyz, r, "pred.png", title="prediction", projection=proj, highlight={(2,
 **What you see.** The projection is the least cluttered view of the real geometry — an RDKit 2D
 layout collapses haptic rings and chelates onto themselves, which is why this is drawn from
 coordinates instead. Internal bonds get 1/2/3 lines from `bonds_kekule`; M–L bonds are arrows
-(**σ** solid black · **haptic** green dotted · **bridge** orange dashed); M–M bonds are purple,
-one line per order; the metal is a purple circle carrying its oxidation state; a non-metal is
-labelled with its formal charge when non-zero, and a neutral carbon is just a dot. Terminal H is
-hidden, but an H on a metal (hydrido, 3c2e bridge) is kept.
+(**σ** solid black · **haptic** green dotted · **3c2e bridge** brown dashed — a `dative` bridge is
+an ordinary donor bond and is drawn like σ); M–M bonds are purple, one line per order; the metal is
+a purple circle carrying its oxidation state; every other atom, H included, is labelled with its
+formal charge when non-zero, and a neutral carbon is just a dot.
+
+Which H is drawn follows the skeletal convention — **an H on carbon is implied, an H on anything
+else is written**. So N–H · O–H · S–H are visible (they are what makes an amido `Ar–N(H)⁻` readable
+as `−1` rather than as a nitrogen missing a bond), and so is an H on a metal (hydrido, 3c2e bridge)
+and any H you pass in `highlight`. When several molecules are in the result they are translated
+apart so they do not overlap — each one rigidly, so the geometry inside a molecule is untouched,
+but the distance *between* molecules is no longer to scale.
 
 ⚠️ **`matplotlib` is required for this function only** — it is not a dependency of the package, and
 `predict` does not need it. The five figures in `examples/` are made by `examples/draw_examples.py`,
@@ -250,7 +258,7 @@ read_xyz, draw, save_json`. The subpackages are there for reading the code, and 
 
 ## Tests
 
-`pytest` — 50 tests, no workspace and no network. Every one is a small hard-coded structure with
+`pytest` — 81 tests, no workspace and no network. Every one is a small hard-coded structure with
 its Mayer bond orders pinned as constants, so the suite runs on a bare install.
 
 | file | what it pins |
@@ -262,6 +270,11 @@ its Mayer bond orders pinned as constants, so the suite runs on a bare install.
 | `test_bridging_carbonyl.py` | μ-CO comes out `3c2e` with the `C≡O` intact |
 | `test_complex_smiles_and_bridge.py` | the complex SMILES, the bridge tags, the 3c2e budget exclusion |
 | `test_r7_haptic_ring.py` | R7 fires — the S of an η⁵-thienyl turns haptic |
+| `test_eta2_carries_the_pi.py` | an η² is written across a `Double`, never a `Single` |
+| `test_pi_shift.py` | the post-⑥ repairs — the π moves where it cancels two charges, and the dianionic-chelate and peroxide exclusions hold |
+| `test_agostic_carbon.py` | the carbon side of an agostic `C–H···M` is dropped too, unless that orphans the fragment |
+| `test_boron_sextet.py` | trivalent boron is neutral (sextet), four-coordinate boron unchanged |
+| `test_rule_a_headroom.py` | rule A's π headroom counts the σ M–L bonds, and NHC · σ-aryl · haptic ring atoms are untouched |
 | `test_pi_suppressed.py` | the `pi_suppressed` report: when it fires, when it must stay silent, that it reads the raw likelihood margin, and that it survives the JSON round trip as tuples |
 | `test_invariants.py` | geometry-free unit tests on the decision functions themselves |
 | `test_assemble.py` · `test_serialize.py` · `test_draw.py` | reassembly, `save_json`/`load_json` bond keys, and that `draw()` renders every bond kind it claims to |
@@ -272,8 +285,9 @@ pip install -e ".[dev]" && pytest -q
 
 ## Performance
 
-holdout **6,793 structures** (not used in the fit) · reference labels: CSD `bond_type`,
-tmQMg-L `q_ligand`, and the roman numeral in the CSD `chemical_name` for the oxidation state.
+holdout **6,793 structures** (not used in the fit) · measured **2026-09-13** · reference labels:
+CSD `bond_type`, tmQMg-L `q_ligand`, and the roman numeral in the CSD `chemical_name` for the
+oxidation state.
 
 ⚠️ Fit and evaluation both use CSD experimental structures **relaxed with GFN2-xTB**.
 Coordinates from another source (raw CSD, DFT, a force field) are off-distribution.
@@ -281,14 +295,14 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | Task | Metric | Value | Pool | Baseline |
 |---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
-| T2 conjugation call | F1 | **0.9615** | 87,581 bonds | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9904 / .7701 / .9769 / .9615** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
+| T2 conjugation call | F1 | **0.9618** | 87,581 bonds | — |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9906 / .7753 / .9771 / .9618** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
 | T4 M–L·M–M bond existence | F1 | **0.9916** | 56,510 bonds | all bonded .5276 |
-| T5 haptic call | F1 | **0.9783** | 15,331 M–L bonds | all haptic .6766 |
-| T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,221 ligands | all `k=0` .8704 |
-| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7461 / .7228** | 39,540 bonds | — |
-| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8536** | 1,161 structures | reference-order 0.8528 |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8841** | 2,779 structures | reference-order 0.8698 |
+| T5 haptic call | F1 | **0.9796** | 15,331 M–L bonds | all haptic .6766 |
+| T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,224 ligands | all `k=0` .8704 |
+| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7473 / .7228** | 39,523 bonds | — |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8596** | 1,161 structures | reference-order 0.8528 |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8971** | 2,779 structures | reference-order 0.8698 |
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseline column is the
@@ -299,7 +313,8 @@ tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseli
 much of the gap is our Lewis notation against tmQMg-L's rather than our bond orders. Its pool is
 slightly smaller (1,155 / 2,635 structures — kekulization of the reference fails on a few), so it
 must not be read against the column to its left. **On the common pool** the pipeline is now
-**above** it: `Σq_L` **0.8563 vs 0.8528** and `OS` **0.8774 vs 0.8725**. What is left of the gap
+**above** it: `Σq_L` **0.8563 vs 0.8528** and `OS` **0.8774 vs 0.8725** (the common-pool pair is
+from the 2026-09-08 run; both of ours have risen since). What is left of the gap
 to a perfect score is notation, not order prediction.
 
 ### Against other tools
@@ -313,16 +328,16 @@ structure counts as a failure.
 | **structures it produced an answer for** | **6,793** | 6,156 | 5,676 | **6,793** |
 | T1 internal bond existence | **.9998** | .9672 | .8922 | .9928 |
 | T4 M–L·M–M bond existence | **.9916** | — | .8990 | .7579 |
-| T3 `Single` | **.9904** | .9691 | .9811 | .9434 |
-| T3 `Double` | **.7701** | .3945 | .5693 | .3515 |
-| T3 `Triple` | .9769 | .9586 | **.9770** | .1217 |
-| T3 `Conj` | **.9615** | .9090 | .9323 | .7922 |
+| T3 `Single` | **.9906** | .9691 | .9811 | .9434 |
+| T3 `Double` | **.7753** | .3945 | .5693 | .3515 |
+| T3 `Triple` | **.9771** | .9586 | .9770 | .1217 |
+| T3 `Conj` | **.9618** | .9090 | .9323 | .7922 |
 | T8 M–L `Single` | **.9932** | — | — | .9771 |
-| T8 M–L `Double` | **.7461** | — | — | .0658 |
+| T8 M–L `Double` | **.7473** | — | — | .0658 |
 | T8 M–L `Triple` | **.7228** | — | — | .0106 |
-| T5 haptic | **.9783** | — | — | — |
-| T10 `Σq_L` (1,161 structures) | **.8536** | .3764 | .8071 | .1843 |
-| T10 `OS` (2,779 structures) | **.8841** | — | — | — |
+| T5 haptic | **.9796** | — | — | — |
+| T10 `Σq_L` (1,161 structures) | **.8596** | .3764 | .8071 | .1843 |
+| T10 `OS` (2,779 structures) | **.8971** | — | — | — |
 
 `—` is a task the tool cannot answer at all: `xyz2mol` strips the metal and solves the fragments,
 so no M–L task; `xyz2mol_tm` gives M–L **connectivity** but no order, so no T8; OpenBabel has no
@@ -331,7 +346,8 @@ notion of haptic, so no T5 or T6.
 Failures are most of what separates `xyz2mol_tm`'s T1 from ours. **On the 5,676 structures it does
 solve**, its T1 rises to .9793 and its T4 to .9667 — but `Double` does not move (.5693 against our
 **.7831** on that pool), and `Σq_L` reads .8120 against our **.8588**. The gap on bond order is not
-a coverage artifact.
+a coverage artifact. ⚠️ Our two figures on that sub-pool are from the 2026-09-08 run and have
+risen since; the other tools' numbers are unaffected by our changes.
 
 ### Valence violations — chemical validity of the output
 
@@ -342,7 +358,7 @@ spends 0, and an atom in a 3c2e bridge spends 1.0 in total however many M–L bo
 
 | Pool | Violating structures | Reference-label baseline |
 |---|---|---|
-| holdout 6,793 | **1.85%** | **0.4%** |
+| holdout 6,793 | **1.25%** | **0.4%** |
 
 ⚠️ The baseline is not 0 — the CSD reference labels themselves violate on about 0.4%
 (hypervalency · where the ionic/covalent cut is drawn · CSD notation conventions), so the figure
@@ -361,6 +377,10 @@ bonds is counted at its own 1.5.
 | | `b_int`+`b_ML` | **2.19%** | 11.14% | 45.65% | 3.76% |
 | **X2M_TM** 5,676 (xyz2mol_tm succeeded) | `b_int` only | **1.41%** | 10.50% | 8.79% | 3.54% |
 | | `b_int`+`b_ML` | **2.11%** | 10.50% | 45.03% | 3.54% |
+
+⚠️ This breakdown is from the **2026-09-08** run and was not re-measured. Our current holdout
+`b_int`+`b_ML` rate is **1.25%** (the table above) — the σ M–L repairs remove M–L bonds that were
+spending an atom's last valence unit, which is exactly what this row counts.
 
 The `b_int`-only row is the fair comparison — every tool produces internal bond orders, and we are
 lowest in all three pools. ⚠️ **The `b_int`+`b_ML` row must not be read across tools**:
@@ -385,11 +405,16 @@ them well.
   homonuclear M–M bonds (refcode 5-fold CV: distance .9305 · Mayer .9295 · all-`Single` baseline
   .9071) and is **not shipped** — the gain over the trivial baseline is small and the sample is
   thin where it matters (`Double` 147 · `Triple` 96 · `Quadruple` 131).
-- **A suppressed π bond costs the metal `+2`, and the output reports it rather than fixing it.**
-  When a weak M–X contact is taken as a σ bond it spends that atom's last valence unit, ④ then has
-  no headroom to raise the neighbouring π bond, and ⑥ writes it `Single` with a lone pair on each
-  end — so the fragment charge comes out **2 too negative** and the metal's oxidation state **2 too
-  high**. Every such bond is listed in that fragment's `pi_suppressed`:
+- **A suppressed π bond costs the metal `+2`, and what is left of it is reported rather than
+  fixed.** When a weak M–X contact is taken as a σ bond it spends that atom's last valence unit,
+  ④ then has no headroom to raise the neighbouring π bond, and ⑥ writes it `Single` with a lone
+  pair on each end — so the fragment charge comes out **2 too negative** and the metal's oxidation
+  state **2 too high**. The pipeline now repairs the clearest form of this: where dropping one σ
+  M–L lets the two charges cancel, it is dropped and the structure re-solved (`SIGCUT`, see
+  [docs/PIPELINE.md](docs/PIPELINE.md) §T3 post-⑥). What that rule declines still lands here — an
+  M–L too strong to be an artefact (Mayer ≥ 0.40, unless the bond length says otherwise), a pair
+  whose two ends both coordinate the metal, and peroxide. Every remaining bond is listed in that
+  fragment's `pi_suppressed`:
 
   ```python
   from xyz2mol_om import all_fragments
@@ -399,7 +424,8 @@ them well.
 
   On **Gold-DIGR 21,196 reaction endpoints** (out-of-sample — DFT geometries, not the CSD pool
   above; reference = that dataset's own mapped `rxn_smiles` metal formal charge, same ionic
-  convention) it fires on **660 (3.11%)**. Of those, **57.9%** disagree with the reference metal
+  convention) it fires on **660 (3.11%)** — measured 2026-09-08, before `SIGCUT`, so the current
+  rate is lower. Of those, **57.9%** disagree with the reference metal
   oxidation state against a **9.9%** base rate where it does not fire, and **96% of the
   disagreements are exactly `+2`**. It catches **57.6%** of the endpoints that are off by exactly
   `+2`. ⚠️ **A per-element oxidation-state range check sees much less of this** — only **72** of
