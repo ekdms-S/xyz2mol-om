@@ -105,8 +105,8 @@ import warnings
 import networkx as nx
 import numpy as np
 
-from .charge import (frag_charge_or_eht, kekulize, octet_fix_period2, pi_suppressed,
-                     q_atom, shift_pi_to_cancel)
+from .charge import (abs_charge_sum, frag_charge_or_eht, kekulize, octet_fix_period2,
+                     pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel)
 from .config import NOCTET, RCOV, VAL, WMIN, centers
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
@@ -246,12 +246,71 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
     bml = bml_budget([p for p in ml_pred if p not in hap], three_c)
 
+    # ★ 거리 적합 판정자 — «차수를 하나 올리면 결합 길이가 더 잘 맞는가».
+    #   🔴 새 상수를 만들지 않는다. `scores4` 에는 원소쌍·클래스별 **결합 길이 중앙값** `med`
+    #   가 이미 들어 있고(③ 의 거리 우도가 쓰는 바로 그 표), 판정은 두 중앙값 중 어느 쪽이
+    #   가까운지를 비교하는 것뿐이라 문턱이 없다.
+    def _fits(a, b, cur, new, strict=False):
+        ent = sc4.get(tuple(sorted((el[a], el[b]))))
+        if not ent:
+            return False
+        med, scl, ci = ent[0], ent[1], {1: 0, 2: 1, 3: 2}
+        if cur not in ci or new not in ci:
+            return False
+        mc, mn = med.get(ci[cur]), med.get(ci[new])
+        if mc is None or mn is None:
+            return False
+        d = float(np.linalg.norm(xyz[a] - xyz[b]))
+        if not strict:
+            return abs(d - mn) < abs(d - mc)
+        # 🔴 **M–L 을 끊을 때는 «더 가깝다» 만으로 부족하다.** 실측(holdout)에서 그것만 쓰면
+        #   카보란 `B–C`(Mayer 0.92) · `Os–C`(0.77) · CSD 가 `Double` 이라 부르는 Fe 카벤까지
+        #   **24 개**가 잘렸다. 그래서 «현재 차수가 그 분포 **밖**» 을 더 요구한다. `scl` 은
+        #   ③ 이 이미 쓰는 클래스별 폭이라 새 상수가 아니다.
+        sc_c = scl.get(ci[cur])
+        if sc_c is None or abs(d - mc) <= sc_c:
+            return False
+        return abs(d - mn) < abs(d - mc)
+
     # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge
     orders, frag_q = kekulize(G, el, cls, dict(bml), w)
     if NOCTET:
         octet_fix_period2(el, G, orders)
     # ★ `QSHIFT` — 같은 골격 위에 |전하| 가 더 작은 유효한 배치가 있으면 π 를 옮긴다
-    shift_pi_to_cancel(orders, el, G, bml, {x for _m, x in ml_pred})
+    shift_pi_to_cancel(orders, el, G, bml, {x for _m, x in ml_pred}, fit=_fits)
+    # 🔴 **이동 뒤에 한 번 더.** (a″) 는 «N 은 다섯 결합을 못 가진다» 는 규칙인데, `QGEM` 이
+    #   나이트로기의 두 `N–O` 를 같이 올리면 `N(=O)=O`(b 5) 가 다시 만들어진다. 그러면 파이프라인
+    #   내부 전하는 N 0 인데 RDKit 은 `[N+](=O)[O-]` 로 읽어 **(원소, 전하) 다중집합이 어긋난다**
+    #   — Gold-DIGR 재처리에서 `smiles_not_ok` 가 10 → 42 로 늘어난 것이 전부 이 꼴이었다.
+    if NOCTET:
+        octet_fix_period2(el, G, orders)
+
+    # ★ `SIGCUT` — σ M–L 하나가 인접 음이온 쌍의 상쇄를 막고 있으면 그 M–L 을 빼고 **다시 푼다.**
+    #   ⑥ 뒤에서 차수만 고칠 수는 없다 — M–L 이 빠지면 haptic 집합 · η · 예산 · 조각 분할이 전부
+    #   달라지므로, ③④⑤⑥ 을 통째로 다시 돌려야 답이 서로 어긋나지 않는다. 비용은 이 신호가 걸린
+    #   구조에서만 드는 두 번째 풀이 한 번이다 (Gold-DIGR 프레임의 5.5%).
+    _cut = sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap, wbo=wbo,
+                                    fit=lambda *t: _fits(*t, strict=True))
+    if _cut:
+        _wraw = {}
+        _cls, _mlout, _hap, _mlp, _btag, _w = predict_T3_T5(
+            el, xyz, G, sc4, [p for p in ml_raw if p not in _cut], wbo,
+            dbond=dbond, q_eht=q_eht, w_raw_out=_wraw)
+        _three = {x for x, tg in _btag.items() if tg == "3c2e"}
+        _bml = bml_budget([p for p in _mlp if p not in _hap], _three)
+        _orders, _frag_q = kekulize(G, el, _cls, dict(_bml), _w)
+        if NOCTET:
+            octet_fix_period2(el, G, _orders)
+        shift_pi_to_cancel(_orders, el, G, _bml, {x for _m, x in _mlp}, fit=_fits)
+        if NOCTET:
+            octet_fix_period2(el, G, _orders)
+        # 🔴 **실제로 줄 때만 채택한다** — `QSHIFT` 와 같은 규율. M–L 을 끊는 것은 T4 의 판정을
+        #   뒤집는 일이므로, 전하가 나아지지 않으면 원래 답을 그대로 둔다.
+        if abs_charge_sum(_orders, el, G) < abs_charge_sum(orders, el, G):
+            cls, mlout, hap, ml_pred, btag, w = _cls, _mlout, _hap, _mlp, _btag, _w
+            three_c, bml, orders, frag_q = _three, _bml, _orders, _frag_q
+            w_raw.clear()
+            w_raw.update(_wraw)
 
     # ⑦ M–M bonds (those T4 called with a metal at both ends) — the order is left at 1 because
     #   no distance boundary is implemented yet

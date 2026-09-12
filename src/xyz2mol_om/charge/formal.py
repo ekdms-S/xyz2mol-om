@@ -12,7 +12,8 @@ import collections
 import networkx as nx
 
 from ..config import (ALT, CAP, FULL, HUCKEL, KEKQ, KEKQMODE, NAMEEL, ORD4, PAT, PATM, QHV,
-                      QSHIFT, ROMAN, VAL)
+                      QGEM, QCHFIT, QSHIFT, ROMAN, SIGCUT, SIGCUTFIT, SIGCUTW,
+                      VAL)
 
 
 def q_atom(e, b, deg=None, nb=(), n_ml=0):
@@ -61,6 +62,10 @@ def q_atom(e, b, deg=None, nb=(), n_ml=0):
         #   alkylidene really is −2 under the ionic cut (`C–H` 465 · `C–C` 397 · `H–H` 111 in the
         #   reference), and it is separated from this one by the metal bond, not by the
         #   neighbours. A **free** carbene is a neutral 6-electron singlet.
+        #   🔴 **`deg == 1` 로 넓히는 것은 측정 후 기각했다 (2026-09-12).** 치환기 없는 말단
+        #     바이닐리덴 `:C=CR₂` 도 자유 카벤과 같은 중성 6전자 종이니 같이 넣자는 안이었는데,
+        #     holdout 에서 11 구조가 바뀌어 **`OS` 맞→틀 2 · 틀→맞 0** (.8971 → .8964) 이었다.
+        #     Gold-DIGR 에서도 대상이 15 프레임(0.07%)뿐이다. ⇒ `deg == 2` 를 유지한다.
         return 0
     if e == "C" and deg == 2 and b == 2.0 and nN + nO >= 1:
         # heteroatom-stabilized carbene — 6 electrons. The octet formula gives −2 (`nO` added
@@ -410,7 +415,7 @@ def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q
     return _qfrag(G, el, cls, comp, w)  # only when the caller has no Kekule structure yet
 
 
-def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5):
+def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5, fit=None):
     """⑥ 이후 후처리 — **결합차수를 경로를 따라 재분배해서 형식전하를 상쇄한다.**
 
     같은 결합 집합 위에 |전하| 가 더 작은 **유효한** 배치가 존재하는데 솔버가 그것을 고르지 못한
@@ -480,7 +485,23 @@ def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5):
         hit = None
         for n, a in enumerate(ch):
             for c in ch[n + 1:]:
-                if (a in coord) and (c in coord):
+                try:
+                    _pth = nx.shortest_path(g, a, c)
+                except nx.NetworkXNoPath:
+                    continue
+                _k = len(_pth) - 1
+                _e1 = (min(a, c), max(a, c))
+                if (a in coord) and (c in coord) and not (
+                        QCHFIT and _k == 1 and fit is not None and _e1 in orders
+                        and fit(a, c, orders[_e1], orders[_e1] + 1)):
+                    # ★ **예외 (2026-09-12)**: 주개-주개 결합이 **짧으면** 킬레이트가 아니다.
+                    #   진짜 이음이온 킬레이트(다이싸이올렌 · 카테콜레이트 · 아미디네이트)는 두
+                    #   주개를 잇는 골격 결합이 **단일결합 길이**다. 반면 눌린 π 리간드는 짧다 —
+                    #   `[H][N⁻][N⁻][H]` 의 N–N 이 **1.293 Å**(다이아젠 HN=NH 가 1.25 · 하이드라지도
+                    #   단일이 1.45)이고, `[H][N⁻][O⁻]` 의 N–O 가 **1.336 Å** 이다. 배위 여부로
+                    #   가르면 이 둘이 이음이온으로 남아 금속이 2 씩 부풀어 오른다
+                    #   (오너 지적 2026-09-11 · `A_dOS2_ligand_only__01`·`__04`).
+                    #   판정은 `scores4` 의 클래스별 길이 중앙값 비교라 **새 문턱이 없다.**
                     # 이음이온 킬레이트 — 잘못 놓인 π 가 아니다.
                     # ⚠️ "한쪽이 |q| ≥ 2 면 게이트를 풀자" 를 측정했다 (진짜 킬레이트는 각
                     #   자리가 −1 이므로 −3 은 솔버가 흘린 전하라는 논리). **채택 안 함** —
@@ -488,11 +509,7 @@ def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5):
                     #   (`10.1021_acs.inorgchem.3c02611__09_Int3` 의 `[C-3]`) 는 어차피 안
                     #   고쳐진다. 유일한 경로가 이미 원자가 상한에 닿은 원자를 지나기 때문이다.
                     continue
-                try:
-                    path = nx.shortest_path(g, a, c)
-                except nx.NetworkXNoPath:
-                    continue
-                k = len(path) - 1
+                path, k = _pth, _k
                 if k > kmax:
                     continue
                 if k == 1 and q[a] * q[c] < 0:
@@ -525,6 +542,36 @@ def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5):
                         break
                     orders[e[0]] -= d[0]
                     continue
+                if QGEM and k == 2 and q[a] * q[c] > 0:
+                    # ★ **제미널 (2026-09-12)** — 공통 이웃 **하나**를 사이에 둔 같은 부호 쌍.
+                    #   교대(±1)로는 원리상 못 고친다: 한쪽을 올리면 다른 쪽은 내려간다. 필요한
+                    #   수는 **두 결합을 같이** 올리는 것이고, 그러면 가운데 원자가 2 를 더 쓴다.
+                    #   🔴 `[O⁻]–C–[O⁻]` 가 그 꼴이다 — CO₂ 를 카벤 탄소로 쓴 것이고, 금속에
+                    #   붙으면 산화수가 2 부풀어 오른다 (오너 지적 · `A_dOS2_ligand_only__02`,
+                    #   Cu +3). 두 결합을 올리면 `O=C=O` 중성이 된다.
+                    #   ⚠️ 길이가 **두 결합 다** 올린 차수에 맞을 때만 움직인다. 탄산염처럼 가운데
+                    #      원자가 이미 꽉 찬 경우는 아래 상한 검사가 막는다.
+                    _mid = path[1]
+                    _e2 = [(min(x, y), max(x, y)) for x, y in zip(path, path[1:])]
+                    _d0 = 1 if q[a] < 0 else -1
+                    if any(not 1 <= orders[k2] + _d0 <= 3 for k2 in _e2):
+                        continue
+                    if fit is None or any(
+                            not fit(k2[0], k2[1], orders[k2], orders[k2] + _d0) for k2 in _e2):
+                        continue
+                    if _d0 > 0 and (
+                            b[a] + 1 + bml.get(a, 0.0) > cap.get(el[a], 4) + 1e-9
+                            or b[c] + 1 + bml.get(c, 0.0) > cap.get(el[c], 4) + 1e-9
+                            or b[_mid] + 2 + bml.get(_mid, 0.0) > cap.get(el[_mid], 4) + 1e-9):
+                        continue
+                    for k2 in _e2:
+                        orders[k2] += _d0
+                    if sum(abs(v) for x, v in charges()[1].items() if el[x] != "H") < tot:
+                        hit = _e2
+                        break
+                    for k2 in _e2:
+                        orders[k2] -= _d0
+                    continue
                 da = -1 if q[a] > 0 else 1
                 dc = -1 if q[c] > 0 else 1
                 if da * (-1) ** (k - 1) != dc:
@@ -549,6 +596,132 @@ def shift_pi_to_cancel(orders, el, G, bml, coord=(), cap=None, kmax=5):
             break
         moved.append(tuple(hit))
     return moved
+
+
+def abs_charge_sum(orders, el, G):
+    """비수소 원자의 `|형식전하|` 합 — `SIGCUT` 재풀이를 채택할지 가르는 값."""
+    b = collections.Counter()
+    deg = collections.Counter()
+    for (i, j), o in orders.items():
+        b[i] += o; b[j] += o; deg[i] += 1; deg[j] += 1
+    return sum(abs(q_atom(el[a], float(b[a]), deg[a], tuple(el[y] for y in G[a])))
+               for a in b if el[a] != "H")
+
+
+def sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap=(), cap=None, wbo=None,
+                             fit=None):
+    """끊어야 할 σ M–L 을 돌려준다 — 실제로 끊고 다시 푸는 것은 `api.predict` 다.
+
+    `shift_pi_to_cancel` 의 `k = 1` 같은 부호 분기는 결합을 하나 올려 양 끝을 동시에 중성으로
+    만든다. 그 분기의 상한 검사에는 **M–L 예산 `bml` 이 들어 있어서**, σ M–L 하나가 자리를
+    차지하고 있으면 올릴 수가 없다. 그런데 그 σ 야말로 전하를 만든 원인이다.
+
+    조건과 근거는 `config.SIGCUT` 에 있다. 여기서 하는 것은 **후보를 고르는 것뿐**이고,
+    채택 여부는 다시 푼 뒤 `abs_charge_sum` 이 실제로 줄었는지로 정한다.
+    """
+    if not SIGCUT or not orders:
+        return set()
+    cap = CAP if cap is None else cap
+    bml = bml or {}
+    hapset = {(min(a, b), max(a, b)) for a, b in hap}
+    b = collections.Counter()
+    deg = collections.Counter()
+    for (i, j), o in orders.items():
+        b[i] += o; b[j] += o; deg[i] += 1; deg[j] += 1
+    q = {a: q_atom(el[a], float(b[a]), deg[a], tuple(el[y] for y in G[a])) for a in b}
+    coord = collections.defaultdict(set)
+    sig = collections.defaultdict(set)
+    for m, x in ml_pred:
+        coord[x].add(m)
+        # 🔴 `B`·`Al` 은 **끊지 않는다.** 둘은 조건부 중심이라 M–L 후보로 올라오지만, 카보란·
+        #   보릴의 `B–C`(1.54~1.62 Å · Mayer 0.85~1.23)와 `Al–C`(2.07 Å · 0.65)는 케이지·골격의
+        #   평범한 공유결합이다. 전하 결함의 수리가 그것을 끊는 것일 수는 없다 — 실측에서
+        #   잘려나간 참양성의 절반 가까이가 이 둘이었다 (holdout 24 건 중 10 건).
+        if el[m] in ("B", "Al"):
+            continue
+        if (min(m, x), max(m, x)) not in hapset:
+            sig[x].add(m)
+    out = set()
+    for e, o in orders.items():
+        a, c = e
+        if el[a] == "H" or el[c] == "H" or o + 1 > 3:
+            continue
+        if not (q.get(a, 0) < 0 and q.get(c, 0) < 0):
+            continue
+        if el[a] == "O" and el[c] == "O":
+            continue                      # 과산화물 — `QSHIFT` 와 같은 예외
+        blocked = [x for x in (a, c)
+                   if b[x] + 1 + bml.get(x, 0.0) > cap.get(el[x], 4) + 1e-9]
+        if not blocked:
+            continue                      # 여유가 있다 — `QSHIFT` 가 처리할 자리
+        cut, ok = set(), True
+        for x in blocked:
+            other = c if x == a else a
+            ms = sorted(sig.get(x, ()))
+            if not ms or ms[0] in coord.get(other, ()):
+                ok = False                # σ 가 없거나, 짝도 같은 금속에 배위한다
+                break
+            _w = (wbo or {}).get((ms[0], x), (wbo or {}).get((x, ms[0])))
+            if _w is None:
+                ok = False                # Mayer 가 없으면 끊지 않는다
+                break
+            if _w >= SIGCUTW and not (SIGCUTFIT and fit is not None and fit(a, c, o, o + 1)):
+                # ★ **예외 (2026-09-12)**: Mayer 가 상한 위여도, 차수를 올린 쪽이 **결합 길이에
+                #   더 맞으면** 끊는다. 상한은 «실재하는 M–L 을 지우지 마라» 는 뜻인데, 리간드
+                #   자신의 길이는 M–L 이 얼마나 센지와 **무관한 사실**이다 — `Double` 로 적힌
+                #   C–C 가 1.209 Å 이면 그것은 눌린 알카인이지 이중결합이 아니다
+                #   (오너 지적 2026-09-11 · `A_dOS2_ligand_only__06` Pd–C Mayer 0.622 ·
+                #   `__03` Ag–C 0.699 — 둘 다 상한 0.40 에 막혀 있었다).
+                ok = False
+                break
+            if b[x] + bml.get(x, 0.0) > cap.get(el[x], 4) + 1e-9:
+                ok = False                # 하나 끊어도 모자란다
+                break
+            cut.add((ms[0], x))
+        if ok:
+            out |= cut
+
+    # ★ **제미널 (2026-09-12)** — 공통 이웃을 사이에 둔 음이온 쌍. `shift_pi_to_cancel` 의
+    #   같은 이름 분기가 두 결합을 같이 올리려 하는데, 가운데 원자가 2 를 더 쓰므로 σ M–L 이
+    #   있으면 막힌다. `[O⁻]–C(→M)–[O⁻]` 가 그 꼴이다 (CO₂ · `A_dOS2_ligand_only__02`).
+    adj = collections.defaultdict(set)
+    for x, y in orders:
+        adj[x].add(y)
+        adj[y].add(x)
+    for mid in (list(adj) if QGEM else ()):
+        if q.get(mid, 0) < 0:
+            continue
+        an = sorted(y for y in adj[mid] if q.get(y, 0) < 0 and el[y] != "H")
+        for i2 in range(len(an)):
+            for j2 in range(i2 + 1, len(an)):
+                a, c = an[i2], an[j2]
+                if coord.get(a, set()) & coord.get(c, set()):
+                    continue              # 두 음이온이 같은 금속에 배위 — 진짜 이음이온
+                es = [(min(mid, a), max(mid, a)), (min(mid, c), max(mid, c))]
+                if any(orders[e2] + 1 > 3 for e2 in es):
+                    continue
+                if fit is None or any(
+                        not fit(e2[0], e2[1], orders[e2], orders[e2] + 1) for e2 in es):
+                    continue
+                need, okg = set(), True
+                for x, extra in ((a, 1), (c, 1), (mid, 2)):
+                    if b[x] + extra + bml.get(x, 0.0) <= cap.get(el[x], 4) + 1e-9:
+                        continue
+                    ms = sorted(sig.get(x, ()))
+                    if not ms:
+                        okg = False
+                        break
+                    _w = (wbo or {}).get((ms[0], x), (wbo or {}).get((x, ms[0])))
+                    if _w is None or _w >= SIGCUTW:
+                        okg = False
+                        break
+                    if b[x] + extra + bml.get(x, 0.0) - 1.0 > cap.get(el[x], 4) + 1e-9:
+                        okg = False
+                        break
+                    need.add((ms[0], x))
+                if okg and need:
+                    out |= need
+    return out
 
 
 def pi_suppressed(bonds_kekule, qat, w):

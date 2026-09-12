@@ -116,16 +116,41 @@ def _nitromethane():
     return el, np.array(xyz, float)
 
 
+def _ozone():
+    """🔴 **결함을 픽스처로 쓴다.** 오존의 옳은 Lewis 구조는 `[O-][O+]=O` 인데 파이프라인은
+    `[O-]O[O-]` 를 내고, 그래서 `total_charge=0` 에 대해 shortfall 2 가 난다. 여기서 필요한 것은
+    «부풀어 오른 금속 없는 구조» 하나뿐이라 이것을 쓴다 — 오존이 고쳐지면 이 픽스처를 옮겨야
+    한다. (2026-09-12 이전에는 나이트로메탄이 이 자리였고, 제미널 규칙이 그것을 고쳤다.)"""
+    el = ["O", "O", "O"]
+    xyz = [[0, 0, 0], [1.09, 0.66, 0], [-1.09, 0.66, 0]]  # fmt: skip
+    return el, np.array(xyz, float)
+
+
 def test_a_charge_inflated_structure_is_reported_as_such_not_as_a_radical_site():
-    """🔴 `N=O` written `Single` makes nitromethane `N([O-])[O-]`, charge -2 against the
-    `total_charge=0` the caller passed. Both invented `O-` used to become radical candidates and
-    the answer was "2 candidate sites". With no metal to absorb it, that shortfall is a
-    bond-order error, and saying so is the useful answer."""
-    el, xyz = _nitromethane()
+    """부풀어 오른 전하는 **라디칼 자리가 아니다.** 금속이 없으면 산화수가 차이를 흡수해 주지
+    않으므로, 그 shortfall 은 결합차수 오류이고 그렇게 말하는 것이 쓸모 있는 답이다. 예전에는
+    형식전하마다 라디칼 후보가 되어 "후보 2 개" 라고 답했다."""
+    el, xyz = _ozone()
     r = predict(el, xyz, total_charge=0, n_unpaired=1)
     assert r["radical"]["atom"] is None and r["radical"]["site"] is None
     assert "charge shortfall 2" in r["radical"]["note"]
     assert "bond-order/charge error" in r["radical"]["note"]
+
+
+def test_a_geminal_anion_pair_is_raised_instead_of_inflating_the_charge():
+    """★ 제미널 규칙 (2026-09-12) — 공통 이웃을 사이에 둔 같은 부호 음이온 쌍은 **두 결합을
+    같이** 올려서 상쇄한다. 교대(±1)로는 원리상 안 된다: 한쪽을 올리면 다른 쪽이 내려간다.
+
+    나이트로메탄이 그 꼴이었다. `N=O` 두 개가 `Single` 로 나와 `N([O-])[O-]`, `total_charge=0`
+    에 대해 shortfall **2**. 이제 두 N–O 를 같이 올려 교과서 구조가 나온다. 같은 규칙이
+    금속에 붙은 CO₂ (`[O-]-C-[O-]` ⇒ Cu 산화수 +2 부풀음)를 고치는 것이고, 여기서는 금속 없이
+    그 산술만 확인한다."""
+    el, xyz = _nitromethane()
+    r = predict(el, xyz, total_charge=0)
+    (mol,) = r["molecules"]
+    assert r["charge_balance"]["shortfall"] == 0 and r["charge_balance"]["ok"]
+    assert mol["charge"] == 0
+    assert "[N+]" in mol["smiles"] and "[O-]" in mol["smiles"]
 
 
 def test_a_structural_charge_pair_is_not_a_radical_site():
@@ -152,7 +177,7 @@ def test_the_metal_free_shortfall_test_does_not_touch_the_metal_case():
 def test_charge_balance_flags_a_charge_inflated_metal_free_structure():
     """`charge_balance` is the same test as above, exposed for `n_unpaired=0` too — the case the
     consumer hits as "Sq = -2 != 0" with no radical involved."""
-    el, xyz = _nitromethane()
+    el, xyz = _ozone()
     r = predict(el, xyz, total_charge=0, n_unpaired=0)
     assert r["charge_balance"]["shortfall"] == 2 and not r["charge_balance"]["ok"]
 
