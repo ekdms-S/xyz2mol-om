@@ -11,7 +11,8 @@ What the figure shows
     least cluttered view (`projection_axes`)
   * terminal H is hidden; **H on a metal** (hydrido, 3c2e bridge) is kept
   * internal bonds are drawn with 1 / 2 / 3 lines from `bonds_kekule`
-  * M–L bonds are arrows — `sigma` solid black · `haptic` **green dotted** · `bridge` orange dashed
+  * M–L bonds are arrows — `sigma` solid black · `haptic` **green dotted** · **3c2e** orange dashed
+  *   (a `dative` bridge is drawn like `sigma` — it is an ordinary donor bond, not a 3c2e one)
   * M–M bonds are drawn purple, one line per order
   * the metal is a **purple circle** with its symbol and oxidation state (`Ti⁺⁴`)
   * a non-metal is labelled with its formal charge when non-zero (`O⁻`); a neutral carbon is a dot
@@ -321,6 +322,13 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
             k = 0.55 * length / (sa + sb)
             sa, sb = sa * k, sb * k
         kind = d.get("type", "sigma")
+        # 🔴 **`3c2e` 만 갈색 파선이다.** T7 의 `bridge` 태그는 두 갈래인데(`3c2e` · `dative`),
+        #   갈색이 뜻하는 것은 «2중심 형식 밖의 결합» 즉 3c2e 다. `dative` 는 그냥 주개 결합이고
+        #   (μ-Cl 의 3c4e, 또는 `MLIKE_EXTRA={B,Al}` 때문에 보론산의 `B–O(H)→M` 까지 걸린다),
+        #   그것을 같은 갈색으로 그리면 3c2e 와 구별이 안 된다 — 오너 지적 2026-09-11:
+        #   "bridge 여도 3c2e 에 해당하는 것만 갈색으로 그리고, 그 외는 dative 와 같은 색으로".
+        if kind == "bridge" and d.get("bridge") != "3c2e":
+            kind = "sigma"
         # ★ haptic·bridge 는 σ 보다 굵고 위에 그린다. 이들은 **점선·파선**이라 같은 굵기면
         #   실선보다 훨씬 옅게 읽히고, 하필 η² 의 두 선은 강조된(`lw` 3.0 빨간) π 결합 바로
         #   옆에 놓이는 일이 잦다 — 오너가 η² 를 η¹ 로 읽은 것이 그 경우였다. 두 선 다
@@ -343,13 +351,22 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
     #   ⚠️ 조각(리간드) 전하를 **별도 배지**로 그리는 것도 해봤고 **되돌렸다** — 원소 옆 윗첨자가
     #   이미 같은 정보를 담고 있어 중복이고, 배지가 그 원소를 가려서 오히려 못 읽게 된다
     #   (오너: "그냥 원소에 윗첨자로 전하 달면 되잖아"). 조각 합계는 부제에 남아 있다.
+    # 🔴 `n_ml` 을 넘겨야 한다. `q_atom` 의 카벤 분기는 **금속에 배위했는지**로 갈린다 —
+    #   자유 카벤 `:CR₂` 는 중성 6전자지만, 금속에 붙은 같은 탄소는 Schrock 알킬리덴이라
+    #   이온 절단 규약에서 `C²⁻` 다. 안 넘기면 배위한 알킬리덴이 **중성으로 그려져서**,
+    #   부제의 조각 전하(−2)와 그림 위의 전하(0)가 어긋난다
+    #   (오너, `B_ML_type_flip_only__05__R`: "이건 아예 전하가 사라져버렸네").
+    _coord = {x for _m, x in (k if isinstance(k, tuple)
+                              else tuple(int(t) for t in str(k).split(","))
+                              for k in ml)}
     qat = {}
     for i in keep:
         if i in met:
             continue
         bsum = sum(o for (x, y), o in kek.items() if i in (x, y))
         nbs = tuple(sorted(el[y if x == i else x] for (x, y) in kek if i in (x, y)))
-        qat[i] = int(round(q_atom(el[i], float(bsum), len(nbs), nbs)))
+        qat[i] = int(round(q_atom(el[i], float(bsum), len(nbs), nbs,
+                                  n_ml=1 if i in _coord else 0)))
 
     for i in keep:
         e = el[i]
