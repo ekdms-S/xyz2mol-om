@@ -609,7 +609,7 @@ def abs_charge_sum(orders, el, G):
 
 
 def sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap=(), cap=None, wbo=None,
-                             fit=None):
+                             fit=None, eta_out=None):
     """끊어야 할 σ M–L 을 돌려준다 — 실제로 끊고 다시 푸는 것은 `api.predict` 다.
 
     `shift_pi_to_cancel` 의 `k = 1` 같은 부호 분기는 결합을 하나 올려 양 끝을 동시에 중성으로
@@ -666,6 +666,13 @@ def sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap=(), cap=None, wbo=
                 ok = False                # Mayer 가 없으면 끊지 않는다
                 break
             if _w >= SIGCUTW and not (SIGCUTFIT and fit is not None and fit(a, c, o, o + 1)):
+                # ★ `SIGETA` — 끊기엔 너무 센 결합이다. 끊는 대신 **η² 로 돌릴 후보**로 넘긴다:
+                #   그 결합과 **짝 원자**를 함께 haptic 으로 만들면 예산이 0 이 되어 차수를 올릴
+                #   수 있고, M–L 은 그대로 남아 T4 참양성을 잃지 않는다. 짝은 고를 여지가 없다 —
+                #   올리려는 결합의 반대쪽 끝 `other` 다.
+                if eta_out is not None:
+                    eta_out.add((ms[0], x))
+                    eta_out.add((ms[0], other))
                 # ★ **예외 (2026-09-12)**: Mayer 가 상한 위여도, 차수를 올린 쪽이 **결합 길이에
                 #   더 맞으면** 끊는다. 상한은 «실재하는 M–L 을 지우지 마라» 는 뜻인데, 리간드
                 #   자신의 길이는 M–L 이 얼마나 센지와 **무관한 사실**이다 — `Double` 로 적힌

@@ -629,7 +629,7 @@ def _eta2_pair(el, xyz, G, ml_pred, cls_now, dbond=None):
 
 
 def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
-                  q_eht=None, rop=None, w_raw_out=None, dbond=None):
+                  q_eht=None, rop=None, w_raw_out=None, dbond=None, force_hap=()):
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
     the haptic set** end to end.
 
@@ -817,4 +817,9 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         for e in cls:
             if any(len(xs) == 2 and e[0] in xs and e[1] in xs for xs in _hm.values()):
                 w[e] = w.get(e, 0.0) + ETAPI
+    # ★ `SIGETA` — 호출자가 지목한 쌍을 haptic 으로 강제한다. `drop_eta1` 과 R7 뒤에 놓는 이유는
+    #   외톨이로 들어오지 않기 때문이다: 호출자는 결합의 **양 끝**을 함께 넘긴다.
+    if force_hap:
+        hap = set(hap) | {(m, x) for m, x in force_hap}
+        mlout = {k: v for k, v in mlout.items() if k not in hap}
     return cls, mlout, hap, ml_pred, btag, w

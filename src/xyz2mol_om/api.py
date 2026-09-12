@@ -107,7 +107,7 @@ import numpy as np
 
 from .charge import (abs_charge_sum, frag_charge_or_eht, kekulize, octet_fix_period2,
                      pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel)
-from .config import NOCTET, RCOV, VAL, WMIN, centers
+from .config import SIGETA, NOCTET, RCOV, VAL, WMIN, centers
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
@@ -289,13 +289,18 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   ⑥ 뒤에서 차수만 고칠 수는 없다 — M–L 이 빠지면 haptic 집합 · η · 예산 · 조각 분할이 전부
     #   달라지므로, ③④⑤⑥ 을 통째로 다시 돌려야 답이 서로 어긋나지 않는다. 비용은 이 신호가 걸린
     #   구조에서만 드는 두 번째 풀이 한 번이다 (Gold-DIGR 프레임의 5.5%).
+    _eta: set = set() if SIGETA else None
     _cut = sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap, wbo=wbo,
-                                    fit=lambda *t: _fits(*t, strict=True))
-    if _cut:
+                                    fit=lambda *t: _fits(*t, strict=True), eta_out=_eta)
+    if _cut or _eta:
+        # ★ `SIGETA` 의 짝 원자는 T4 후보에 **없다** (그것이 애초에 짝이 안 만들어진 이유다).
+        #   그래서 후보로 넣어 주고, `force_hap` 으로 둘 다 haptic 이 되게 한다.
+        _keep = [p for p in ml_raw if p not in _cut]
+        _keep += [p for p in (_eta or ()) if p not in _keep]
         _wraw = {}
         _cls, _mlout, _hap, _mlp, _btag, _w = predict_T3_T5(
-            el, xyz, G, sc4, [p for p in ml_raw if p not in _cut], wbo,
-            dbond=dbond, q_eht=q_eht, w_raw_out=_wraw)
+            el, xyz, G, sc4, _keep, wbo,
+            dbond=dbond, q_eht=q_eht, w_raw_out=_wraw, force_hap=_eta or ())
         _three = {x for x, tg in _btag.items() if tg == "3c2e"}
         _bml = bml_budget([p for p in _mlp if p not in _hap], _three)
         _orders, _frag_q = kekulize(G, el, _cls, dict(_bml), _w)
