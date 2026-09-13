@@ -62,7 +62,7 @@
       "1,4": 1,
       "1,5": 1
      },
-     "smiles": "[H][B-:1]([H])([H:2])[H:3]",
+     "smiles": "[H][B+:1]([H])([H-:2])[H-:3]",
      "smiles_ok": true,
      "smiles_note": "",
      "coordinating": [
@@ -178,7 +178,7 @@
      "index": 2
     }
    ],
-   "smiles": "[H][C-]([H])([H])->[Ga+3]12(<-[H][B-]->1([H])([H])[H]->2)<-[C-]([H])([H])[H]",
+   "smiles": "[H][C-]([H])([H])->[Ga+3]12(<-[H-][B+]->1([H])([H])[H-]->2)<-[C-]([H])([H])[H]",
    "smiles_ok": true,
    "smiles_note": "",
    "atom_order": [

@@ -124,11 +124,7 @@ def three_c_legs(el, G, btag):
         κ²-BH₄    B–H···M    legs: 1 M–L + **the `B–H`**          → {H: [(B,H)]}
         B–H–B     diborane   legs: 2 internal, no metal at all    → {H: [(B,H), (B,H)]}
 
-    🔴 The **count** is what says where the pair is. A three-centre bond holds one pair, and
-    every M–L leg carries none of it (`ml_bonds` order is shape, not electrons). So with one
-    internal leg the pair sits in that bond and it is an ordinary two-centre bond; with two, it
-    belongs to no single bond and the bridging atom holds it instead. `q_atom(..., b_3c=)` is
-    fed only the second kind — see `three_c_unpaired_edges`.
+    🔴 Whether a leg carries the pair is decided in `three_c_unpaired_edges`, not here.
     """
     out = {}
     for x, t in (btag or {}).items():
@@ -141,15 +137,36 @@ def three_c_legs(el, G, btag):
 
 
 def three_c_unpaired_edges(el, G, btag):
-    """The internal legs that carry **no electron pair of their own** — the `B–H–B` case only.
+    """The internal legs that carry **no electron pair of their own**.
 
-    ⚠️ An earlier version keyed on `G.degree(X) >= 2` instead of the leg count and caught
-       **μ-CH₃** (a carbon with three internal H and two M–L bonds is tagged 3c2e), zeroing its
-       `b` and reading `[C⁻⁴]`. Measured on holdout: T10 OS .8971 → .8913 across 6,422 non-boron
-       structures. Counting legs leaves every metal-mediated bridge untouched — `κ²-BH₄` stays
-       `[BH₄]⁻` with B at −1, `μ-H` stays `[H]⁻`.
+        the bridging atom holds the pair  ⟺  el[X] == "H"  OR  X has two internal legs
+
+    A three-centre bond holds one pair and no M–L leg ever carries it, so the only question is
+    whether the bridging atom can keep its legs as separate two-centre bonds.
+
+    · **Hydrogen never can.** One orbital and one electron cannot make two σ bonds, so an H in a
+      bridge has its pair spread over all three centres — the `B–H` of a κ²-`BH₄` exactly as
+      much as the `B–H–B` of a borane. Both give `[H-]` against a `B(+1)`, and that is the
+      point: **a bridging hydrogen reads the same wherever it sits.** Writing κ²-`BH₄` as a
+      plain `[BH₄]⁻` instead left an H with a 3c2e leg to boron, a 3c2e leg to the metal, and
+      no charge — the same local motif as diborane's bridging H carrying a different label.
+    · **Boron can.** In a diboranyl `R₂B–BR₂` on a metal the coordinating B is tagged 3c2e, but
+      its `B–B` is an ordinary bond and the M–B σ is separate. Subtracting that leg read
+      `[B+2]`, put the ligand at +3 and the metal at **−2** (`ITUNOB` · `WIQQEU`, holdout).
+    · Two internal legs is the case where no single bond can hold the pair at all.
+
+    ⚠️ An earlier version keyed on `G.degree(X) >= 2` rather than on legs and caught **μ-CH₃**
+       (a carbon with three internal H and two M–L bonds is tagged 3c2e), zeroing its `b` and
+       reading `[C⁻⁴]`: T10 OS .8971 → .8913 across 6,422 non-boron structures. `μ-CH₃`, `μ-CO`
+       and `μ-H` have no internal leg at all, so none of them is touched here.
+
+    ⚠️ A ligand whose bridging H holds the pair is **not expressible in two-centre form** — the
+       H has two bonds and the boron four against a `+1` — so its `smiles_ok` is False. On the
+       holdout this costs nothing (the same 60 structures fail either way), but a corpus rich in
+       κ²-borohydrides would see those rows move.
     """
-    return {e for legs in three_c_legs(el, G, btag).values() if len(legs) >= 2 for e in legs}
+    return {e for x, legs in three_c_legs(el, G, btag).items()
+            if el[x] == "H" or len(legs) >= 2 for e in legs}
 
 
 def b_3c_of(G, orders, three_c):

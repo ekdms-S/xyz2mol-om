@@ -118,9 +118,19 @@ def test_a_leg_is_a_bond_to_a_metal_like_neighbour_not_any_bond():
     G = nx.Graph()
     G.add_nodes_from([1, 2, 3, 4, 5])
     G.add_edges_from([(1, 2), (1, 3), (1, 4), (1, 5)])
+    #    Hydrogen cannot hold two σ bonds, so its one leg carries no pair either — the ligand is
+    #    `B(+1)` with two bridging `[H-]`, the same motif diborane has.
     tags = {2: "3c2e", 3: "3c2e"}
     assert three_c_legs(el, G, tags) == {2: [(1, 2)], 3: [(1, 3)]}
-    assert three_c_unpaired_edges(el, G, tags) == set()
+    assert three_c_unpaired_edges(el, G, tags) == {(1, 2), (1, 3)}
+
+    # 🔴 a **boron** bridging atom can: a diboranyl `R₂B–BR₂` on a metal has an ordinary `B–B`
+    #    and a separate M–B σ. Subtracting that leg read `[B+2]` and put the metal at −2.
+    G5 = nx.Graph()
+    G5.add_edges_from([(1, 2), (1, 3), (1, 4)])
+    el5 = {1: "B", 2: "B", 3: "C", 4: "Br"}
+    assert three_c_legs(el5, G5, {1: "3c2e"}) == {1: [(1, 2)]}
+    assert three_c_unpaired_edges(el5, G5, {1: "3c2e"}) == set()
 
     # μ-H between two metals — no internal neighbour at all, so no internal leg
     G2 = nx.Graph()

@@ -25,12 +25,12 @@ def _canon(smi):
 @pytest.mark.parametrize("f", EX, ids=[Path(f).stem for f in EX])
 def test_assemble_matches_complex_smiles(f):
     r = load_json(f)
-    # 🔴 `assemble_complex` rebuilds the molecule **from the ligand SMILES**, so it inherits that
-    #    SMILES' limits exactly. A fragment holding an all-internal 3c2e bridge (`B–H–B`) is
-    #    already reported as not expressible in two-centre form — its bridging H has two bonds
-    #    and RDKit rejects the boron's valence — and `smiles_ok` says so. Nothing to compare.
-    if any(not lg["smiles_ok"] for lg in all_fragments(r)):
-        pytest.skip("a fragment is not expressible in two-centre form (`smiles_ok` is False)")
+    # 🔴 `assemble_complex` rebuilds the molecule from the **ligand** SMILES and joins it up
+    #    with two-centre bonds, so it cannot express a 3c2e bridge — the bridging atom holds a
+    #    pair that belongs to no single bond, and RDKit rejects the valence that leaves behind.
+    #    `complex_smiles` can, because it writes that leg as a dative arrow. Skip either kind.
+    if any(lg["bonds_3c2e"] or not lg["smiles_ok"] for lg in all_fragments(r)):
+        pytest.skip("a fragment carries a 3c2e bridge — not expressible in two-centre form")
     mol, amap = assemble_complex(r)
     assert Chem.MolToSmiles(mol) == _canon(r["molecules"][0]["smiles"])
     for met in all_metals(r):               # metals and coordinating atoms must be in the map

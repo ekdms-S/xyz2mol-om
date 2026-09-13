@@ -141,20 +141,24 @@ B–H–B     diborane   2 internal legs, no metal     ml_bonds []  · bonds_3c2
 centre or to a `B`/`Al` neighbour — T7's `n_center` decomposition — so `μ-CO`'s `C≡O` and
 `μ-CH₃`'s `C–H` are **not** legs: those bridges are spanned by their two metals.
 
-🔴 **Where the pair is, is the leg count.** A three-centre bond holds one pair, and an M–L leg
-never carries it. So an internal leg holds the pair when it is the only one — `κ²-BH₄`'s `B–H`
-is an ordinary bond with an ordinary order, which is why the ligand is plain `[BH₄]⁻` with a
-neutral H. With **two** internal legs the pair belongs to no single bond and the bridging atom
-holds it instead: `B₂H₆` is `B(+1)` with a bridging `[H-]`. Those are the entries `bonds_kekule`
-prices at 1 while the charge does not (`charge.q_atom`, argument `b_3c`), and you can tell them
-apart by counting legs at the bridging atom.
+🔴 **The pair sits on the bridging atom unless that atom can hold its legs as separate bonds.**
+A three-centre bond holds one pair and no M–L leg ever carries it, so the question is only about
+the internal legs:
 
-`draw()` follows the same split — orange for every leg of a 3c2e, dashed where the edge holds no
-pair and solid where it does.
+- **A bridging hydrogen never can** — one orbital and one electron cannot make two σ bonds. So a
+  bridging H is `[H-]` **wherever it sits**, against a `B(+1)`: κ²-`BH₄` and `B₂H₆` give the same
+  motif, which is what you want if something downstream is learning from this.
+- **A bridging boron can.** In a diboranyl `R₂B–BR₂` on a metal the `B–B` is an ordinary bond and
+  the M–B σ is separate, so that leg keeps its pair.
 
-⚠️ A fragment with two internal legs is **not expressible in two-centre form** — its bridging
-atom has two bonds and no valence left for them — so `smiles_ok` is `False` and
-`assemble_complex` refuses it. Read `bonds_kekule` + `bonds_3c2e` instead of the SMILES.
+The legs that hold no pair are the entries `bonds_kekule` prices at 1 while the charge does not
+(`charge.q_atom`, argument `b_3c`). `draw()` shows the split — orange for every leg of a 3c2e,
+dashed where the edge holds no pair and solid where it does.
+
+⚠️ A ligand whose bridging atom holds the pair cannot be rebuilt from two-centre bonds, so
+`assemble_complex` refuses it; with two internal legs even its own `smiles_ok` is `False`. Both
+still come out of `complex_smiles`, which writes such a leg as a dative arrow. Read
+`bonds_kekule` + `bonds_3c2e` when you need the skeleton.
 
 ### More than one molecule in the input
 
