@@ -11,16 +11,30 @@ import collections
 
 import networkx as nx
 
-from ..config import (ALT, CAP, FULL, HUCKEL, KEKQ, KEKQMODE, NAMEEL, ORD4, PAT, PATM, QHV,
+from ..config import (ALT, CAP, FULL, HUCKEL, KEKQ, KEKQMODE, MLIKE_EXTRA, NAMEEL, ORD4, PAT, PATM, QHV,
                       QGEM, QCHFIT, QSHIFT, ROMAN, SIGCUT, SIGCUTFIT, SIGCUTW,
                       VAL)
 
 
-def q_atom(e, b, deg=None, nb=(), n_ml=0):
+def q_atom(e, b, deg=None, nb=(), n_ml=0, b_3c=0.0):
     """(a) q_i = v + b − quota (octet assumption `lp = 4 − b`).
 
     ★ (a′) covers only the sites where the octet breaks (, (`docs/PIPELINE.md`).
     `deg` = number of ligand-*internal* neighbors · `nb` = tuple of those neighbors' elements.
+
+    ★ `b_3c` — the bond-order sum of this atom's **all-internal 3c2e** bonds
+    (`charge.three_c_internal_edges`). Those bonds hold **one pair between three centres**, so
+    counting each of them as a 2c-2e bond over-charges the atom. They come off `b`, and boron's
+    sextet lone-pair term is switched off when any is present (a B inside a `B–H–B` bridge has
+    spent all three valence electrons and holds no lone pair).
+
+        `B₂H₆`   bridging H  b 2 → 0  ⇒ **−1**   ·   B  b 4 → 2, no lp  ⇒ **+1**
+                 without this the signs come out inverted (B −1 · H +1), sum still 0
+
+    ⚠️ Only an **all-internal** bridge qualifies. A `B–H···M` borohydride or a `μ-CO` has the
+       pair in a real 2c-2e internal bond that is merely *donated* to the metal, so its
+       bridging atom keeps `b_3c = 0` and nothing moves — measured: `κ²-BH₄` stays `[BH₄]⁻`
+       with B at −1, `μ-H` stays `[H]⁻`.
     🔴 **The neighbor-element condition is essential** — keying on `(element, deg, b)` alone
     causes regressions (measured):
       · forcing `("N",2,4)` to −1 also catches the **central N of azide N₃** (neighbors N,N) and
@@ -35,6 +49,10 @@ def q_atom(e, b, deg=None, nb=(), n_ml=0):
     #   measured (reference assignment · train 26,075 · 94,117 fragments): 1,427 hypervalent
     #   atoms · EHT target mismatch for their fragments **50.7% → 28.5%** (626 → 352). Not a
     #   single `b ≤ 4` site changes.
+    # ★ an all-internal 3c2e bond carries no 2c-2e pair of its own — take it off `b` first, so
+    #   every branch below sees the two-centre bond count the atom really has.
+    if b_3c:
+        b = b - b_3c
     if QHV and b > 4.0 + 1e-9:
         return VAL.get(e, 4) - b
     if e == "B":
@@ -50,7 +68,11 @@ def q_atom(e, b, deg=None, nb=(), n_ml=0):
         #   35 reactions (2.9%). `10.1039_D2CY01506D__46_TS8b` is one -- a Suzuki intermediate
         #   whose B(OH)2(OAr) read `[B-2]`, fragment -3, and put Pd at **+4** instead of +2.
         #   This is `QHV`'s `lp = max(0, quota/2 - b)` statement with the quota 6 instead of 8.
-        return VAL["B"] - b - 2 * max(0.0, 3.0 - b)
+        #   ⚠️ `b_3c` switches the lone-pair term **off**: a B holding a `B–H–B` bridge has put
+        #   its third electron into that bridge, so `b 2` there is `+1`, not the `-1` a boryl
+        #   gets. Without this `B₂H₆` comes out B(−1)/H(+1) — the right total, inverted signs.
+        lp = 0.0 if b_3c else 2 * max(0.0, 3.0 - b)
+        return VAL["B"] - b - lp
     nO, nN = nb.count("O"), nb.count("N")
     if e == "C" and deg == 2 and b == 2.0 and nN + nO == 0 and n_ml == 0:
         # ★ **free carbene** — a divalent carbon with no heteroatom neighbour *and* no bond to a
@@ -87,6 +109,54 @@ def q_atom(e, b, deg=None, nb=(), n_ml=0):
     if e == "N" and deg == 2 and b == 4.0 and nO == 2:
         return -1  # nitro (two N=O) — 10 electrons.            octet formula +1
     return VAL.get(e, 4) + b - FULL.get(e, 8)
+
+def three_c_internal_edges(el, G, btag):
+    """The ligand-internal bonds that belong to an **all-internal** 3c2e bridge — `B–H–B`.
+
+        legs(X) = X's internal neighbours whose element is in `MLIKE_EXTRA`
+        {(X, y) for y in legs(X)}  for every 3c2e-tagged X with **len(legs(X)) >= 2**
+
+    🔴 The test is on the **metal-like internal neighbours**, not on the internal degree. T7
+    writes `n_center(X) = n_ML(X) + |legs(X)|` (`docs/PIPELINE.md` 5″), so `len(legs) >= 2` is
+    exactly "this bridge is spanned by internal atoms alone, with no metal in it" — the one
+    situation where X's pair belongs to no single two-centre bond and `b` over-counts.
+
+    Everything a metal reaches keeps the charge it had, because its pair *is* a real 2c-2e
+    internal bond that it merely donates:
+
+        μ-H       M–H–M      legs 0            no cut  ·  `[H]⁻` as before
+        B–H···M   κ²-BH₄     legs 1 (the B)    no cut  ·  `[BH₄]⁻` with B at −1 as before
+        μ-CO      M–CO–M     legs 0 (only O)   no cut
+        μ-CH₃     M–CH₃–M    legs 0 (three H)  no cut
+        B–H–B     diborane   legs 2            **cut both**
+
+    ⚠️ An earlier version keyed on `G.degree(X) >= 2` and caught **μ-CH₃** (a carbon with three
+       internal H and two M–L bonds is tagged 3c2e), zeroing its `b` and reading `[C⁻⁴]`.
+       Measured on holdout: T10 OS .8971 → .8913 across 6,422 non-boron structures. The
+       metal-like-neighbour test leaves every one of them untouched.
+
+    Feeds `q_atom(..., b_3c=)`; see that docstring for the `B₂H₆` numbers.
+    """
+    out = set()
+    for x, t in (btag or {}).items():
+        if t != "3c2e" or x not in G:
+            continue
+        legs = [y for y in G[x] if el[y] in MLIKE_EXTRA]
+        if len(legs) >= 2:
+            out |= {(min(x, y), max(x, y)) for y in legs}
+    return out
+
+
+def b_3c_of(G, orders, three_c):
+    """`{atom: bond-order sum of its all-internal 3c2e bonds}` — the `b_3c` argument of
+    `q_atom`, built from the same `orders` the caller charges the atom with."""
+    out = collections.defaultdict(float)
+    for i, j in three_c or ():
+        o = float((orders or {}).get((i, j), 1.0))
+        out[i] += o
+        out[j] += o
+    return out
+
 
 def frag_charge(el, atoms, edges, orders, deg=None, nbrs=None, out=None, w=None):
     """Charge of one conjugated fragment — rule (b).
@@ -382,7 +452,7 @@ def is_cluster_frag(G, el, cls, comp, orders=None):
     return False
 
 
-def _qfrag_kek(G, el, comp, orders, frag_q=None, coord=None):
+def _qfrag_kek(G, el, comp, orders, frag_q=None, coord=None, three_c=None):
     """Fragment charge counted on the **emitted Kekule integers**.
 
     Why this and not `_qfrag`: `_qfrag` sums `ORD4[cls]`, and a `Conj` bond counts **1.5** there,
@@ -395,15 +465,16 @@ def _qfrag_kek(G, el, comp, orders, frag_q=None, coord=None):
     dianion has a perfect matching, so its Kekule structure is neutral while the fragment is -2).
     """
     q = sum(v for k, v in (frag_q or {}).items() if k in comp)
+    b3 = b_3c_of(G, orders, three_c)
     for v in comp:
         b = sum(orders.get((min(v, w), max(v, w)), 1.0) for w in G[v])
         q += q_atom(el[v], float(b), G.degree(v), tuple(sorted(el[w] for w in G[v])),
-                    n_ml=(1 if coord and v in coord else 0))
+                    n_ml=(1 if coord and v in coord else 0), b_3c=b3.get(v, 0.0))
     return q
 
 
 def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q=None,
-                      coord=None):
+                      coord=None, three_c=None):
     """Fragment charge — the **EHT fragment charge** for a cluster, otherwise the formal-charge
     sum."""
     if is_cluster_frag(G, el, cls, comp, orders):
@@ -411,7 +482,7 @@ def frag_charge_or_eht(G, el, cls, comp, q_eht=None, orders=None, w=None, frag_q
         if q is not None:
             return float(q)
     if orders is not None:
-        return _qfrag_kek(G, el, comp, orders, frag_q, coord)
+        return _qfrag_kek(G, el, comp, orders, frag_q, coord, three_c)
     return _qfrag(G, el, cls, comp, w)  # only when the caller has no Kekule structure yet
 
 
@@ -633,10 +704,11 @@ def sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap=(), cap=None, wbo=
     sig = collections.defaultdict(set)
     for m, x in ml_pred:
         coord[x].add(m)
-        # 🔴 `B`·`Al` 은 **끊지 않는다.** 둘은 조건부 중심이라 M–L 후보로 올라오지만, 카보란·
-        #   보릴의 `B–C`(1.54~1.62 Å · Mayer 0.85~1.23)와 `Al–C`(2.07 Å · 0.65)는 케이지·골격의
-        #   평범한 공유결합이다. 전하 결함의 수리가 그것을 끊는 것일 수는 없다 — 실측에서
-        #   잘려나간 참양성의 절반 가까이가 이 둘이었다 (holdout 24 건 중 10 건).
+        # 🔴 `Al` 은 **끊지 않는다.** 중심이라 M–L 후보로 올라오지만 `Al–C`(2.07 Å · Mayer
+        #   0.65)는 골격의 평범한 공유결합이고, 전하 결함의 수리가 그것을 끊는 것일 수는 없다 —
+        #   실측에서 잘려나간 참양성의 절반 가까이가 `B`·`Al` 이었다 (holdout 24 건 중 10 건).
+        #   ⚠️ `B` 는 2026-09-14 부터 중심이 아니라 M–L 후보로 올라오지 않는다. 목록에 남겨 둔
+        #      것은 무해하고, 되돌릴 때 근거가 사라지지 않게 하기 위해서다.
         if el[m] in ("B", "Al"):
             continue
         if (min(m, x), max(m, x)) not in hapset:

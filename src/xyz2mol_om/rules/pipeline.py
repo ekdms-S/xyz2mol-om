@@ -10,7 +10,7 @@ import collections
 import networkx as nx
 import numpy as np
 
-from ..config import (AGOC, BML3C_COST, SATML, ETA1SIG, ETA2NEAR, ETAEXO, ETAPI, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
+from ..config import (MLIKE_EXTRA, AGOC, BML3C_COST, SATML, ETA1SIG, ETA2NEAR, ETAEXO, ETAPI, CAP, EHTCOST, EHTMINFRAG, EHTSKIP, HALOGENS, HALW, LNORM_ON, SIGCAP, LNORM_SKIP_CONJ, LPA, ORD4, SATVETO,
                      LPCOND, LPCOND_NOCONJ, R2CONJ, R5SOLO, ROPW, TAU_P, USE_ROP, R7MIN, R7RING, THETA_HAPTIC,
                      VALENCE_3C,)
 from ..charge.formal import _qfrag, atom_bond_sums, q_atom
@@ -289,7 +289,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
 #     ④ are T5's Y candidates the fragment neighbors or all neighbors?
 #   ⇒ **Assembly is not left to the caller.** The caller supplies only the T4 candidates
 #     (`ml_raw`) and Mayer (`wbo`).
-MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} (`docs/PIPELINE.md`))
+# `MLIKE_EXTRA` is defined in `config` — imported above, re-exported here for callers.
 
 
 def drop_agostic(el, G, ml_raw):

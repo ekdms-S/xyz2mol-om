@@ -76,23 +76,41 @@ THETA_HAPTIC = 81.02  # M–X–Y angle (deg) below which an M–L bond is side-
 
 METALS = set(
     "Ti Zr Hf Nb Ta V La Sc Y Ce Cr Mo W Mn Re Fe Ru Os Co Rh Ir Ni Pd Pt "
-    "Cu Ag Au Zn Al Ga In Sn Pb Mg B".split()
+    "Cu Ag Au Zn Al Ga In Sn Pb Mg".split()
 )
-METALS_HARD = METALS - {"B"}
+# `METALS_HARD` — kept as an alias so importers do not break. It used to be `METALS − {B}`,
+#   back when B was a **conditional** centre; B is no longer in `METALS` at all.
+METALS_HARD = METALS
+# `MLIKE_EXTRA` — metal-**like** for the T7 bridge rule only (`docs/PIPELINE.md` 5″). These are
+#   not centres; they count toward `n_center` as *internal* neighbours so that the H of a `B–H–B`
+#   is recognised as a bridge with no metal in sight. Lives here because both `rules.pipeline`
+#   (which tags) and `charge.formal` (which prices the tag) need it, and `charge` cannot import
+#   from `rules`.
+MLIKE_EXTRA = {"B", "Al"}
 
 
 def centers(el):
-    """The centre atoms — **`B` is conditional**.
+    """The centre atoms — every atom whose element is in `METALS`. No conditions.
 
-        i is a centre ⟺ el[i] ∈ METALS \\ {B}
-                      OR el[i] = B AND the structure holds no METALS \\ {B} atom
+    ★ **`B` is not a centre** (2026-09-14). It used to be one whenever the structure held no
+    transition metal, which made the *same* `B–H` bond an M–L arrow in `B₂H₆` and an ordinary
+    covalent bond inside a carborane — the output shape for boron moved with its context.
 
-    In `B₂H₆` and the boranes B is the centre; inside a transition-metal complex (carborane,
-    boryl, `BH₄⁻`) it is a ligand atom. B is the only metal-class element that forms internal
-    bonds in the reference at all.
+    🔴 The evidence that justified the conditional was a **selection artifact.**
+    `dev/docs/config-evidence.md` read "the only metal-class element with internal bonds is B
+    (30,628 bonds)", but the CSD extraction rejects a fragment holding any `ccdc.Atom.is_metal`
+    atom other than the searched one, and **ccdc does not count B as a metal**
+    (`dev/docs/csd-reference-set-extraction.md`). So B is the only one that survives to be seen
+    as a ligand atom: Al · Ga · In · Sn · Pb · Mg · Zn appear as a non-search metal in **0**
+    reference structures against B's 3,220. On top of that `loc == "int"` *means* "neither end is
+    the searched metal", so a searched metal's internal-bond count is 0 by definition, not by
+    measurement.
+
+    Boron is a metalloid and is now treated like Si: a ligand atom everywhere. `B₂H₆` and the
+    boranes are ordinary covalent molecules whose bridging H is tagged `3c2e` through the
+    `MLIKE_EXTRA` internal-neighbour term of T7 (`rules/pipeline.bridge_tags`).
     """
-    hard = {i for i, e in enumerate(el) if e in METALS_HARD}
-    return hard or {i for i, e in enumerate(el) if e in METALS}
+    return {i for i, e in enumerate(el) if e in METALS}
 
 
 # ═══ ①② the conjugation set ═══════════════════════════════════════════════════════════════════
@@ -510,7 +528,9 @@ SIGCUT = os.environ.get("SIGCUT", "1") == "1"
 #   🔴 게이트 없이 재보니 holdout 에서 CSD 가 결합이라 부르는 M–L **76 개**가 잘렸고, 그 대부분이
 #   진짜 공유결합이었다: Mayer 중앙 **0.809** · 10 분위 0.473 · 최대 1.233. 중심 원소는 B 30 ·
 #   Pt 7 · Os 7 · Al 6 로, 카보란/보릴의 `B–C`(1.54~1.61 Å · Mayer 0.92~1.23)와 `Al–C`(1.99 Å ·
-#   0.90)가 가장 많이 잘렸다 — `B`·`Al` 은 조건부 중심이라 M–L 후보로 올라온다.
+#   0.90)가 가장 많이 잘렸다 — 당시 `B`·`Al` 이 중심이라 M–L 후보로 올라왔다.
+#   ⚠️ 이 측정은 **`B` 가 조건부 중심이던 시절(2026-09-14 이전)** 것이다. 지금 B 는 항상 리간드
+#      원자라 그 30 건은 애초에 M–L 후보가 아니다. 상한 자체의 근거는 `Al`·`Pt`·`Os` 로 남는다.
 #   반응 데이터에 실재하는 `Rh–C` 를 지우는 것은 전하가 틀린 것보다 나쁘므로 상한을 둔다.
 #   **0.40 에서 76 건 중 71 건을 지킨다** (그 아래는 5 건뿐: Sn 0.340 · Cu 0.296 · Mo 0.247 ·
 #   Ni 0.188 · Cr 0.137). Gold-DIGR 대상군의 Mayer 중앙은 0.264 라 대부분 남는다.

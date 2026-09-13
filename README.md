@@ -274,6 +274,7 @@ its Mayer bond orders pinned as constants, so the suite runs on a bare install.
 | `test_pi_shift.py` | the post-⑥ repairs — the π moves where it cancels two charges, and the dianionic-chelate and peroxide exclusions hold |
 | `test_agostic_carbon.py` | the carbon side of an agostic `C–H···M` is dropped too, unless that orphans the fragment |
 | `test_boron_sextet.py` | trivalent boron is neutral (sextet), four-coordinate boron unchanged |
+| `test_boron_ligand_atom.py` | boron is a ligand atom everywhere; `B₂H₆` is `B(+1)` + bridging `[H-]`, and the `B–B` the two bridges already pay for is dropped |
 | `test_rule_a_headroom.py` | rule A's π headroom counts the σ M–L bonds, and NHC · σ-aryl · haptic ring atoms are untouched |
 | `test_pi_suppressed.py` | the `pi_suppressed` report: when it fires, when it must stay silent, that it reads the raw likelihood margin, and that it survives the JSON round trip as tuples |
 | `test_invariants.py` | geometry-free unit tests on the decision functions themselves |

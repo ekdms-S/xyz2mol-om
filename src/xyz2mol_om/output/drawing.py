@@ -30,6 +30,8 @@ it lazily so the rest of `xyz2mol_om` works without it.
 
 from __future__ import annotations
 
+import collections
+
 import numpy as np
 
 from ..charge.formal import q_atom
@@ -359,6 +361,18 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
     _coord = {x for _m, x in (k if isinstance(k, tuple)
                               else tuple(int(t) for t in str(k).split(","))
                               for k in ml)}
+    # ★ the all-internal 3c2e legs (`B–H–B`) — the same `b_3c` correction `api` applies, so the
+    #   drawn charges match the ones in the result (`charge.q_atom`).
+    _3c = set()
+    for mol in (result.get("molecules") or []):
+        for fr in (mol.get("fragments") or []):
+            for e3 in (fr.get("bonds_3c2e") or []):
+                _3c.add((min(e3), max(e3)))
+    _b3 = collections.Counter()
+    for (x, y) in _3c:
+        o = float(kek.get((min(x, y), max(x, y)), 1.0))
+        _b3[x] += o
+        _b3[y] += o
     qat = {}
     for i in keep:
         if i in met:
@@ -366,7 +380,7 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
         bsum = sum(o for (x, y), o in kek.items() if i in (x, y))
         nbs = tuple(sorted(el[y if x == i else x] for (x, y) in kek if i in (x, y)))
         qat[i] = int(round(q_atom(el[i], float(bsum), len(nbs), nbs,
-                                  n_ml=1 if i in _coord else 0)))
+                                  n_ml=1 if i in _coord else 0, b_3c=_b3.get(i, 0.0))))
 
     for i in keep:
         e = el[i]

@@ -40,6 +40,12 @@ salt with its counter-ion — and everything below is solved inside one molecule
                     "order":  1|2|3|None,                 None for haptic (no order is assigned)
                     "bridge": None|"3c2e"|"dative",       T7 sub-tag (`docs/PIPELINE.md`)
               }},
+              "bonds_3c2e":   [(i,j), ...], ligand-**internal** legs of an all-internal 3c2e
+                                            bridge (`B–H–B`). The metal side of a bridge is in
+                                            `ml_bonds[...]["bridge"]`; this half has no metal in
+                                            it. These bonds hold one pair between three centres,
+                                            so `bonds_kekule` prices them 1 while the charge does
+                                            not count them (`charge.q_atom`, `b_3c`)
               "eta":          {m: k},       η^k toward that metal (when haptic)
               "charge":       int,          fragment charge q_L
               "residual_charge": int | None,  charge the skeleton cannot express (if any)
@@ -105,9 +111,10 @@ import warnings
 import networkx as nx
 import numpy as np
 
-from .charge import (abs_charge_sum, frag_charge_or_eht, kekulize, octet_fix_period2,
-                     pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel)
-from .config import SIGETA, NOCTET, RCOV, VAL, WMIN, centers
+from .charge import (abs_charge_sum, b_3c_of, frag_charge_or_eht, kekulize, octet_fix_period2,
+                     pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel,
+                     three_c_internal_edges)
+from .config import MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
@@ -118,8 +125,7 @@ from .rules import bml_budget, predict_T3_T5
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
     """T4 — presence of an M–X bond. `d < d_bond(M,X)` AND `w > w_veto(M,X)`.
 
-    `cen` = the set of center-atom indices (`config.centers`) — **`B` is a conditional center,
-    so it cannot be told apart by element alone.**
+    `cen` = the set of center-atom indices (`config.centers`).
     ⚠️ Agostic exclusion (`C–H···M`) is the rule in `docs/PIPELINE.md` 3.
     """
     idx = [i for i in range(len(el)) if i not in cen]
@@ -135,7 +141,7 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
     return raw
 
 
-MLIKE_EXTRA = {"B", "Al"}  # metal-like = metals ∪ {B, Al} (`docs/PIPELINE.md`))
+# `MLIKE_EXTRA` is defined in `config` — imported above, re-exported here for callers.
 
 
 def all_metals(r):
@@ -189,8 +195,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     d_int, d_fb = dint if dint is not None else load_dint()
 
     # ① T1 — bonds inside a ligand (distance)
-    #   🔴 The center atoms are decided by `centers()`, not by element — with a transition metal
-    #      present, `B` is a **ligand atom** (carborane, boryl, `BH₄⁻`). `docs/PIPELINE.md`.0 0.
+    #   🔴 `B` is a ligand atom **always** (carborane, boryl, `BH₄⁻`, `B₂H₆`) — see
+    #      `config.centers`. `docs/PIPELINE.md`.
     cen = centers(el)
     idx = [i for i in range(len(el)) if i not in cen]
     G = nx.Graph()
@@ -213,6 +219,27 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 continue
             if d_ab < d_int.get(tuple(sorted((el[a], el[b]))), d_fb):
                 G.add_edge(a, b)
+
+    # ★ **diborane** — drop a `B–B` that two hydrogen bridges already account for.
+    #   `d_int(B,B) = 2.336 Å` cannot separate `B₂H₆`'s 1.774 Å non-bond from a carborane cage
+    #   bond at 1.75–1.80 Å, so T1 draws one and the fragment ends up 2 electrons short:
+    #   `R₂B(μ-H)₂BR₂` has `2·3 + 2·1 + 4·1 = 12` valence electrons and the 4 B–R bonds (8 e)
+    #   plus the 2 bridges (4 e) already spend all 12 — a B–B would need 14.
+    #   The condition is deliberately narrow: **two bridging H and no third boron.** A cage B
+    #   keeps every bond it has, which is what the 88 % of bridged `B–B` in the reference that
+    #   sit inside a polyhedron need (263 of 299). The 12 reference structures this disagrees
+    #   with are the diborane motif itself, where the electron count above is the argument.
+    _bs = [i for i in idx if el[i] == "B"]
+    for _u in range(len(_bs)):
+        for _v in range(_u + 1, len(_bs)):
+            b1, b2 = _bs[_u], _bs[_v]
+            if not G.has_edge(b1, b2):
+                continue
+            if sum(1 for y in set(G[b1]) & set(G[b2]) if el[y] == "H") < 2:
+                continue
+            if any(el[y] == "B" for y in set(G[b1]) | set(G[b2]) if y not in (b1, b2)):
+                continue  # part of a polyhedron — the B–B is real
+            G.remove_edge(b1, b2)
 
     # ② T4 — M–L bonds (distance + Mayer veto)
     import csv as _csv
@@ -341,6 +368,13 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             if d < tb and (wbo or {}).get((m1, m2), (wbo or {}).get((m2, m1), 1.0)) > wv:
                 mm[(m1, m2)] = 1
 
+    # ★ the ligand-internal legs of an **all-internal** 3c2e bridge — `B–H–B` and nothing else
+    #   (`charge.three_c_internal_edges` states the rule). They carry one pair between three
+    #   centres, so the charge must not price them as two 2c-2e bonds; a bridge reached through
+    #   the metal (`μ-H` · `B–H···M` · `μ-CO`) is untouched.
+    three_c_int = three_c_internal_edges(el, G, btag)
+    b3_int = b_3c_of(G, orders, three_c_int)
+
     # -- group by ligand fragment
     NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
     hapset = {(min(a, b), max(a, b)) for a, b in hap}
@@ -362,7 +396,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         #    trusted — use the EHT fragment charge. For the rule and its evidence see the
         #    `charge.is_cluster_frag` comment.
         coord = sorted({x for _m, x in ml_pred if x in cs})
-        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord)))
+        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord),
+                                      three_c_int))
         q_all[key] = qL
         coord_of[key] = coord
         coord_set = set(coord)
@@ -372,7 +407,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             bsum = sum(bk.get((min(x, w), max(x, w)), 1) for w in G[x])
             qat[x] = int(round(q_atom(el[x], float(bsum), G.degree(x),
                                       tuple(sorted(el[w] for w in G[x])),
-                                      n_ml=(1 if x in coord_set else 0))))
+                                      n_ml=(1 if x in coord_set else 0),
+                                      b_3c=b3_int.get(x, 0.0))))
         qat_all.update(qat)
         smi, _map = ligand_smiles(el, comp, bk, qat, coord)
         ok, why = False, "SMILES generation failed"
@@ -413,6 +449,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "smiles_ok": ok,
             "smiles_note": why,          # failure reason ("" if it passed)
             "coordinating": coord,
+            # ★ internal bonds that are one leg of an all-internal 3c2e bridge (`B–H–B`). The
+            #   M–L side of a bridge stays in `ml_bonds[...]["bridge"]`; this is the half that
+            #   has no metal in it and so had nowhere to be reported before.
+            "bonds_3c2e": [e for e in sorted(three_c_int) if e[0] in cs],
             "ml_bonds": mlb_out,
             "eta": eta_out,
             "charge": qL,

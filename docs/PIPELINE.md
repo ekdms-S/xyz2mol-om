@@ -229,6 +229,7 @@ that are not yet contaminated by the metal budget (see 5″).
            μ-CH₃     M–CH₃–M       b_use 3+2 = 5 > 4  →  3c2e
            μ-CO      M–CO–M        b_use 3+2 = 5 > 4  →  3c2e    (C≡O · a C=O would give 4)
            B–H···M   borohydride   n_center = M 1 + neighbour B 1 · b_use 2 > 1  →  3c2e
+           B–H–B     diborane      n_center = neighbour B 2 (**no metal**) · b_use 2 > 1 → 3c2e
            μ-CR₂     bridging carbene   b_use 2+2 = 4  →  dative (genuinely two 2c2e)
            μ-Cl      M–Cl–M        Cl ∉ VALENCE_3C    →  dative (3c4e)
            terminal  M–L           n_center 1         →  no tag
@@ -644,6 +645,8 @@ violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
               headroom on the promise that ⑥ leaves the atom unmatched (see ④)
   b_ML      : sum of M–L bond orders (haptic excluded)
   ⚠️ 3c2e-tagged atoms and `B` are dropped from the tally — they are outside the two-center formalism
+     (an all-internal `B–H–B` leg is priced by `bonds_kekule` but **not** by the charge; see
+      `charge.three_c_internal_edges`)
 ```
 
 | Evaluation | Violating structures | Reference-label baseline (same count) |
@@ -655,10 +658,12 @@ violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
 violate (hypervalency · ionic/covalent boundary · CSD notation conventions). Our value has to be
 read against that, so the excess is about **1.5%p**.
 
-🔴 A known residual: `B` and `Al` are treated as central atoms, but a Mayer cache built for true
-transition metals has no `B–X` entry, and a missing entry is read as "veto passed" — every one of
-those becomes an M–L bond that eats the `CAP` budget of the neighbouring `C` and `H` (**6.0% of
-M–L candidates are missing, all `B`-centred**). Supplying `wbo` for `B` removes this.
+🔴 A known residual, **resolved for `B` on 2026-09-14**: a central atom whose Mayer cache was
+built for true transition metals has no `B–X` entry, and a missing entry is read as "veto passed",
+so every one of those became an M–L bond that ate the `CAP` budget of the neighbouring `C` and `H`
+(**6.0% of M–L candidates were missing, all `B`-centred**). `B` is no longer a centre
+(`config.centers`), so those candidates are not raised at all. `Al` still has it — supply `wbo`
+for `Al` to remove it.
 
 ### Trivial baselines (always read the performance next to these)
 
