@@ -130,6 +130,16 @@ whether a metal is part of the bridge:
 | runs through a centre | `ml_bonds[(m,x)]["bridge"] == "3c2e"` | `μ-H` · `μ-CO` · `μ-CH₃` · a κ²-`BH₄` (④) |
 | is entirely inside a ligand | **`bonds_3c2e`** on the fragment | `B–H–B` in a borane (⑥) |
 
+🔴 **Only the outer leg is tagged, and that is the one the pair is *not* on.** A κ²-`BH₄`'s
+`B–H` is an ordinary bond in `bonds_kekule` holding an ordinary pair; what the `3c2e` tag marks
+is the `H···M` leg, which carries none (`order` is there for shape, not for electrons). So the
+three-centre bond is split across two fields, and reconstructing it means taking the tagged M–L
+bond **and** the internal bonds of its ligand atom. `draw()` does exactly that — it paints every
+leg orange, dashed where the edge holds no pair and solid where it does.
+
+An all-internal bridge is the case where **neither** leg holds a pair of its own, which is why
+`bonds_3c2e` is also the set the charge rule subtracts.
+
 `bonds_3c2e` is a field of **every** fragment, not a special case — it is an empty list for
 almost everything, because the only elements that bridge with no metal in them are `B` and `Al`
 (the T7 rule's `MLIKE_EXTRA`). Its entries are `(i, j)` pairs that also appear in `bonds_kekule`
