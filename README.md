@@ -295,32 +295,46 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 
 | Task | Metric | Value | Pool | Baseline |
 |---|---|---|---|---|
-| T1 ligand internal bond existence | F1 | **0.9972** | 378,303 bonds | all bonded .7306 |
+| T1 ligand internal bond existence | F1 | **0.9998** | 380,315 bonds | all bonded .7306 |
 | T2 conjugation call | F1 | **0.9618** | 87,581 bonds | — |
 | T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9906 / .7753 / .9771 / .9618** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
-| T4 M–L·M–M bond existence | F1 | **0.9735** | 56,510 bonds | all bonded .5276 |
+| T4 M–L·M–M bond existence | F1 | **0.9915** | 54,498 bonds | all bonded .5276 |
 | T5 haptic call | F1 | **0.9801** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,224 ligands | all `k=0` .8704 |
 | T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7473 / .7228** | 39,523 bonds | — |
-| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8622** | 1,161 structures | reference-order 0.8528 |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8648** | 1,154 structures | reference-order 0.8528 |
 | T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8967** | 2,779 structures | reference-order 0.8698 |
 
-🔴 **T1 and T4 moved on 2026-09-14 for a reason that is not a prediction change.** `B` became a
-ligand atom everywhere (`config.centers`), so in the **371 holdout structures the extraction
-searched *as boron*** every `B–X` bond now leaves `ml_bonds` for `bonds_4class`. The reference's
-`loc` column is defined relative to the **searched** metal, so those same bonds are labelled `ml`
-and count as a T4 miss and a T1 false positive. Scored on bond **existence** with `loc` ignored,
-those 371 structures go 0.9995 → **0.9993** (FN 12 → 18, FP 8 → 9) — the bonds are still found.
-Splitting the holdout three ways:
+🔴 **The scorer's truth split had to be fixed on 2026-09-14, and it is worth knowing why.**
+`bonds.csv` carries a `loc` column, but `loc` is defined against the **searched** metal
+(`s1 == metal` in the extraction), not against our centres. Once `B` became a ligand atom, the
+371 holdout structures the extraction searched *as boron* had every `B–X` bond written `ml` while
+the pipeline emitted it as internal — reading as a T4 miss and a T1 false positive, and dragging
+the whole-set T4 to .9735 with no prediction having changed. The scorer now partitions the truth
+with the pipeline's own `centers()`, which is self-consistent for either convention. (Splitting on
+element membership is **not** enough — that cannot express the conditional centre B used to be.)
 
-| | n | T1 | T4 | T5 | Σq_L | OS |
-|---|---:|---|---|---|---|---|
-| searched as B | 371 | .9999 → .9464 | .9960 → **.0000** | — | .0000 → **.4286** | — |
-| searched as a TM, holds B | 366 | .9987 → .9988 | ±0 | .9593 → .9585 | ±0 | .8165 → .8073 |
-| searched as a TM, no B | 6,056 | **±0** | **±0** | **±0** | **±0** | **±0** |
+Measured that way, with the baseline re-run under the same scorer:
 
-89% of the holdout is bit-identical. Across the whole set exactly **one** structure changed its
-oxidation state (`XALVEO`, right → wrong) and **three** changed `Σq_L` (all wrong → right).
+| | n | T1 | T4 | T5 | Σq_L | OS | violations |
+|---|---:|---|---|---|---|---|---|
+| searched as a TM, no B | 6,056 | **±0** | **±0** | **±0** | **±0** | **±0** | ±0 |
+| searched as a TM, holds B | 366 | ±0 | ±0 | −.0008 | ±0 | −.0092 | −.17 |
+| searched as B | 371 | .9999 → .9993 | *(no pool)* | — | — | — | +.0027 |
+| **whole holdout** | 6,793 | .9998 → **.9998** | .9916 → **.9915** | .9796 → **.9801** | .8596 → **.8648** | .8971 → **.8967** | 1.25% → **0.35%** |
+
+The B-searched block has **no T4 pool at all** after the change — with boron a ligand atom those
+structures hold no metal, so there is nothing for T4 to score (tp = fp = fn = 0). Their 2,000
+former M–L bonds moved into T1, which is why its pool grows.
+
+Across the whole holdout exactly **one** structure changed its verdict on any charge task —
+`XALVEO`, oxidation state right → wrong. **`Σq_L` did not flip a single structure**: its rate
+moves only because **7** boron-searched structures left the pool (1,161 → 1,154, and all 7 were
+already wrong), so read that `+.0052` as a denominator change, not an improvement.
+
+⚠️ `T2`, `T3` and `T8` are **not** re-measured here. They are unchanged by construction — the
+6,056 boron-free structures are bit-identical and the confusion matrices for the rest move by
+tenths of a percent — but the values in the table above them are the 2026-09-13 figures.
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseline column is the
@@ -376,7 +390,13 @@ spends 0, and an atom in a 3c2e bridge spends 1.0 in total however many M–L bo
 
 | Pool | Violating structures | Reference-label baseline |
 |---|---|---|
-| holdout 6,793 | **1.25%** | **0.4%** |
+| holdout 6,793 | **0.35%** | **0.4%** |
+
+⚠️ **1.25% → 0.35% on 2026-09-14 is mostly a reporting change, not a repair.** The tally has
+always excluded 3c2e atoms, but the scorer could only find them through `ml_bonds[...]["bridge"]`
+— so a `B–H–B` bridge, which has no metal in it and now lives in `bonds_3c2e`, was counted as a
+bridging H exceeding `CAP(H) = 1`. Those atoms were always outside the two-centre formalism; the
+pipeline just could not name them before.
 
 ⚠️ The baseline is not 0 — the CSD reference labels themselves violate on about 0.4%
 (hypervalency · where the ionic/covalent cut is drawn · CSD notation conventions), so the figure

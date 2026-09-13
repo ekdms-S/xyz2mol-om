@@ -688,6 +688,11 @@ for `Al` to remove it.
 | `data/b_ml_mayer.csv` | T8 likelihood form (fallback) | 421 pairs |
 | `data/scores4.json` | T3 distance likelihood `med`·`scl`·`lp`·`lp_cell` | 18 element pairs · 57 cells |
 
+⚠️ **The `M = B` rows of `d_bond` (12), `b_ml_dist` (23), `b_ml_mayer` (19) and `b_ml_t8forms`
+(23) are dead** as of 2026-09-14. `B` left `METALS`, so it is never a centre and never raises an
+M–L candidate; T1 covers those bonds now through `d_int`'s refitted boron rows. They are kept, not
+deleted, so the fit stays on record if the decision is ever reversed.
+
 These rules carry **no fitted parameter** — each is a structural condition: Rule A · R2 · R3 · R4 ·
 R5 · R7 · the ⑤ EHT trust gate (composition list + nitro motif) · the ⑤ adjacent-same-sign veto ·
 the ④ unmatched-atom exception · the bond-level η² rule (5*) · the hypervalent charge formula ·
