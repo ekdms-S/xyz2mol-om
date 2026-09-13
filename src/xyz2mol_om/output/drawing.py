@@ -179,7 +179,22 @@ def projection_axes(xyz, keep, bonds, ml_bonds=(), metals=(), elements=None):
     mset = {idx[m] for m in metals if m in idx}
     lab = None
     if elements is not None:
-        lab = {k for a, k in idx.items() if elements[a] != "H" and k not in mset}
+        # 🔴 Hydrogen is left out of the pairwise overlap term because a terminal H is a small
+        #    dot and counting every one of them drowns out the labelled atoms. But `keep` has
+        #    **already dropped** the terminal H — an H that survives to be drawn is one bonded to
+        #    a centre or inside a 3c2e bridge, which is the thing the figure exists to show.
+        #    Leaving those out let two of them land on the *same point* for free: `Me₂Ga(BH₄)`
+        #    drew one bridging H where there are two (a κ¹ borohydride, which is a different
+        #    compound), and `B₂H₆` drew five hydrogens. Count an H that is bonded to something in
+        #    `mset`, or that has two or more neighbours among the atoms being drawn.
+        _deg = collections.Counter()
+        for a, b in pairs:
+            if a in idx and b in idx:
+                _deg[a] += 1
+                _deg[b] += 1
+        _onm = {a for a, b in pairs if b in metals} | {b for a, b in pairs if a in metals}
+        lab = {k for a, k in idx.items()
+               if k not in mset and (elements[a] != "H" or a in _onm or _deg[a] >= 2)}
     mlb = np.array([[m, x] for m, x in ml_bonds], dtype=int) if len(ml_bonds) else None
     best, score = vt[:2], None
     # 🔴 The scan is 24 × 24, not 13 × 13. With the smooth score there is a gradient to follow,

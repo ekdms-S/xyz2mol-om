@@ -30,11 +30,10 @@ TITLE = {
 }
 
 
-# ★ An explicit viewing plane, for a structure where the automatic one hides something.
-#   `B₂H₆` is D2h with its four terminal H in one plane and its two bridging H on the axis
-#   perpendicular to it, so the least-cluttered scan settles on the terminal-H plane — and the
-#   two bridging H land on the **same point**, which draws a molecule with five hydrogens.
-#   Tilting 45° about the B–B axis separates them and keeps every bond at full length.
+# ★ An explicit viewing plane. The automatic scan is **correct** for `B₂H₆` — it no longer puts
+#   the two bridging H on one point — but it lands nearly edge-on to the bridge, so the diamond
+#   collapses and a terminal H crosses it. 45° about the B–B axis is the view that reads.
+#   `projection` is a documented argument of `draw`; nothing else here needs one.
 PROJECTION = {
     "06_diborane_b2h6": [[1.0, 0.0, 0.0], [0.0, 2**-0.5, 2**-0.5]],
 }

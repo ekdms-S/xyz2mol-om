@@ -85,6 +85,8 @@ r["molecules"] == [
       "ml_bonds": {(0, 1): {"type": "sigma",   # sigma | haptic | bridge
                             "order": 3,        # None if haptic
                             "bridge": None}},  # if bridging, "3c2e" | "dative"
+      "bonds_3c2e": [],          # [(i,j)] — the **metal-free** half of a 3c2e bridge
+                                 #   (`B–H–B`). Almost always empty; see below
       "eta": {},                 # {metal: k} — counted **per ligand**, so a bridged
                                  #   (ansa) metallocene is one η¹⁰, not η⁵:η⁵
       "charge": -3,              # this fragment's charge
@@ -117,6 +119,26 @@ from xyz2mol_om import all_metals, all_fragments
 all_metals(r)      # every metal record, across molecules
 all_fragments(r)   # every fragment record, across molecules
 ```
+
+### Where a 3c2e bridge is reported
+
+A 3c2e bridge is written in **one of two places, never both**, and which one depends only on
+whether a metal is part of the bridge:
+
+| the bridge | reported in | example |
+|---|---|---|
+| runs through a centre | `ml_bonds[(m,x)]["bridge"] == "3c2e"` | `μ-H` · `μ-CO` · `μ-CH₃` · a κ²-`BH₄` (④) |
+| is entirely inside a ligand | **`bonds_3c2e`** on the fragment | `B–H–B` in a borane (⑥) |
+
+`bonds_3c2e` is a field of **every** fragment, not a special case — it is an empty list for
+almost everything, because the only elements that bridge with no metal in them are `B` and `Al`
+(the T7 rule's `MLIKE_EXTRA`). Its entries are `(i, j)` pairs that also appear in `bonds_kekule`
+with order 1: the skeleton draws the leg, and the charge does **not** price it, because the two
+legs of a bridge share one electron pair (`charge.q_atom`, argument `b_3c`).
+
+⚠️ A fragment holding one is **not expressible in two-centre form** — its bridging atom has two
+bonds and no valence left for them — so `smiles_ok` is `False` and `assemble_complex` will refuse
+it. Read `bonds_kekule` + `bonds_3c2e` instead of the SMILES.
 
 ### More than one molecule in the input
 
@@ -186,11 +208,8 @@ python examples/draw_examples.py           # redraw the PNGs
 | ⑤ | `05_mm_quadruple_re2cl8` | `[Re₂Cl₈]²⁻` | M–M bond | [json](examples/05_mm_quadruple_re2cl8.result.json) | [png](examples/05_mm_quadruple_re2cl8.png) |
 | ⑥ | `06_diborane_b2h6` | `B₂H₆` (gas phase) | **3c2e with no metal** — `bonds_3c2e`, bridging `[H-]`, `B(+1)`, and no `B–B` | [json](examples/06_diborane_b2h6.result.json) | [png](examples/06_diborane_b2h6.png) |
 
-⑥ is the one example with **no metal in it**. Boron is a ligand atom, so `B₂H₆` is an ordinary
-covalent molecule whose two bridging hydrogens are `3c2e` — reported in `bonds_3c2e` (the M–L side
-of a bridge stays in `ml_bonds[...]["bridge"]`, which is what ④ shows). Its `smiles_ok` is
-**False** on purpose: a bridging H has two bonds and cannot be written in two-centre form, so use
-`bonds_kekule` + `bonds_3c2e`.
+④ and ⑥ are the two sides of the same rule — a 3c2e bridge with a metal in it and one without.
+See [Where a 3c2e bridge is reported](#where-a-3c2e-bridge-is-reported).
 
 To save a result yourself use `save_json(r, path)`, and to read it back `load_json(path)`
 (bond keys `(i, j)` are stored as `"i,j"` and converted back on read).
