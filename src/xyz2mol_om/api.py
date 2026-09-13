@@ -325,9 +325,18 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         for b in range(a + 1, len(mets)):
             m1, m2 = mets[a], mets[b]
             d = float(np.linalg.norm(xyz[m1] - xyz[m2]))
+            # 🔴 `d_bond` stores a **heteronuclear** metal pair in one direction only, so the key
+            #   has to be tried both ways. Every genuine M–M pair in the table used to be
+            #   homonuclear (`Fe,Fe`), which hid this: the only heteronuclear entries are
+            #   `(TM, B)`, and `mets` is in **atom-index** order, so a B whose index came first
+            #   looked up `('B','Pd')`, missed, and fell back to the RCOV estimate — 3.17 Å
+            #   against the fitted 2.498 Å, which invents M–M bonds.
             tb, wv = dbond.get(
                 (el[m1], el[m2]),
-                (c1g * (RCOV.get(el[m1], 1.6) + RCOV.get(el[m2], 1.6)), 0.0),
+                dbond.get(
+                    (el[m2], el[m1]),
+                    (c1g * (RCOV.get(el[m1], 1.6) + RCOV.get(el[m2], 1.6)), 0.0),
+                ),
             )
             if d < tb and (wbo or {}).get((m1, m2), (wbo or {}).get((m2, m1), 1.0)) > wv:
                 mm[(m1, m2)] = 1

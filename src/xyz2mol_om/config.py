@@ -36,6 +36,10 @@ VTGT = {  # neutral-atom bond-order target, used by the under-valence penalty
 RCOV = {  # covalent radii (Å) — the fallback distance threshold when a pair has no fitted entry
     "H": 0.31, "B": 0.84, "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57, "Si": 1.11, "P": 1.07,
     "S": 1.05, "Cl": 1.02, "As": 1.19, "Se": 1.20, "Br": 1.20, "Te": 1.38, "I": 1.39,
+    # ★ Not centres and not in the ligand tables either, so they used to take the **fallback
+    #   radius** (1.0 in T1's gate, 1.6 in the M–M estimate). For `Ge` that read 1.3002·(1.6+0.76)
+    #   = 3.07 Å as a Ge–C bound against a real 1.95 Å. Cordero radii, same source as the rest.
+    "Li": 1.28, "Na": 1.66, "Ge": 1.20,
 }  # fmt: skip
 
 CAP = {  # valence ceiling used by ④ — bonds plus lone pairs, `b_int + b_ML <= CAP`
