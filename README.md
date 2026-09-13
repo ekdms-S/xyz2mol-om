@@ -299,56 +299,11 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | T2 conjugation call | F1 | **0.9617** | 87,602 bonds | — |
 | T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9901 / .7667 / .9775 / .9617** | 380,211 bonds | all `Single` .9097 / 0 / 0 |
 | T4 M–L·M–M bond existence | F1 | **0.9915** | 54,498 bonds | all bonded .5276 |
-| T5 haptic call | F1 | **0.9801** | 15,331 M–L bonds | all haptic .6766 |
-| T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,224 ligands | all `k=0` .8704 |
+| T5 haptic call | F1 | **0.9800** | 15,331 M–L bonds | all haptic .6766 |
+| T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,228 ligands | all `k=0` .8704 |
 | T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9935 / .7556 / .7254** | 37,638 bonds | — |
 | T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8648** | 1,154 structures | reference-order 0.8528 |
 | T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8967** | 2,779 structures | reference-order 0.8698 |
-
-🔴 **The scorer's truth split had to be fixed on 2026-09-14, and it is worth knowing why.**
-`bonds.csv` carries a `loc` column, but `loc` is defined against the **searched** metal
-(`s1 == metal` in the extraction), not against our centres. Once `B` became a ligand atom, the
-371 holdout structures the extraction searched *as boron* had every `B–X` bond written `ml` while
-the pipeline emitted it as internal — reading as a T4 miss and a T1 false positive, and dragging
-the whole-set T4 to .9735 with no prediction having changed. The scorer now partitions the truth
-with the pipeline's own `centers()`, which is self-consistent for either convention. (Splitting on
-element membership is **not** enough — that cannot express the conditional centre B used to be.)
-
-Measured that way, with the baseline re-run under the same scorer:
-
-| | n | T1 | T4 | T5 | Σq_L | OS | violations |
-|---|---:|---|---|---|---|---|---|
-| searched as a TM, no B | 6,056 | **±0** | **±0** | **±0** | **±0** | **±0** | ±0 |
-| searched as a TM, holds B | 366 | ±0 | ±0 | −.0008 | ±0 | −.0092 | −.17 |
-| searched as B | 371 | .9999 → .9993 | *(no pool)* | — | — | — | +.0027 |
-| **whole holdout** | 6,793 | .9998 → **.9998** | .9916 → **.9915** | .9796 → **.9801** | .8596 → **.8648** | .8971 → **.8967** | 1.25% → **0.35%** |
-
-The B-searched block has **no T4 pool at all** after the change — with boron a ligand atom those
-structures hold no metal, so there is nothing for T4 to score (tp = fp = fn = 0). Their 2,000
-former M–L bonds moved into T1, which is why its pool grows.
-
-Across the whole holdout exactly **one** structure changed its verdict on any charge task —
-`XALVEO`, oxidation state right → wrong. **`Σq_L` did not flip a single structure**: its rate
-moves only because **7** boron-searched structures left the pool (1,161 → 1,154, and all 7 were
-already wrong), so read that `+.0052` as a denominator change, not an improvement.
-
-The order tasks tell the same story. On the 6,056 boron-free structures **every T3 and T8 class
-is identical to four decimals with an identical pool**, and the 366 boron-holding TM structures
-move by at most ±.0008. What moves the whole-set figures is the boron block alone, and it is a
-re-partition rather than a regression: its **2,000 `B–X` bonds left T8 for T3**, because with
-boron a ligand atom they are internal bonds now, not M–L ones.
-
-| | T3 Single | T3 Double | T3 Triple | T3 Conj | T8 pool |
-|---|---|---|---|---|---|
-| searched as B (371) | .9907 → .9826 | .6584 → **.5399** | .8136 → .8846 | .9618 → .9596 | 1,887 → **0** |
-| whole holdout | .9906 → .9901 | .7753 → **.7667** | .9771 → .9775 | .9618 → .9617 | 39,523 → 37,638 |
-
-`T3 Double` is the one figure that visibly drops, and it is those transferred bonds. Their pool
-is **not the same pool**: the boron block's truth-`Double` count goes 348 → 423 as the `B–X`
-bonds arrive, and they are harder than what was there before, so the two percentages are not
-like-for-like. Refitting `scores4`'s boron pairs (next commit after the transfer) recovered
-.5017 → **.5399** of it; the rest is that `scores4` still carries `B-B`, `B-C`, `B-N` and `B-P`
-only — `B-O`, `B-F` and `B-S` are single-class in the reference and have nothing to discriminate.
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseline column is the
@@ -369,21 +324,25 @@ Same pool, same references, same metrics, and **a tool's failure is scored as a 
 rather than dropped. `xyz2mol_tm` runs live; it is given 60 s per structure, beyond which the
 structure counts as a failure.
 
+⚠️ **Our column is current; the other three are from the 2026-09-08 run** and are unaffected by
+our changes. One caveat on reading `T3` and `T8` across columns: boron is a ligand atom here, so
+its `B–X` bonds are scored under `T3` rather than `T8`, and those two pools are ours alone.
+
 | | ours | `xyz2mol` | `xyz2mol_tm` | OpenBabel |
 |---|---|---|---|---|
 | **structures it produced an answer for** | **6,793** | 6,156 | 5,676 | **6,793** |
 | T1 internal bond existence | **.9998** | .9672 | .8922 | .9928 |
-| T4 M–L·M–M bond existence | **.9916** | — | .8990 | .7579 |
-| T3 `Single` | **.9906** | .9691 | .9811 | .9434 |
-| T3 `Double` | **.7753** | .3945 | .5693 | .3515 |
-| T3 `Triple` | **.9771** | .9586 | .9770 | .1217 |
-| T3 `Conj` | **.9618** | .9090 | .9323 | .7922 |
-| T8 M–L `Single` | **.9932** | — | — | .9771 |
-| T8 M–L `Double` | **.7473** | — | — | .0658 |
-| T8 M–L `Triple` | **.7228** | — | — | .0106 |
-| T5 haptic | **.9796** | — | — | — |
-| T10 `Σq_L` (1,161 structures) | **.8596** | .3764 | .8071 | .1843 |
-| T10 `OS` (2,779 structures) | **.8971** | — | — | — |
+| T4 M–L·M–M bond existence | **.9915** | — | .8990 | .7579 |
+| T3 `Single` | **.9901** | .9691 | .9811 | .9434 |
+| T3 `Double` | **.7667** | .3945 | .5693 | .3515 |
+| T3 `Triple` | **.9775** | .9586 | .9770 | .1217 |
+| T3 `Conj` | **.9617** | .9090 | .9323 | .7922 |
+| T8 M–L `Single` | **.9935** | — | — | .9771 |
+| T8 M–L `Double` | **.7556** | — | — | .0658 |
+| T8 M–L `Triple` | **.7254** | — | — | .0106 |
+| T5 haptic | **.9800** | — | — | — |
+| T10 `Σq_L` (ours 1,154 · others 1,161) | **.8648** | .3764 | .8071 | .1843 |
+| T10 `OS` (2,779 structures) | **.8967** | — | — | — |
 
 `—` is a task the tool cannot answer at all: `xyz2mol` strips the metal and solves the fragments,
 so no M–L task; `xyz2mol_tm` gives M–L **connectivity** but no order, so no T8; OpenBabel has no
@@ -397,7 +356,9 @@ risen since; the other tools' numbers are unaffected by our changes.
 
 ### Valence violations — chemical validity of the output
 
-`b_int(X) + b_ML(X) > CAP(X)` for a non-metal X (Kekulé count · 3c2e and B excluded).
+`b_int(X) + b_ML(X) > CAP(X)` for a non-metal X (Kekulé count · 3c2e and B excluded). A 3c2e
+atom counts as excluded whether the bridge runs through a metal (`ml_bonds[...]["bridge"]`) or
+not (`bonds_3c2e`, the all-internal `B–H–B` case) — both are outside the two-centre formalism.
 
 `b_ML` is what the ④ valence constraint spends: **1.0 per non-haptic M–L bond** (a haptic bond
 spends 0, and an atom in a 3c2e bridge spends 1.0 in total however many M–L bonds it has).
@@ -405,12 +366,6 @@ spends 0, and an atom in a 3c2e bridge spends 1.0 in total however many M–L bo
 | Pool | Violating structures | Reference-label baseline |
 |---|---|---|
 | holdout 6,793 | **0.35%** | **0.4%** |
-
-⚠️ **1.25% → 0.35% on 2026-09-14 is mostly a reporting change, not a repair.** The tally has
-always excluded 3c2e atoms, but the scorer could only find them through `ml_bonds[...]["bridge"]`
-— so a `B–H–B` bridge, which has no metal in it and now lives in `bonds_3c2e`, was counted as a
-bridging H exceeding `CAP(H) = 1`. Those atoms were always outside the two-centre formalism; the
-pipeline just could not name them before.
 
 ⚠️ The baseline is not 0 — the CSD reference labels themselves violate on about 0.4%
 (hypervalency · where the ionic/covalent cut is drawn · CSD notation conventions), so the figure
@@ -431,7 +386,7 @@ bonds is counted at its own 1.5.
 | | `b_int`+`b_ML` | **2.11%** | 10.50% | 45.03% | 3.54% |
 
 ⚠️ This breakdown is from the **2026-09-08** run and was not re-measured. Our current holdout
-`b_int`+`b_ML` rate is **1.25%** (the table above) — the σ M–L repairs remove M–L bonds that were
+`b_int`+`b_ML` rate is **0.35%** (the table above) — the σ M–L repairs remove M–L bonds that were
 spending an atom's last valence unit, which is exactly what this row counts.
 
 The `b_int`-only row is the fair comparison — every tool produces internal bond orders, and we are

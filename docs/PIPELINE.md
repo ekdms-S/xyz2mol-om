@@ -658,12 +658,10 @@ violation(X) ⟺ b_int_kek(X) + b_ML(X) > CAP(X)          X is a non-metal
 violate (hypervalency · ionic/covalent boundary · CSD notation conventions). Our value has to be
 read against that, so the excess is about **1.5%p**.
 
-🔴 A known residual, **resolved for `B` on 2026-09-14**: a central atom whose Mayer cache was
-built for true transition metals has no `B–X` entry, and a missing entry is read as "veto passed",
-so every one of those became an M–L bond that ate the `CAP` budget of the neighbouring `C` and `H`
-(**6.0% of M–L candidates were missing, all `B`-centred**). `B` is no longer a centre
-(`config.centers`), so those candidates are not raised at all. `Al` still has it — supply `wbo`
-for `Al` to remove it.
+🔴 A known residual for **`Al`**: a Mayer cache built for true transition metals has no `Al–X`
+entry, and a missing entry is read as "veto passed", so each one becomes an M–L bond that eats the
+`CAP` budget of the neighbouring `C` and `H`. Supplying `wbo` for `Al` removes it. (`B` had the
+same problem while it was a centre; it is a ligand atom now, so those candidates are never raised.)
 
 ### Trivial baselines (always read the performance next to these)
 
@@ -689,9 +687,9 @@ for `Al` to remove it.
 | `data/scores4.json` | T3 distance likelihood `med`·`scl`·`lp`·`lp_cell` | 18 element pairs · 57 cells |
 
 ⚠️ **The `M = B` rows of `d_bond` (12), `b_ml_dist` (23), `b_ml_mayer` (19) and `b_ml_t8forms`
-(23) are dead** as of 2026-09-14. `B` left `METALS`, so it is never a centre and never raises an
-M–L candidate; T1 covers those bonds now through `d_int`'s refitted boron rows. They are kept, not
-deleted, so the fit stays on record if the decision is ever reversed.
+(23) are never read.** `B` is not in `METALS`, so it is never a centre and never raises an M–L
+candidate — `d_int` and `scores4` carry those bonds instead. The rows are kept so the fit stays on
+record.
 
 These rules carry **no fitted parameter** — each is a structural condition: Rule A · R2 · R3 · R4 ·
 R5 · R7 · the ⑤ EHT trust gate (composition list + nitro motif) · the ⑤ adjacent-same-sign veto ·
