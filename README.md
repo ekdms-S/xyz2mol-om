@@ -296,12 +296,12 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | Task | Metric | Value | Pool | Baseline |
 |---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9998** | 380,315 bonds | all bonded .7306 |
-| T2 conjugation call | F1 | **0.9616** | 87,602 bonds | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9901 / .7649 / .9775 / .9616** | 380,211 bonds | all `Single` .9097 / 0 / 0 |
+| T2 conjugation call | F1 | **0.9617** | 87,602 bonds | — |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9901 / .7667 / .9775 / .9617** | 380,211 bonds | all `Single` .9097 / 0 / 0 |
 | T4 M–L·M–M bond existence | F1 | **0.9915** | 54,498 bonds | all bonded .5276 |
 | T5 haptic call | F1 | **0.9801** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,224 ligands | all `k=0` .8704 |
-| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9935 / .7556 / .7254** | 37,634 bonds | — |
+| T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9935 / .7556 / .7254** | 37,638 bonds | — |
 | T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8648** | 1,154 structures | reference-order 0.8528 |
 | T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8967** | 2,779 structures | reference-order 0.8698 |
 
@@ -340,13 +340,15 @@ boron a ligand atom they are internal bonds now, not M–L ones.
 
 | | T3 Single | T3 Double | T3 Triple | T3 Conj | T8 pool |
 |---|---|---|---|---|---|
-| searched as B (371) | .9907 → .9812 | .6584 → **.5017** | .8136 → .8846 | .9618 → .9574 | 1,887 → **0** |
-| whole holdout | .9906 → .9901 | .7753 → **.7649** | .9771 → .9775 | .9618 → .9616 | 39,523 → 37,634 |
+| searched as B (371) | .9907 → .9826 | .6584 → **.5399** | .8136 → .8846 | .9618 → .9596 | 1,887 → **0** |
+| whole holdout | .9906 → .9901 | .7753 → **.7667** | .9771 → .9775 | .9618 → .9617 | 39,523 → 37,638 |
 
-`T3 Double` is the one figure that visibly drops, and all of it is those transferred bonds: the
-`M = B` rows of `b_ml_dist` used to give them an M–L order and are now dead, so `scores4` scores
-them as internal bonds instead — and it carries `B-B`, `B-C` and `B-N` only. Widening that is the
-obvious next fit if boron order accuracy matters.
+`T3 Double` is the one figure that visibly drops, and it is those transferred bonds. Their pool
+is **not the same pool**: the boron block's truth-`Double` count goes 348 → 423 as the `B–X`
+bonds arrive, and they are harder than what was there before, so the two percentages are not
+like-for-like. Refitting `scores4`'s boron pairs (next commit after the transfer) recovered
+.5017 → **.5399** of it; the rest is that `scores4` still carries `B-B`, `B-C`, `B-N` and `B-P`
+only — `B-O`, `B-F` and `B-S` are single-class in the reference and have nothing to discriminate.
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseline column is the
