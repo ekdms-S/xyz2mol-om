@@ -1,0 +1,108 @@
+{
+ "charge_balance": {
+  "shortfall": 0,
+  "ok": true,
+  "sites": [],
+  "note": ""
+ },
+ "radical": {
+  "n_unpaired": 0,
+  "atom": null,
+  "site": null,
+  "note": ""
+ },
+ "molecules": [
+  {
+   "index": 0,
+   "atoms": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "charge": 0,
+   "charge_is_exact": true,
+   "metals": [],
+   "fragments": [
+    {
+     "atoms": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "bonds_4class": {
+      "0,2": "Single",
+      "0,3": "Single",
+      "0,4": "Single",
+      "0,5": "Single",
+      "1,2": "Single",
+      "1,3": "Single",
+      "1,6": "Single",
+      "1,7": "Single"
+     },
+     "bonds_kekule": {
+      "0,2": 1,
+      "0,3": 1,
+      "0,4": 1,
+      "0,5": 1,
+      "1,2": 1,
+      "1,3": 1,
+      "1,6": 1,
+      "1,7": 1
+     },
+     "smiles": "[H][B+]1([H])[H-][B+]([H])([H])[H-]1",
+     "smiles_ok": false,
+     "smiles_note": "bridging H (3c2e) - not expressible in 2-center form (deg 2)",
+     "coordinating": [],
+     "bonds_3c2e": [
+      [
+       0,
+       2
+      ],
+      [
+       0,
+       3
+      ],
+      [
+       1,
+       2
+      ],
+      [
+       1,
+       3
+      ]
+     ],
+     "ml_bonds": {},
+     "eta": {},
+     "charge": 0,
+     "residual_charge": null,
+     "pi_suppressed": [],
+     "index": 0
+    }
+   ],
+   "smiles": "[H][B+]1([H])[H-][B+]([H])([H])[H-]1",
+   "smiles_ok": true,
+   "smiles_note": "",
+   "atom_order": [
+    4,
+    0,
+    5,
+    2,
+    1,
+    6,
+    7,
+    3
+   ]
+  }
+ ],
+ "total_charge": 0
+}

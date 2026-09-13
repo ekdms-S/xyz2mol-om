@@ -1,4 +1,10 @@
 {
+ "charge_balance": {
+  "shortfall": null,
+  "ok": true,
+  "sites": [],
+  "note": ""
+ },
  "radical": {
   "n_unpaired": 0,
   "atom": null,
@@ -48,6 +54,7 @@
      "coordinating": [
       1
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,1": {
        "type": "sigma",
@@ -58,6 +65,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 0
     },
     {
@@ -72,6 +80,7 @@
      "coordinating": [
       2
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,2": {
        "type": "sigma",
@@ -82,6 +91,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 1
     },
     {
@@ -96,6 +106,7 @@
      "coordinating": [
       3
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,3": {
        "type": "sigma",
@@ -106,6 +117,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 2
     },
     {
@@ -140,12 +152,12 @@
       "7,12": 1,
       "8,13": 1,
       "6,7": 1,
-      "5,6": 1,
-      "7,8": 2,
-      "4,5": 2,
-      "4,8": 1
+      "5,6": 2,
+      "7,8": 1,
+      "4,5": 1,
+      "4,8": 2
      },
-     "smiles": "[H][C:1]1=[C:2]([H])[C-:3]([H])[C:4]([H])=[C:5]1[H]",
+     "smiles": "[H][C:1]1=[C:5]([H])[C-:4]([H])[C:3]([H])=[C:2]1[H]",
      "smiles_ok": true,
      "smiles_note": "",
      "coordinating": [
@@ -155,6 +167,7 @@
       7,
       8
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,4": {
        "type": "haptic",
@@ -187,6 +200,7 @@
      },
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 3
     }
    ],
@@ -200,14 +214,14 @@
     1,
     2,
     3,
-    8,
-    13,
-    7,
-    12,
+    5,
+    10,
     6,
     11,
-    5,
-    10
+    7,
+    12,
+    8,
+    13
    ]
   }
  ],

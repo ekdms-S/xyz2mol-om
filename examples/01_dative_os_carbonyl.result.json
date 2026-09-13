@@ -1,4 +1,10 @@
 {
+ "charge_balance": {
+  "shortfall": null,
+  "ok": true,
+  "sites": [],
+  "note": ""
+ },
  "radical": {
   "n_unpaired": 0,
   "atom": null,
@@ -44,6 +50,7 @@
      "coordinating": [
       1
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,1": {
        "type": "sigma",
@@ -54,6 +61,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 0
     },
     {
@@ -68,6 +76,7 @@
      "coordinating": [
       2
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,2": {
        "type": "sigma",
@@ -78,6 +87,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 1
     },
     {
@@ -92,6 +102,7 @@
      "coordinating": [
       3
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,3": {
        "type": "sigma",
@@ -102,6 +113,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 2
     },
     {
@@ -121,6 +133,7 @@
      "coordinating": [
       4
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,4": {
        "type": "sigma",
@@ -131,6 +144,7 @@
      "eta": {},
      "charge": 0,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 3
     },
     {
@@ -150,6 +164,7 @@
      "coordinating": [
       5
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,5": {
        "type": "sigma",
@@ -160,6 +175,7 @@
      "eta": {},
      "charge": 0,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 4
     },
     {
@@ -179,6 +195,7 @@
      "coordinating": [
       6
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,6": {
        "type": "sigma",
@@ -189,6 +206,7 @@
      "eta": {},
      "charge": 0,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 5
     }
    ],

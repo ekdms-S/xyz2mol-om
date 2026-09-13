@@ -1,4 +1,4 @@
-"""Draw the five examples with `xyz2mol_om.draw` — `python examples/draw_examples.py [filter …]`.
+"""Draw the six examples with `xyz2mol_om.draw` — `python examples/draw_examples.py [filter …]`.
 
 The figure comes from the **real 3D coordinates**, projected onto the least cluttered plane, so
 haptic rings and chelates stay readable (an RDKit 2D layout collapses them). See
@@ -13,6 +13,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
 
@@ -24,6 +26,17 @@ TITLE = {
     "03_bridge_ag2cl4": "[Ag$_2$Cl$_4$]$^{2-}$   μ-Cl bridge · two metals",
     "04_3c2e_gallium_bh4": "Me$_2$Ga(BH$_4$)   3c2e bridging H",
     "05_mm_quadruple_re2cl8": "[Re$_2$Cl$_8$]$^{2-}$   M–M bond",
+    "06_diborane_b2h6": "B$_2$H$_6$   3c2e with no metal",
+}
+
+
+# ★ An explicit viewing plane, for a structure where the automatic one hides something.
+#   `B₂H₆` is D2h with its four terminal H in one plane and its two bridging H on the axis
+#   perpendicular to it, so the least-cluttered scan settles on the terminal-H plane — and the
+#   two bridging H land on the **same point**, which draws a molecule with five hydrogens.
+#   Tilting 45° about the B–B axis separates them and keeps every bond at full length.
+PROJECTION = {
+    "06_diborane_b2h6": [[1.0, 0.0, 0.0], [0.0, 2**-0.5, 2**-0.5]],
 }
 
 
@@ -34,11 +47,14 @@ def main(argv):
         if want and not any(w in name for w in want):
             continue
         meta = json.loads((HERE / f"{name}.wbo.json").read_text())
+        # a metal-free example carries an empty `wbo` — there is no M–L bond to inform
         wbo = {(int(k.split(",")[0]), int(k.split(",")[1])): v for k, v in meta["wbo"].items()}
         el, xyz = read_xyz(xyz_path)
         r = predict(el, xyz, total_charge=meta.get("total_charge"), wbo=wbo)
         out = HERE / f"{name}.png"
-        draw(el, xyz, r, out, title=TITLE.get(name, name))
+        proj = PROJECTION.get(name)
+        draw(el, xyz, r, out, title=TITLE.get(name, name),
+             projection=None if proj is None else np.array(proj))
         print(f"{name + '.png':32s} drawn from the input geometry")
 
 

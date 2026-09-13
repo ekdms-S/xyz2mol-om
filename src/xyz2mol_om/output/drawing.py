@@ -13,6 +13,8 @@ What the figure shows
   * internal bonds are drawn with 1 / 2 / 3 lines from `bonds_kekule`
   * M–L bonds are arrows — `sigma` solid black · `haptic` **green dotted** · **3c2e** orange dashed
   *   (a `dative` bridge is drawn like `sigma` — it is an ordinary donor bond, not a 3c2e one)
+  * an **all-internal** 3c2e bridge (`B–H–B`, `bonds_3c2e`) is the same orange dash but a plain
+  *   line — there is no metal in it, so it has no direction to point
   * M–M bonds are drawn purple, one line per order
   * the metal is a **purple circle** with its symbol and oxidation state (`Ti⁺⁴`)
   * a non-metal is labelled with its formal charge when non-zero (`O⁻`); a neutral carbon is a dot
@@ -284,6 +286,17 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
 
     fig, ax = plt.subplots(figsize=(9.5, 7.2), dpi=130)
 
+    # ★ the legs of an **all-internal** 3c2e bridge (`B–H–B`). They are ordinary entries of
+    #   `bonds_kekule`, so without this they would draw as plain single bonds and a reader would
+    #   see a two-centre skeleton that holds more electrons than the molecule has. Same brown
+    #   dashed styling as the M–L `3c2e` arrows, but a **line, not an arrow** — an all-internal
+    #   bridge has no donor and acceptor to point between.
+    _3c = set()
+    for mol in (result.get("molecules") or []):
+        for fr in (mol.get("fragments") or []):
+            for e3 in (fr.get("bonds_3c2e") or []):
+                _3c.add((min(e3), max(e3)))
+
     # internal bonds — one line per order, offset sideways
     for (a, b), order in kek.items():
         if a in hide or b in hide:
@@ -292,12 +305,15 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
         n = np.array([-v[1], v[0]])
         n = n / (np.linalg.norm(n) + 1e-9) * 0.055
         hot = (min(a, b), max(a, b)) in hl
+        is3c = (min(a, b), max(a, b)) in _3c
         for k in {1: [0.0], 2: [-1.0, 1.0], 3: [-1.3, 0.0, 1.3]}[int(order)]:
             ax.plot(
                 [pos[a][0] + k * n[0], pos[b][0] + k * n[0]],
                 [pos[a][1] + k * n[1], pos[b][1] + k * n[1]],
-                "-", lw=3.0 if hot else 1.5,
-                color=HIGHLIGHT_COLOR if hot else "#303030", zorder=2 if hot else 1,
+                ML_STYLE["bridge"] if is3c else "-",
+                lw=3.0 if hot else (2.2 if is3c else 1.5),
+                color=HIGHLIGHT_COLOR if hot else (ML_COLOR["bridge"] if is3c else "#303030"),
+                zorder=2 if (hot or is3c) else 1,
             )
 
     # M–M bonds — plain lines in the metal colour, one per order
@@ -361,13 +377,6 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
     _coord = {x for _m, x in (k if isinstance(k, tuple)
                               else tuple(int(t) for t in str(k).split(","))
                               for k in ml)}
-    # ★ the all-internal 3c2e legs (`B–H–B`) — the same `b_3c` correction `api` applies, so the
-    #   drawn charges match the ones in the result (`charge.q_atom`).
-    _3c = set()
-    for mol in (result.get("molecules") or []):
-        for fr in (mol.get("fragments") or []):
-            for e3 in (fr.get("bonds_3c2e") or []):
-                _3c.add((min(e3), max(e3)))
     _b3 = collections.Counter()
     for (x, y) in _3c:
         o = float(kek.get((min(x, y), max(x, y)), 1.0))

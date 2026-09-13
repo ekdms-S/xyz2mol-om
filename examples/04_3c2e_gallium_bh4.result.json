@@ -1,4 +1,10 @@
 {
+ "charge_balance": {
+  "shortfall": null,
+  "ok": true,
+  "sites": [],
+  "note": ""
+ },
  "radical": {
   "n_unpaired": 0,
   "atom": null,
@@ -64,6 +70,7 @@
       2,
       3
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,1": {
        "type": "sigma",
@@ -84,6 +91,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 0
     },
     {
@@ -109,6 +117,7 @@
      "coordinating": [
       6
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,6": {
        "type": "sigma",
@@ -119,6 +128,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 1
     },
     {
@@ -144,6 +154,7 @@
      "coordinating": [
       10
      ],
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,10": {
        "type": "sigma",
@@ -154,6 +165,7 @@
      "eta": {},
      "charge": -1,
      "residual_charge": null,
+     "pi_suppressed": [],
      "index": 2
     }
    ],

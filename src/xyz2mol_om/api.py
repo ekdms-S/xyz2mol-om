@@ -178,10 +178,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         raise ValueError(f"n_unpaired={n_unpaired!r}: only 0 (closed shell) and 1 are supported")
     el = list(elements)
     xyz = np.asarray(coords, dtype=float)
-    if not wbo:
+    if not wbo and centers(el):
         # The Mayer bond order is the only input to the T4 veto (`w > w_veto`) and to T8
         # (M–L orders). Without it we proceed on the distance fallback — performance drops
         # (see the module docstring).
+        # ⚠️ Only worth saying when the structure **has** a centre. A metal-free input (an
+        #   organic fragment, `B₂H₆`) has no M–L bond for the Mayer order to inform.
         warnings.warn(
             "no wbo (Mayer bond orders) - the M-L decision uses distance only. "
             "The T4 veto is off and M-L orders come from the distance fallback "

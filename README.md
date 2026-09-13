@@ -167,11 +167,11 @@ input_idx = sorted(lg["coordinating"])[at.GetAtomMapNum() - 1]
 
 ## Examples — `examples/`
 
-Five real CSD structures. Each example comes as four files — `<name>.xyz` (coordinates) · `<name>.wbo.json`
+Six examples — five real CSD structures and one gas-phase molecule. Each comes as four files — `<name>.xyz` (coordinates) · `<name>.wbo.json`
 (total charge + Mayer bond orders) · `<name>.result.json` (**the full pipeline output**) · `<name>.png` (the figure `draw()` produces).
 
 ```bash
-python examples/run_examples.py            # runs all 5 and rewrites <name>.result.json
+python examples/run_examples.py            # runs all 6 and rewrites <name>.result.json
 python examples/run_examples.py 02         # only those with "02" in the name
 python examples/run_examples.py --no-wbo   # without wbo (distance fallback)
 python examples/draw_examples.py           # redraw the PNGs
@@ -184,6 +184,13 @@ python examples/draw_examples.py           # redraw the PNGs
 | ③ | `03_bridge_ag2cl4` | `[Ag₂Cl₄]²⁻` | μ-Cl bridge (`bridge:dative`) · two metals | [json](examples/03_bridge_ag2cl4.result.json) | [png](examples/03_bridge_ag2cl4.png) |
 | ④ | `04_3c2e_gallium_bh4` | `Me₂Ga(BH₄)` | 3c2e bridging H · `B` as a ligand atom | [json](examples/04_3c2e_gallium_bh4.result.json) | [png](examples/04_3c2e_gallium_bh4.png) |
 | ⑤ | `05_mm_quadruple_re2cl8` | `[Re₂Cl₈]²⁻` | M–M bond | [json](examples/05_mm_quadruple_re2cl8.result.json) | [png](examples/05_mm_quadruple_re2cl8.png) |
+| ⑥ | `06_diborane_b2h6` | `B₂H₆` (gas phase) | **3c2e with no metal** — `bonds_3c2e`, bridging `[H-]`, `B(+1)`, and no `B–B` | [json](examples/06_diborane_b2h6.result.json) | [png](examples/06_diborane_b2h6.png) |
+
+⑥ is the one example with **no metal in it**. Boron is a ligand atom, so `B₂H₆` is an ordinary
+covalent molecule whose two bridging hydrogens are `3c2e` — reported in `bonds_3c2e` (the M–L side
+of a bridge stays in `ml_bonds[...]["bridge"]`, which is what ④ shows). Its `smiles_ok` is
+**False** on purpose: a bridging H has two bonds and cannot be written in two-centre form, so use
+`bonds_kekule` + `bonds_3c2e`.
 
 To save a result yourself use `save_json(r, path)`, and to read it back `load_json(path)`
 (bond keys `(i, j)` are stored as `"i,j"` and converted back on read).
@@ -256,33 +263,8 @@ Everything a caller normally needs is re-exported at the top: `from xyz2mol_om i
 read_xyz, draw, save_json`. The subpackages are there for reading the code, and each one's
 `__init__` says what it is for.
 
-## Tests
-
-`pytest` — 81 tests, no workspace and no network. Every one is a small hard-coded structure with
-its Mayer bond orders pinned as constants, so the suite runs on a bare install.
-
-| file | what it pins |
-|---|---|
-| `test_api_smoke.py` | one `[Mo(≡N)(OH)Cl₃]⁻` through every stage — T1 · T4 · T8 `Mo≡N` · `q_L` · `OS(Mo)=+6` · ⑥ · ligand SMILES round trip |
-| `test_molecules.py` | a disconnected input splits into molecules, and `OS` is solved **inside** one |
-| `test_radical.py` | `n_unpaired=1` — the electron on a ligand, on the metal, and the refusals |
-| `test_ml_budget_and_eta.py` | agostic and haptic spend nothing in the ④ budget · η^k is per ligand |
-| `test_bridging_carbonyl.py` | μ-CO comes out `3c2e` with the `C≡O` intact |
-| `test_complex_smiles_and_bridge.py` | the complex SMILES, the bridge tags, the 3c2e budget exclusion |
-| `test_r7_haptic_ring.py` | R7 fires — the S of an η⁵-thienyl turns haptic |
-| `test_eta2_carries_the_pi.py` | an η² is written across a `Double`, never a `Single` |
-| `test_pi_shift.py` | the post-⑥ repairs — the π moves where it cancels two charges, and the dianionic-chelate and peroxide exclusions hold |
-| `test_agostic_carbon.py` | the carbon side of an agostic `C–H···M` is dropped too, unless that orphans the fragment |
-| `test_boron_sextet.py` | trivalent boron is neutral (sextet), four-coordinate boron unchanged |
-| `test_boron_ligand_atom.py` | boron is a ligand atom everywhere; `B₂H₆` is `B(+1)` + bridging `[H-]`, and the `B–B` the two bridges already pay for is dropped |
-| `test_rule_a_headroom.py` | rule A's π headroom counts the σ M–L bonds, and NHC · σ-aryl · haptic ring atoms are untouched |
-| `test_pi_suppressed.py` | the `pi_suppressed` report: when it fires, when it must stay silent, that it reads the raw likelihood margin, and that it survives the JSON round trip as tuples |
-| `test_invariants.py` | geometry-free unit tests on the decision functions themselves |
-| `test_assemble.py` · `test_serialize.py` · `test_draw.py` | reassembly, `save_json`/`load_json` bond keys, and that `draw()` renders every bond kind it claims to |
-
-```bash
-pip install -e ".[dev]" && pytest -q
-```
+The test suite needs no workspace and no network — `pip install -e ".[dev]" && pytest -q`.
+[`tests/README.md`](tests/README.md) says what each file pins.
 
 ## Performance
 
@@ -378,16 +360,18 @@ bonds is counted at its own 1.5.
 
 | Pool | | ours | `xyz2mol` | `xyz2mol_tm` | OpenBabel |
 |---|---|---|---|---|---|
-| **holdout** 6,793 | `b_int` only | **1.25%** | 10.60% | 7.35% | 3.96% |
-| | `b_int`+`b_ML` | **1.85%** | 10.60% | 37.63% | 3.96% |
-| **TOOL** 5,207 (all 3 external tools succeeded) | `b_int` only | **1.50%** | 11.14% | 9.03% | 3.76% |
-| | `b_int`+`b_ML` | **2.19%** | 11.14% | 45.65% | 3.76% |
-| **X2M_TM** 5,676 (xyz2mol_tm succeeded) | `b_int` only | **1.41%** | 10.50% | 8.79% | 3.54% |
-| | `b_int`+`b_ML` | **2.11%** | 10.50% | 45.03% | 3.54% |
+| **holdout** 6,793 | `b_int` only | **0.35%** | 10.60% | 7.35% | 3.96% |
+| | `b_int`+`b_ML` | **0.35%** | 10.60% | 37.63% | 3.96% |
+| **TOOL** 5,207 (all 3 external tools succeeded) | `b_int` only | 1.50% | 11.14% | 9.03% | 3.76% |
+| | `b_int`+`b_ML` | 2.19% | 11.14% | 45.65% | 3.76% |
+| **X2M_TM** 5,676 (xyz2mol_tm succeeded) | `b_int` only | 1.41% | 10.50% | 8.79% | 3.54% |
+| | `b_int`+`b_ML` | 2.11% | 10.50% | 45.03% | 3.54% |
 
-⚠️ This breakdown is from the **2026-09-08** run and was not re-measured. Our current holdout
-`b_int`+`b_ML` rate is **0.35%** (the table above) — the σ M–L repairs remove M–L bonds that were
-spending an atom's last valence unit, which is exactly what this row counts.
+⚠️ **Only the `holdout` row's `ours` column is current.** The other three columns are a
+2026-09-08 snapshot, and the two sub-pools are defined by *which structures those tools solved*,
+so our figures there cannot be refreshed without re-running them — the whole `TOOL` and `X2M_TM`
+block is that snapshot. Our two definitions now coincide on the holdout: no M–L bond is left
+spending an atom's last valence unit.
 
 The `b_int`-only row is the fair comparison — every tool produces internal bond orders, and we are
 lowest in all three pools. ⚠️ **The `b_int`+`b_ML` row must not be read across tools**:

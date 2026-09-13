@@ -4,7 +4,7 @@
 Each example is a pair of `<name>.xyz` + `<name>.wbo.json` (total charge + xtb GFN2 Mayer bond
 orders), and the result is written to `<name>.result.json` (`xyz2mol_om.save_json`).
 
-    python examples/run_examples.py            # all five
+    python examples/run_examples.py            # all six
     python examples/run_examples.py 02         # only names containing "02"
     python examples/run_examples.py --no-wbo   # without wbo (distance fallback, slightly worse)
 """
@@ -48,10 +48,15 @@ def main(argv: list[str]) -> None:
         frs = all_fragments(r)
         eta = [max(lg["eta"].values()) for lg in frs if lg.get("eta")]
         tags = sorted({d["bridge"] or d["type"] for lg in frs for d in lg["ml_bonds"].values()})
+        # ★ `bonds_3c2e` is the **metal-free** half of a 3c2e bridge (`B–H–B`), so it never shows
+        #   up in `ml_bonds` — example ⑥ has nothing but this.
+        n3c = sum(len(lg.get("bonds_3c2e") or []) for lg in frs)
         print(
             f"{f.name:28} → {out.name:32} "
             f"molecules {len(r['molecules'])} · metals {len(all_metals(r))} · fragments {len(frs)}"
-            f" · M–L {','.join(tags)}" + (f" · η{max(eta)}" if eta else "")
+            + (f" · M–L {','.join(tags)}" if tags else "")
+            + (f" · internal 3c2e {n3c}" if n3c else "")
+            + (f" · η{max(eta)}" if eta else "")
         )
 
 
