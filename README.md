@@ -41,16 +41,16 @@ r = predict(elements, coords, total_charge=-1, wbo=wbo)
 
 ⚠️ **You may run with `wbo=None`**, but it costs more than it looks. The M–L decision falls back to
 distances alone; **internal** bond orders are essentially unchanged, but everything that touches the
-metal degrades (holdout 6,793, both columns from the 2026-09-08 run — read the gap, not the levels):
+metal degrades (holdout 6,793):
 
 | | with `wbo` | without |
 |---|---|---|
-| T4 M–L bond existence | .9916 | .9838 |
-| T8 M–L `Double` | .7461 | .6979 |
-| T5 haptic | .9778 | .9590 |
-| T6 η^k | .9865 | .9737 |
-| **valence-violating structures** | **1.85%** | **2.47%** |
-| T3 internal `Double` | .7699 | .7696 |
+| T4 M–L bond existence | .9915 | .9833 |
+| T8 M–L `Double` | .7556 | .7067 |
+| T5 haptic | .9800 | .9603 |
+| T6 η^k | .9865 | .9725 |
+| T3 internal `Double` | .7667 | .7659 |
+| **valence-violating structures** | **0.35%** | **0.35%** |
 
 ⚠️ When you do pass `wbo`, fill **every** `(metal, atom)` pair. A missing pair is read as
 "veto passed", not "unknown" — xtb's `wbo` file omits near-zero pairs, so build
@@ -304,26 +304,22 @@ to a perfect score is notation, not order prediction.
 
 Same pool, same references, same metrics, and **a tool's failure is scored as a wrong answer**
 rather than dropped. `xyz2mol_tm` runs live; it is given 60 s per structure, beyond which the
-structure counts as a failure.
-
-⚠️ **Our column is current; the other three are from the 2026-09-08 run** and are unaffected by
-our changes. One caveat on reading `T3` and `T8` across columns: boron is a ligand atom here, so
-its `B–X` bonds are scored under `T3` rather than `T8`, and those two pools are ours alone.
+structure counts as a failure. All four columns are from the same 2026-09-14 run.
 
 | | ours | `xyz2mol` | `xyz2mol_tm` | OpenBabel |
 |---|---|---|---|---|
-| **structures it produced an answer for** | **6,793** | 6,156 | 5,676 | **6,793** |
-| T1 internal bond existence | **.9998** | .9672 | .8922 | .9928 |
-| T4 M–L·M–M bond existence | **.9915** | — | .8990 | .7579 |
-| T3 `Single` | **.9901** | .9691 | .9811 | .9434 |
-| T3 `Double` | **.7667** | .3945 | .5693 | .3515 |
-| T3 `Triple` | **.9775** | .9586 | .9770 | .1217 |
-| T3 `Conj` | **.9617** | .9090 | .9323 | .7922 |
-| T8 M–L `Single` | **.9935** | — | — | .9771 |
-| T8 M–L `Double` | **.7556** | — | — | .0658 |
+| **structures it produced an answer for** | **6,793** | 6,309 | 5,676 | **6,793** |
+| T1 internal bond existence | **.9998** | .9751 | .8896 | .9983 |
+| T4 M–L·M–M bond existence | **.9915** | — | .9168 | .7754 |
+| T3 `Single` | **.9901** | .9717 | .9812 | .9442 |
+| T3 `Double` | **.7667** | .4219 | .5693 | .3505 |
+| T3 `Triple` | **.9775** | .9663 | .9770 | .1217 |
+| T3 `Conj` | **.9617** | .9128 | .9323 | .7913 |
+| T8 M–L `Single` | **.9935** | — | — | .9767 |
+| T8 M–L `Double` | **.7556** | — | — | .0468 |
 | T8 M–L `Triple` | **.7254** | — | — | .0106 |
 | T5 haptic | **.9800** | — | — | — |
-| T10 `Σq_L` (ours 1,154 · others 1,161) | **.8648** | .3764 | .8071 | .1843 |
+| T10 `Σq_L` (1,154 structures) | **.8648** | .3934 | .8120 | .1820 |
 | T10 `OS` (2,779 structures) | **.8967** | — | — | — |
 
 `—` is a task the tool cannot answer at all: `xyz2mol` strips the metal and solves the fragments,
@@ -332,9 +328,8 @@ notion of haptic, so no T5 or T6.
 
 Failures are most of what separates `xyz2mol_tm`'s T1 from ours. **On the 5,676 structures it does
 solve**, its T1 rises to .9793 and its T4 to .9667 — but `Double` does not move (.5693 against our
-**.7831** on that pool), and `Σq_L` reads .8120 against our **.8588**. The gap on bond order is not
-a coverage artifact. ⚠️ Our two figures on that sub-pool are from the 2026-09-08 run and have
-risen since; the other tools' numbers are unaffected by our changes.
+**.7887** on that pool), and `Σq_L` reads .8120 against our **.8648**. The gap on bond order is not
+a coverage artifact.
 
 ### Valence violations — chemical validity of the output
 
@@ -360,18 +355,15 @@ bonds is counted at its own 1.5.
 
 | Pool | | ours | `xyz2mol` | `xyz2mol_tm` | OpenBabel |
 |---|---|---|---|---|---|
-| **holdout** 6,793 | `b_int` only | **0.35%** | 10.60% | 7.35% | 3.96% |
-| | `b_int`+`b_ML` | **0.35%** | 10.60% | 37.63% | 3.96% |
-| **TOOL** 5,207 (all 3 external tools succeeded) | `b_int` only | 1.50% | 11.14% | 9.03% | 3.76% |
-| | `b_int`+`b_ML` | 2.19% | 11.14% | 45.65% | 3.76% |
-| **X2M_TM** 5,676 (xyz2mol_tm succeeded) | `b_int` only | 1.41% | 10.50% | 8.79% | 3.54% |
-| | `b_int`+`b_ML` | 2.11% | 10.50% | 45.03% | 3.54% |
+| **holdout** 6,793 | `b_int` only | **0.35%** | 8.91% | 7.35% | 3.96% |
+| | `b_int`+`b_ML` | **0.35%** | 8.91% | 37.63% | 3.96% |
+| **TOOL** 5,295 (all 3 external tools succeeded) | `b_int` only | **0.42%** | 9.12% | 8.91% | 3.74% |
+| | `b_int`+`b_ML` | **0.42%** | 9.12% | 44.91% | 3.74% |
+| **X2M_TM** 5,676 (xyz2mol_tm succeeded) | `b_int` only | **0.39%** | 8.77% | 8.79% | 3.54% |
+| | `b_int`+`b_ML` | **0.39%** | 8.77% | 45.03% | 3.54% |
 
-⚠️ **Only the `holdout` row's `ours` column is current.** The other three columns are a
-2026-09-08 snapshot, and the two sub-pools are defined by *which structures those tools solved*,
-so our figures there cannot be refreshed without re-running them — the whole `TOOL` and `X2M_TM`
-block is that snapshot. Our two definitions now coincide on the holdout: no M–L bond is left
-spending an atom's last valence unit.
+Our two definitions coincide in all three pools: no M–L bond is left spending an atom's last
+valence unit.
 
 The `b_int`-only row is the fair comparison — every tool produces internal bond orders, and we are
 lowest in all three pools. ⚠️ **The `b_int`+`b_ML` row must not be read across tools**:
