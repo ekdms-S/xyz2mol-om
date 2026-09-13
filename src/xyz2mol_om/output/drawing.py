@@ -304,30 +304,19 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
 
     fig, ax = plt.subplots(figsize=(9.5, 7.2), dpi=130)
 
-    # ★ the legs of an **all-internal** 3c2e bridge (`B–H–B`). They are ordinary entries of
-    #   `bonds_kekule`, so without this they would draw as plain single bonds and a reader would
-    #   see a two-centre skeleton that holds more electrons than the molecule has. Same brown
-    #   dashed styling as the M–L `3c2e` arrows, but a **line, not an arrow** — an all-internal
-    #   bridge has no donor and acceptor to point between.
-    _3c = set()
-    for mol in (result.get("molecules") or []):
-        for fr in (mol.get("fragments") or []):
-            for e3 in (fr.get("bonds_3c2e") or []):
-                _3c.add((min(e3), max(e3)))
-    # ★ the **inner** leg of a bridge that runs through a metal — the `B–H` of a κ²-`BH₄`, the
-    #   `C≡O` of a μ-CO. It is an ordinary two-centre bond and it is where the pair actually
-    #   sits, so it must not be dashed; but drawing it plain black made the figure claim the
-    #   hydrogen was 3c2e toward the metal and ordinary toward boron, when the 3-centre bond is
-    #   one object spanning all three. Brown says "part of a 3c2e", solid-vs-dashed says which
-    #   edge holds the pair.
-    _3c_inner = set()
+    # ★ the ligand-internal legs of a 3c2e bridge (`bonds_3c2e`). Orange marks the whole
+    #   three-centre bond, M–L legs included; dashed or solid then says which edge holds the
+    #   pair. An M–L leg never does. An internal leg does **unless** the bridge has no metal in
+    #   it, and the bridging atom of a metal-mediated one is exactly the one carrying the
+    #   `3c2e` tag in `ml_bonds` — so that tag is what separates the two.
+    _3c, _3c_inner = set(), set()
     for mol in (result.get("molecules") or []):
         for fr in (mol.get("fragments") or []):
             br = {x for (_m, x), d in (fr.get("ml_bonds") or {}).items()
                   if d.get("bridge") == "3c2e"}
-            for (a, b) in (fr.get("bonds_kekule") or {}):
-                if a in br or b in br:
-                    _3c_inner.add((min(a, b), max(a, b)))
+            for e3 in (fr.get("bonds_3c2e") or []):
+                e = (min(e3), max(e3))
+                (_3c_inner if (e[0] in br or e[1] in br) else _3c).add(e)
 
     # internal bonds — one line per order, offset sideways
     for (a, b), order in kek.items():

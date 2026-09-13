@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 from xyz2mol_om import predict
-from xyz2mol_om.charge import q_atom, three_c_internal_edges
+from xyz2mol_om.charge import q_atom, three_c_legs, three_c_unpaired_edges
 from xyz2mol_om.config import METALS, centers
 
 
@@ -110,27 +110,33 @@ def test_b_3c_leaves_every_other_boron_alone():
     assert q_atom("B", 2.0) == -1                          # a boryl after the ionic cut
 
 
-def test_a_bridge_reached_through_the_metal_is_not_all_internal():
-    """`κ²-BH₄`, `μ-H` and `μ-CO` keep the charges they had — their pair *is* a 2c-2e bond."""
-    # κ²-BH₄ on a metal: the ligand graph is B + 4 H, two of the H also bound to the metal
+def test_a_leg_is_a_bond_to_a_metal_like_neighbour_not_any_bond():
+    """`three_c_legs` reports every internal leg; `three_c_unpaired_edges` only the empty ones."""
+    # κ²-BH₄ on a metal: the ligand graph is B + 4 H, two of the H also bound to the metal.
+    # The `B–H` **is** a leg and is reported — but it holds the pair, so it is not subtracted.
     el = {1: "B", 2: "H", 3: "H", 4: "H", 5: "H"}
     G = nx.Graph()
     G.add_nodes_from([1, 2, 3, 4, 5])
     G.add_edges_from([(1, 2), (1, 3), (1, 4), (1, 5)])
-    assert three_c_internal_edges(el, G, {2: "3c2e", 3: "3c2e"}) == set()   # one metal-like leg
+    tags = {2: "3c2e", 3: "3c2e"}
+    assert three_c_legs(el, G, tags) == {2: [(1, 2)], 3: [(1, 3)]}
+    assert three_c_unpaired_edges(el, G, tags) == set()
 
-    # μ-H between two metals — no internal neighbour at all
+    # μ-H between two metals — no internal neighbour at all, so no internal leg
     G2 = nx.Graph()
     G2.add_nodes_from([2])
-    assert three_c_internal_edges({2: "H"}, G2, {2: "3c2e"}) == set()
+    assert three_c_legs({2: "H"}, G2, {2: "3c2e"}) == {}
 
-    # 🔴 μ-CH₃ — internal **degree** 3, but its neighbours are H, so nothing is cut. Keying on
-    #   the degree instead read this carbon as `[C⁻⁴]` and cost .0058 of T10 OS on holdout.
+    # 🔴 μ-CH₃ — internal **degree** 3, but H is not metal-like, so it has no internal leg and
+    #   its `C–H` bonds are not part of the bridge. Keying on the degree instead read this
+    #   carbon as `[C⁻⁴]` and cost .0058 of T10 OS on holdout.
     G4 = nx.Graph()
     G4.add_edges_from([(2, 6), (2, 7), (2, 8)])
-    assert three_c_internal_edges({2: "C", 6: "H", 7: "H", 8: "H"}, G4, {2: "3c2e"}) == set()
+    assert three_c_legs({2: "C", 6: "H", 7: "H", 8: "H"}, G4, {2: "3c2e"}) == {}
 
-    # B–H–B — two metal-like legs, so both are returned
+    # B–H–B — two internal legs, neither holds a pair, so both are reported and both subtracted
     G3 = nx.Graph()
     G3.add_edges_from([(0, 2), (1, 2)])
-    assert three_c_internal_edges({0: "B", 1: "B", 2: "H"}, G3, {2: "3c2e"}) == {(0, 2), (1, 2)}
+    el3 = {0: "B", 1: "B", 2: "H"}
+    assert three_c_legs(el3, G3, {2: "3c2e"}) == {2: [(0, 2), (1, 2)]}
+    assert three_c_unpaired_edges(el3, G3, {2: "3c2e"}) == {(0, 2), (1, 2)}

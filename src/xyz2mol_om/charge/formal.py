@@ -23,7 +23,7 @@ def q_atom(e, b, deg=None, nb=(), n_ml=0, b_3c=0.0):
     `deg` = number of ligand-*internal* neighbors · `nb` = tuple of those neighbors' elements.
 
     ★ `b_3c` — the bond-order sum of this atom's **all-internal 3c2e** bonds
-    (`charge.three_c_internal_edges`). Those bonds hold **one pair between three centres**, so
+    (`charge.three_c_unpaired_edges`). Those bonds hold **one pair between three centres**, so
     counting each of them as a 2c-2e bond over-charges the atom. They come off `b`, and boron's
     sextet lone-pair term is switched off when any is present (a B inside a `B–H–B` bridge has
     spent all three valence electrons and holds no lone pair).
@@ -110,41 +110,46 @@ def q_atom(e, b, deg=None, nb=(), n_ml=0, b_3c=0.0):
         return -1  # nitro (two N=O) — 10 electrons.            octet formula +1
     return VAL.get(e, 4) + b - FULL.get(e, 8)
 
-def three_c_internal_edges(el, G, btag):
-    """The ligand-internal bonds that belong to an **all-internal** 3c2e bridge — `B–H–B`.
+def three_c_legs(el, G, btag):
+    """`{X: [(X, y), ...]}` — the **ligand-internal legs** of each 3c2e bridge, by bridging atom.
 
-        legs(X) = X's internal neighbours whose element is in `MLIKE_EXTRA`
-        {(X, y) for y in legs(X)}  for every 3c2e-tagged X with **len(legs(X)) >= 2**
+    T7 writes `n_center(X) = n_ML(X) + |{internal neighbours in MLIKE_EXTRA}|`
+    (`docs/PIPELINE.md` 5″), and those two terms *are* the legs of the three-centre bond. So a
+    leg is either an M–L bond — already reported in `ml_bonds[...]["bridge"]` — or an internal
+    bond to a `B`/`Al` neighbour, which is what this returns.
 
-    🔴 The test is on the **metal-like internal neighbours**, not on the internal degree. T7
-    writes `n_center(X) = n_ML(X) + |legs(X)|` (`docs/PIPELINE.md` 5″), so `len(legs) >= 2` is
-    exactly "this bridge is spanned by internal atoms alone, with no metal in it" — the one
-    situation where X's pair belongs to no single two-centre bond and `b` over-counts.
+        μ-H       M–H–M      legs: 2 M–L, 0 internal              → {}
+        μ-CO      M–CO–M     legs: 2 M–L. **`C≡O` is not a leg**  → {}
+        μ-CH₃     M–CH₃–M    legs: 2 M–L. `C–H` are not legs      → {}
+        κ²-BH₄    B–H···M    legs: 1 M–L + **the `B–H`**          → {H: [(B,H)]}
+        B–H–B     diborane   legs: 2 internal, no metal at all    → {H: [(B,H), (B,H)]}
 
-    Everything a metal reaches keeps the charge it had, because its pair *is* a real 2c-2e
-    internal bond that it merely donates:
-
-        μ-H       M–H–M      legs 0            no cut  ·  `[H]⁻` as before
-        B–H···M   κ²-BH₄     legs 1 (the B)    no cut  ·  `[BH₄]⁻` with B at −1 as before
-        μ-CO      M–CO–M     legs 0 (only O)   no cut
-        μ-CH₃     M–CH₃–M    legs 0 (three H)  no cut
-        B–H–B     diborane   legs 2            **cut both**
-
-    ⚠️ An earlier version keyed on `G.degree(X) >= 2` and caught **μ-CH₃** (a carbon with three
-       internal H and two M–L bonds is tagged 3c2e), zeroing its `b` and reading `[C⁻⁴]`.
-       Measured on holdout: T10 OS .8971 → .8913 across 6,422 non-boron structures. The
-       metal-like-neighbour test leaves every one of them untouched.
-
-    Feeds `q_atom(..., b_3c=)`; see that docstring for the `B₂H₆` numbers.
+    🔴 The **count** is what says where the pair is. A three-centre bond holds one pair, and
+    every M–L leg carries none of it (`ml_bonds` order is shape, not electrons). So with one
+    internal leg the pair sits in that bond and it is an ordinary two-centre bond; with two, it
+    belongs to no single bond and the bridging atom holds it instead. `q_atom(..., b_3c=)` is
+    fed only the second kind — see `three_c_unpaired_edges`.
     """
-    out = set()
+    out = {}
     for x, t in (btag or {}).items():
         if t != "3c2e" or x not in G:
             continue
-        legs = [y for y in G[x] if el[y] in MLIKE_EXTRA]
-        if len(legs) >= 2:
-            out |= {(min(x, y), max(x, y)) for y in legs}
+        legs = [(min(x, y), max(x, y)) for y in G[x] if el[y] in MLIKE_EXTRA]
+        if legs:
+            out[x] = legs
     return out
+
+
+def three_c_unpaired_edges(el, G, btag):
+    """The internal legs that carry **no electron pair of their own** — the `B–H–B` case only.
+
+    ⚠️ An earlier version keyed on `G.degree(X) >= 2` instead of the leg count and caught
+       **μ-CH₃** (a carbon with three internal H and two M–L bonds is tagged 3c2e), zeroing its
+       `b` and reading `[C⁻⁴]`. Measured on holdout: T10 OS .8971 → .8913 across 6,422 non-boron
+       structures. Counting legs leaves every metal-mediated bridge untouched — `κ²-BH₄` stays
+       `[BH₄]⁻` with B at −1, `μ-H` stays `[H]⁻`.
+    """
+    return {e for legs in three_c_legs(el, G, btag).values() if len(legs) >= 2 for e in legs}
 
 
 def b_3c_of(G, orders, three_c):

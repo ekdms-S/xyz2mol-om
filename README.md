@@ -85,8 +85,8 @@ r["molecules"] == [
       "ml_bonds": {(0, 1): {"type": "sigma",   # sigma | haptic | bridge
                             "order": 3,        # None if haptic
                             "bridge": None}},  # if bridging, "3c2e" | "dative"
-      "bonds_3c2e": [],          # [(i,j)] — the **metal-free** half of a 3c2e bridge
-                                 #   (`B–H–B`). Almost always empty; see below
+      "bonds_3c2e": [],          # [(i,j)] — ligand-internal legs of a 3c2e bridge; the
+                                 #   legs that touch a metal are in `ml_bonds`. See below
       "eta": {},                 # {metal: k} — counted **per ligand**, so a bridged
                                  #   (ansa) metallocene is one η¹⁰, not η⁵:η⁵
       "charge": -3,              # this fragment's charge
@@ -122,33 +122,39 @@ all_fragments(r)   # every fragment record, across molecules
 
 ### Where a 3c2e bridge is reported
 
-A 3c2e bridge is written in **one of two places, never both**, and which one depends only on
-whether a metal is part of the bridge:
+A three-centre bond is one object with two **legs**, and both are tagged. Which field a leg
+lands in depends only on whether that leg touches a centre:
 
-| the bridge | reported in | example |
-|---|---|---|
-| runs through a centre | `ml_bonds[(m,x)]["bridge"] == "3c2e"` | `μ-H` · `μ-CO` · `μ-CH₃` · a κ²-`BH₄` (④) |
-| is entirely inside a ligand | **`bonds_3c2e`** on the fragment | `B–H–B` in a borane (⑥) |
+| leg | reported in |
+|---|---|
+| leg to a centre | `ml_bonds[(m,x)]["bridge"] == "3c2e"` |
+| ligand-internal leg | **`bonds_3c2e`** on the fragment |
 
-🔴 **Only the outer leg is tagged, and that is the one the pair is *not* on.** A κ²-`BH₄`'s
-`B–H` is an ordinary bond in `bonds_kekule` holding an ordinary pair; what the `3c2e` tag marks
-is the `H···M` leg, which carries none (`order` is there for shape, not for electrons). So the
-three-centre bond is split across two fields, and reconstructing it means taking the tagged M–L
-bond **and** the internal bonds of its ligand atom. `draw()` does exactly that — it paints every
-leg orange, dashed where the edge holds no pair and solid where it does.
+```
+μ-H       M–H–M      2 M–L legs                    ml_bonds ×2 · bonds_3c2e []
+μ-CO      M–CO–M     2 M–L legs                    ml_bonds ×2 · bonds_3c2e []
+κ²-BH₄    B–H···M    1 M–L leg + the B–H           ml_bonds ×1 · bonds_3c2e [(B,H)]   ← ④
+B–H–B     diborane   2 internal legs, no metal     ml_bonds []  · bonds_3c2e ×2       ← ⑥
+```
 
-An all-internal bridge is the case where **neither** leg holds a pair of its own, which is why
-`bonds_3c2e` is also the set the charge rule subtracts.
+`bonds_3c2e` is a field of **every** fragment, empty for almost everything. A leg is a bond to a
+centre or to a `B`/`Al` neighbour — T7's `n_center` decomposition — so `μ-CO`'s `C≡O` and
+`μ-CH₃`'s `C–H` are **not** legs: those bridges are spanned by their two metals.
 
-`bonds_3c2e` is a field of **every** fragment, not a special case — it is an empty list for
-almost everything, because the only elements that bridge with no metal in them are `B` and `Al`
-(the T7 rule's `MLIKE_EXTRA`). Its entries are `(i, j)` pairs that also appear in `bonds_kekule`
-with order 1: the skeleton draws the leg, and the charge does **not** price it, because the two
-legs of a bridge share one electron pair (`charge.q_atom`, argument `b_3c`).
+🔴 **Where the pair is, is the leg count.** A three-centre bond holds one pair, and an M–L leg
+never carries it. So an internal leg holds the pair when it is the only one — `κ²-BH₄`'s `B–H`
+is an ordinary bond with an ordinary order, which is why the ligand is plain `[BH₄]⁻` with a
+neutral H. With **two** internal legs the pair belongs to no single bond and the bridging atom
+holds it instead: `B₂H₆` is `B(+1)` with a bridging `[H-]`. Those are the entries `bonds_kekule`
+prices at 1 while the charge does not (`charge.q_atom`, argument `b_3c`), and you can tell them
+apart by counting legs at the bridging atom.
 
-⚠️ A fragment holding one is **not expressible in two-centre form** — its bridging atom has two
-bonds and no valence left for them — so `smiles_ok` is `False` and `assemble_complex` will refuse
-it. Read `bonds_kekule` + `bonds_3c2e` instead of the SMILES.
+`draw()` follows the same split — orange for every leg of a 3c2e, dashed where the edge holds no
+pair and solid where it does.
+
+⚠️ A fragment with two internal legs is **not expressible in two-centre form** — its bridging
+atom has two bonds and no valence left for them — so `smiles_ok` is `False` and
+`assemble_complex` refuses it. Read `bonds_kekule` + `bonds_3c2e` instead of the SMILES.
 
 ### More than one molecule in the input
 

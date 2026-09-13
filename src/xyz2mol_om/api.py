@@ -113,7 +113,7 @@ import numpy as np
 
 from .charge import (abs_charge_sum, b_3c_of, frag_charge_or_eht, kekulize, octet_fix_period2,
                      pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel,
-                     three_c_internal_edges)
+                     three_c_legs, three_c_unpaired_edges)
 from .config import MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
@@ -373,9 +373,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # ★ the ligand-internal legs of an **all-internal** 3c2e bridge — `B–H–B` and nothing else
     #   (`charge.three_c_internal_edges` states the rule). They carry one pair between three
     #   centres, so the charge must not price them as two 2c-2e bonds; a bridge reached through
-    #   the metal (`μ-H` · `B–H···M` · `μ-CO`) is untouched.
-    three_c_int = three_c_internal_edges(el, G, btag)
-    b3_int = b_3c_of(G, orders, three_c_int)
+    #   the metal keeps its charge — see `three_c_unpaired_edges`.
+    three_c_leg = {e for legs in three_c_legs(el, G, btag).values() for e in legs}
+    b3_int = b_3c_of(G, orders, three_c_unpaired_edges(el, G, btag))
 
     # -- group by ligand fragment
     NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
@@ -399,7 +399,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         #    `charge.is_cluster_frag` comment.
         coord = sorted({x for _m, x in ml_pred if x in cs})
         qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord),
-                                      three_c_int))
+                                      three_c_unpaired_edges(el, G, btag)))
         q_all[key] = qL
         coord_of[key] = coord
         coord_set = set(coord)
@@ -451,10 +451,11 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "smiles_ok": ok,
             "smiles_note": why,          # failure reason ("" if it passed)
             "coordinating": coord,
-            # ★ internal bonds that are one leg of an all-internal 3c2e bridge (`B–H–B`). The
-            #   M–L side of a bridge stays in `ml_bonds[...]["bridge"]`; this is the half that
-            #   has no metal in it and so had nowhere to be reported before.
-            "bonds_3c2e": [e for e in sorted(three_c_int) if e[0] in cs],
+            # ★ every ligand-**internal** leg of a 3c2e bridge. Together with the M–L legs in
+            #   `ml_bonds[...]["bridge"]` this enumerates the whole three-centre bond, so the
+            #   tagging is symmetric: `κ²-BH₄` reports its `B–H` here and its `H···M` there,
+            #   `B–H–B` reports both legs here. `charge.three_c_legs` states what a leg is.
+            "bonds_3c2e": [e for e in sorted(three_c_leg) if e[0] in cs],
             "ml_bonds": mlb_out,
             "eta": eta_out,
             "charge": qL,
