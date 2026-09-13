@@ -286,7 +286,7 @@ pip install -e ".[dev]" && pytest -q
 
 ## Performance
 
-holdout **6,793 structures** (not used in the fit) · measured **2026-09-13** · reference labels:
+holdout **6,793 structures** (not used in the fit) · measured **2026-09-14** · reference labels:
 CSD `bond_type`, tmQMg-L `q_ligand`, and the roman numeral in the CSD `chemical_name` for the
 oxidation state.
 
@@ -295,15 +295,32 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 
 | Task | Metric | Value | Pool | Baseline |
 |---|---|---|---|---|
-| T1 ligand internal bond existence | F1 | **0.9998** | 378,303 bonds | all bonded .7306 |
+| T1 ligand internal bond existence | F1 | **0.9972** | 378,303 bonds | all bonded .7306 |
 | T2 conjugation call | F1 | **0.9618** | 87,581 bonds | — |
 | T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | **.9906 / .7753 / .9771 / .9618** | 378,212 bonds | all `Single` .9097 / 0 / 0 |
-| T4 M–L·M–M bond existence | F1 | **0.9916** | 56,510 bonds | all bonded .5276 |
-| T5 haptic call | F1 | **0.9796** | 15,331 M–L bonds | all haptic .6766 |
+| T4 M–L·M–M bond existence | F1 | **0.9735** | 56,510 bonds | all bonded .5276 |
+| T5 haptic call | F1 | **0.9801** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | **0.9865** | 4,224 ligands | all `k=0` .8704 |
 | T8 M–L order `Single`/`Double`/`Triple` | F1 | **.9932 / .7473 / .7228** | 39,523 bonds | — |
-| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8596** | 1,161 structures | reference-order 0.8528 |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8971** | 2,779 structures | reference-order 0.8698 |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | **0.8622** | 1,161 structures | reference-order 0.8528 |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | **0.8967** | 2,779 structures | reference-order 0.8698 |
+
+🔴 **T1 and T4 moved on 2026-09-14 for a reason that is not a prediction change.** `B` became a
+ligand atom everywhere (`config.centers`), so in the **371 holdout structures the extraction
+searched *as boron*** every `B–X` bond now leaves `ml_bonds` for `bonds_4class`. The reference's
+`loc` column is defined relative to the **searched** metal, so those same bonds are labelled `ml`
+and count as a T4 miss and a T1 false positive. Scored on bond **existence** with `loc` ignored,
+those 371 structures go 0.9995 → **0.9993** (FN 12 → 18, FP 8 → 9) — the bonds are still found.
+Splitting the holdout three ways:
+
+| | n | T1 | T4 | T5 | Σq_L | OS |
+|---|---:|---|---|---|---|---|
+| searched as B | 371 | .9999 → .9464 | .9960 → **.0000** | — | .0000 → **.4286** | — |
+| searched as a TM, holds B | 366 | .9987 → .9988 | ±0 | .9593 → .9585 | ±0 | .8165 → .8073 |
+| searched as a TM, no B | 6,056 | **±0** | **±0** | **±0** | **±0** | **±0** |
+
+89% of the holdout is bit-identical. Across the whole set exactly **one** structure changed its
+oxidation state (`XALVEO`, right → wrong) and **three** changed `Σq_L` (all wrong → right).
 
 The pool differs per task because the references do: `bond_type` covers every structure,
 tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseline column is the
