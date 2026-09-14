@@ -472,7 +472,7 @@ def is_3c2e(el0, b_use, n_center):
     return n_center >= 2 and v0 is not None and b_use > v0
 
 
-def bridge_tags(el, G, ml_pred, cls):
+def bridge_tags(el, G, ml_pred, cls, hap=()):
     """T7 (`docs/PIPELINE.md`) — the **bridge tag** per coordinating atom.
     Returns `{x: "3c2e" | "dative"}`.
 
@@ -511,7 +511,15 @@ def bridge_tags(el, G, ml_pred, cls):
     ⚠️ `ml_pred` is the set of T4 bonds **after agostic removal and including haptic** — the scorer
        also counts `Pi` (haptic) M–L bonds toward the metal count, so the same input is used.
     """
+    # 🔴 **A haptic M–L spends nothing**, so it must not enter the electron budget `b_use` —
+    #   that is the same rule `bml_budget` applies for ④·⑥. Counting it tagged an ordinary
+    #   η⁵ ring carbon that happened to carry a boryl substituent: `BACFIV`'s Cp `C` has
+    #   `b_int 4 = CAP` and one haptic bond to Ti, and read `4 + 1 = 5 > 4`. It still counts
+    #   toward `n_center` — the atom *is* connected to that metal, which is the question
+    #   `n_center` asks.
+    _hap = {(m, x) for m, x in hap}
     nmet = collections.Counter(x for _m, x in ml_pred)
+    nbud = collections.Counter(x for m, x in ml_pred if (m, x) not in _hap)
     bint = _kek_val(G, el, cls)
     tags = {}
     # 🔴 Do not narrow the candidates by `nmet` — **an atom with 0 M–L bonds can also be a
@@ -538,7 +546,7 @@ def bridge_tags(el, G, ml_pred, cls):
         n_center = nm + n_like
         if n_center < 2:
             continue
-        b_use = bint.get(x, 0.0) + nm
+        b_use = bint.get(x, 0.0) + nbud.get(x, 0)
         tags[x] = "3c2e" if is_3c2e(el[x], b_use, n_center) else "dative"
     return tags
 
@@ -834,4 +842,11 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     if force_hap:
         hap = set(hap) | {(m, x) for m, x in force_hap}
         mlout = {k: v for k, v in mlout.items() if k not in hap}
+    # 🔴 **Re-tag now that `hap` is known.** T7 runs before T5 because the ④ budget needs the
+    #   3c2e set, so the first pass had to count every M–L in `b_use` — haptic included. A
+    #   haptic bond spends nothing, and counting it tagged ordinary η⁵ ring carbons: `BACFIV`'s
+    #   Cp carbon carries a boryl substituent, has `b_int 4 = CAP`, and read `4 + 1 = 5 > 4`.
+    #   The budget above keeps the first pass (haptic is not known yet when it is built); what
+    #   the caller reports and charges is this one.
+    btag = bridge_tags(el, G, ml_pred, cls0, hap)
     return cls, mlout, hap, ml_pred, btag, w

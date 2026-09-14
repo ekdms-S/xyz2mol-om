@@ -136,7 +136,7 @@ lands in depends only on whether that leg touches a centre:
 μ-CO      M–CO–M     2 M–L legs                    ml_bonds ×2 · bonds_3c2e []
 κ²-BH₄    B–H···M    1 M–L leg + the B–H           ml_bonds ×1 · bonds_3c2e {(B,H): "shared"}   ← ④
 B–H–B     diborane   2 internal legs, no metal     ml_bonds []  · bonds_3c2e ×2 "shared"        ← ⑥
-Cp(Bpin)  boryl-Cp   1 M–L leg + the C–B           ml_bonds ×1 · bonds_3c2e {(C,B): "pair"}
+μ-C(B)    카보란 C   2 M–L leg + the C–B           ml_bonds ×2 · bonds_3c2e {(C,B): "pair"}
 ```
 
 `bonds_3c2e` is a field of **every** fragment, empty for almost everything. A leg is a bond to a
@@ -151,8 +151,9 @@ the internal legs:
 - **A bridging hydrogen never can** — one orbital and one electron cannot make two σ bonds. So a
   bridging H is `[H-]` **wherever it sits**, against a `B(+1)`: κ²-`BH₄` and `B₂H₆` give the same
   motif, which is what you want if something downstream is learning from this.
-- **A heavier bridging atom can.** A Cp carbon carrying a boryl substituent is tagged 3c2e and
-  its `C–B` is reported as a leg, but that bond is ordinary and keeps its pair — `"pair"`.
+- **A heavier bridging atom can.** A carbon that really does bridge two metals and *also* has a
+  boron partner reports that `C–B` as a leg, but the bond is ordinary and keeps its pair —
+  `"pair"`. Rare: 5 legs against 876 `"shared"` across the holdout.
 
 🔴 **You do not have to re-derive that** — the `bonds_3c2e` value says it. A `"shared"` leg is
 one `bonds_kekule` prices at 1 while the charge does not (`charge.q_atom`, argument `b_3c`), so

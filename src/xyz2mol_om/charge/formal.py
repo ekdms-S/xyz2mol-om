@@ -150,9 +150,8 @@ def three_c_unpaired_edges(el, G, btag):
       point: **a bridging hydrogen reads the same wherever it sits.** Writing κ²-`BH₄` as a
       plain `[BH₄]⁻` instead left an H with a 3c2e leg to boron, a 3c2e leg to the metal, and
       no charge — the same local motif as diborane's bridging H carrying a different label.
-    · **Boron can.** In a diboranyl `R₂B–BR₂` on a metal the coordinating B is tagged 3c2e, but
-      its `B–B` is an ordinary bond and the M–B σ is separate. Subtracting that leg read
-      `[B+2]`, put the ligand at +3 and the metal at **−2** (`ITUNOB` · `WIQQEU`, holdout).
+    · **Carbon can.** A carbon that genuinely bridges two metals and also has a boron partner
+      keeps that `C–B` as an ordinary bond. Rare — 5 legs against 876 `"shared"` on holdout.
     · Two internal legs is the case where no single bond can hold the pair at all.
 
     ⚠️ An earlier version keyed on `G.degree(X) >= 2` rather than on legs and caught **μ-CH₃**
