@@ -317,12 +317,10 @@ tmQMg-L charges 23% of them, and a roman numeral in the CSD name 41%. The baseli
 
 ⚠️ **`reference-order` is not an upper bound.** It is what the same charge rule produces when the
 **reference** bond orders are fed to it (CSD labels through `charge.kekulize`), so it measures how
-much of the gap is our Lewis notation against tmQMg-L's rather than our bond orders. Its pool is
-slightly smaller (1,155 / 2,635 structures — kekulization of the reference fails on a few), so it
-must not be read against the column to its left. **On the common pool** the pipeline is now
-**above** it: `Σq_L` **0.8563 vs 0.8528** and `OS` **0.8774 vs 0.8725** (the common-pool pair is
-from the 2026-09-08 run; both of ours have risen since). What is left of the gap
-to a perfect score is notation, not order prediction.
+much of the gap is our Lewis notation against tmQMg-L's rather than our bond orders — and the
+pipeline is already above it on the pool the two share. Its own pool is slightly smaller
+(1,155 / 2,635 structures — kekulizing the reference fails on a few), so it must not be read
+against the column to its left. What is left of the gap is notation, not order prediction.
 
 ### Against other tools
 
@@ -399,29 +397,19 @@ them well.
 ## ⚠️ Limits
 
 - **One unpaired electron, and only with `n_unpaired=1`.** Diradicals raise. Without it a radical
-  still comes out as the nearest closed-shell answer **with no error** — `CH₃•` reads as `CH₃⁻`,
-  and beside a metal that wrong `−1` is cancelled by the metal's `+1`, so the total charge stays
-  right while the oxidation state does not. The electron goes to the one negatively charged atom
-  outside the metal's own molecule **that can hold it** (`v − b ≥ 1`, so a borate's structural
-  `−1` is not a candidate); with none it is on the metal and nothing changes, with several it is
-  refused and `r["radical"]["note"]` says so.
-- **The M–M order is a placeholder, not a prediction.** Whether two metals are bonded *is*
-  predicted (`mm_bonds`, by the same distance + Mayer rule as M–L), but the order in that dict is
-  the constant `1` — do not read it as "single bond". The `[Re₂Cl₈]²⁻` of example ⑤ is a
-  quadruple bond and still comes out as `1`. An order model was fitted and measured on 4,027
-  homonuclear M–M bonds (refcode 5-fold CV: distance .9305 · Mayer .9295 · all-`Single` baseline
-  .9071) and is **not shipped** — the gain over the trivial baseline is small and the sample is
-  thin where it matters (`Double` 147 · `Triple` 96 · `Quadruple` 131).
-- **A suppressed π bond costs the metal `+2`, and what is left of it is reported rather than
-  fixed.** When a weak M–X contact is taken as a σ bond it spends that atom's last valence unit,
-  ④ then has no headroom to raise the neighbouring π bond, and ⑥ writes it `Single` with a lone
-  pair on each end — so the fragment charge comes out **2 too negative** and the metal's oxidation
-  state **2 too high**. The pipeline now repairs the clearest form of this: where dropping one σ
-  M–L lets the two charges cancel, it is dropped and the structure re-solved (`SIGCUT`, see
-  [docs/PIPELINE.md](docs/PIPELINE.md) §T3 post-⑥). What that rule declines still lands here — an
-  M–L too strong to be an artefact (Mayer ≥ 0.40, unless the bond length says otherwise), a pair
-  whose two ends both coordinate the metal, and peroxide. Every remaining bond is listed in that
-  fragment's `pi_suppressed`:
+  comes out as the nearest closed-shell answer **with no error** — beside a metal the misplaced
+  charge is cancelled by the metal's, so the total stays right while the oxidation state does not.
+  With it, placement can still be refused (several candidate sites, or a charge shortfall that
+  does not match); `r["radical"]["note"]` says which, and `site`/`atom`/`sign` say where it went.
+- **The M–M order is a placeholder.** Whether two metals are bonded *is* predicted (`mm_bonds`,
+  by the same rule as M–L) but the order in that dict is the constant `1` — do not read it as
+  "single bond". The `[Re₂Cl₈]²⁻` of example ⑤ is a quadruple bond and still comes out `1`.
+- **A suppressed π bond costs the metal `+2`, and the remainder is reported rather than fixed.**
+  When a weak M–X contact is taken as a σ bond it spends that atom's last valence unit, ④ has no
+  headroom to raise the neighbouring π, and ⑥ writes it `Single` with a lone pair on each end —
+  the fragment charge comes out **2 too negative** and the oxidation state **2 too high**.
+  `SIGCUT` repairs the clearest form (drop one σ M–L, re-solve; [docs/PIPELINE.md](docs/PIPELINE.md)
+  §T3 post-⑥). What it declines is listed per fragment in `pi_suppressed`:
 
   ```python
   from xyz2mol_om import all_fragments
@@ -429,16 +417,9 @@ them well.
       ...   # this structure's ligand charges and metal oxidation state are suspect
   ```
 
-  On **Gold-DIGR 21,196 reaction endpoints** (out-of-sample — DFT geometries, not the CSD pool
-  above; reference = that dataset's own mapped `rxn_smiles` metal formal charge, same ionic
-  convention) it fires on **660 (3.11%)** — measured 2026-09-08, before `SIGCUT`, so the current
-  rate is lower. Of those, **57.9%** disagree with the reference metal
-  oxidation state against a **9.9%** base rate where it does not fire, and **96% of the
-  disagreements are exactly `+2`**. It catches **57.6%** of the endpoints that are off by exactly
-  `+2`. ⚠️ **A per-element oxidation-state range check sees much less of this** — only **72** of
-  the 660 put the metal outside a physical range at all, so the two screens do not replace each
-  other.
-- **3c2e and clusters** are outside the two-center formalism — a ligand with a bridging H is **deliberately** rejected by the SMILES round-trip check, and the fragment charge of a carborane cage uses the EHT value.
+- **3c2e and clusters are outside the two-centre formalism** — a ligand with a bridging H is
+  **deliberately** rejected by the SMILES round-trip check, and a carborane cage's fragment
+  charge uses the EHT value.
 
 Every decision rule, with its thresholds, is in [docs/PIPELINE.md](docs/PIPELINE.md).
 
@@ -448,4 +429,4 @@ Every decision rule, with its thresholds, is in [docs/PIPELINE.md](docs/PIPELINE
 
 The reference labels used for the fit are CSD (Cambridge Structural Database) bond labels and tmQMg-L ligand charges.
 **The source data is not in this repository** — what ships here is the fit result (thresholds · likelihood parameters)
-and the five CSD-derived structures in `examples/`.
+and the structures in `examples/` (five CSD-derived, one gas-phase).
