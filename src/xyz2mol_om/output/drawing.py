@@ -304,26 +304,14 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
 
     fig, ax = plt.subplots(figsize=(9.5, 7.2), dpi=130)
 
-    # ★ the ligand-internal legs of a 3c2e bridge (`bonds_3c2e`). Orange marks the whole
-    #   three-centre bond, M–L legs included; dashed or solid then says which edge holds the
-    #   pair. No M–L leg does. An internal leg does unless its bridging atom keeps the pair —
-    #   a hydrogen always does, and so does any atom with two internal legs
-    #   (`charge.three_c_unpaired_edges`). The bridging atom of a leg is the end that carries
-    #   the tag: in `ml_bonds` for a metal-mediated bridge, or the end shared by both legs.
+    # ★ the ligand-internal legs of a 3c2e bridge. Orange marks the whole three-centre bond,
+    #   M–L legs included; dashed or solid then says which edge holds the pair, which is what
+    #   `bonds_3c2e` values say (`"shared"` — the bridging atom holds it — against `"pair"`).
     _3c, _3c_inner = set(), set()
     for mol in (result.get("molecules") or []):
         for fr in (mol.get("fragments") or []):
-            legs = [(min(e), max(e)) for e in (fr.get("bonds_3c2e") or [])]
-            if not legs:
-                continue
-            br = {x for (_m, x), d in (fr.get("ml_bonds") or {}).items()
-                  if d.get("bridge") == "3c2e"}
-            n = collections.Counter(a2 for e in legs for a2 in e)
-            for e in legs:
-                x = next((a2 for a2 in e if a2 in br), None)
-                if x is None:                     # all-internal — the shared end bridges
-                    x = max(e, key=lambda a2: n[a2])
-                (_3c if (el[x] == "H" or n[x] >= 2) else _3c_inner).add(e)
+            for e3, kind3 in (fr.get("bonds_3c2e") or {}).items():
+                (_3c if kind3 == "shared" else _3c_inner).add((min(e3), max(e3)))
 
     # internal bonds — one line per order, offset sideways
     for (a, b), order in kek.items():

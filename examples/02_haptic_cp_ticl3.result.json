@@ -54,7 +54,7 @@
      "coordinating": [
       1
      ],
-     "bonds_3c2e": [],
+     "bonds_3c2e": {},
      "ml_bonds": {
       "0,1": {
        "type": "sigma",
@@ -80,7 +80,7 @@
      "coordinating": [
       2
      ],
-     "bonds_3c2e": [],
+     "bonds_3c2e": {},
      "ml_bonds": {
       "0,2": {
        "type": "sigma",
@@ -106,7 +106,7 @@
      "coordinating": [
       3
      ],
-     "bonds_3c2e": [],
+     "bonds_3c2e": {},
      "ml_bonds": {
       "0,3": {
        "type": "sigma",
@@ -167,7 +167,7 @@
       7,
       8
      ],
-     "bonds_3c2e": [],
+     "bonds_3c2e": {},
      "ml_bonds": {
       "0,4": {
        "type": "haptic",

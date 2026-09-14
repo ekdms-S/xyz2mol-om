@@ -86,7 +86,9 @@ def test_diborane_charges_are_b_plus_and_bridging_hydride():
     el, xyz = _b2h6()
     r = predict(el, xyz, total_charge=0)
     fr = r["molecules"][0]["fragments"][0]
-    assert fr["bonds_3c2e"] == [(0, 2), (0, 3), (1, 2), (1, 3)]
+    # every leg says whether it holds a pair — here none does, the bridging H do
+    assert fr["bonds_3c2e"] == {(0, 2): "shared", (0, 3): "shared",
+                                (1, 2): "shared", (1, 3): "shared"}
     assert fr["charge"] == 0
     # 🔴 the signs are the point — without `b_3c` the sum is also 0, with B(−1)/H(+1)
     assert fr["smiles"] == "[H][B+]1([H])[H-][B+]([H])([H])[H-]1"

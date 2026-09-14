@@ -40,12 +40,14 @@ salt with its counter-ion — and everything below is solved inside one molecule
                     "order":  1|2|3|None,                 None for haptic (no order is assigned)
                     "bridge": None|"3c2e"|"dative",       T7 sub-tag (`docs/PIPELINE.md`)
               }},
-              "bonds_3c2e":   [(i,j), ...], ligand-**internal** legs of an all-internal 3c2e
-                                            bridge (`B–H–B`). The metal side of a bridge is in
-                                            `ml_bonds[...]["bridge"]`; this half has no metal in
-                                            it. These bonds hold one pair between three centres,
-                                            so `bonds_kekule` prices them 1 while the charge does
-                                            not count them (`charge.q_atom`, `b_3c`)
+              "bonds_3c2e":   {(i,j): "shared"|"pair"},
+                                            ligand-**internal** legs of a 3c2e bridge; the legs
+                                            that touch a centre are in `ml_bonds[...]["bridge"]`.
+                                            **`"shared"` carries no pair** — the bridging atom
+                                            holds it, so `bonds_kekule` prices the leg 1 while
+                                            the charge does not (`charge.q_atom`, `b_3c`).
+                                            `"pair"` is an ordinary bond that happens to be a
+                                            leg (a diboranyl `B–B`)
               "eta":          {m: k},       η^k toward that metal (when haptic)
               "charge":       int,          fragment charge q_L
               "residual_charge": int | None,  charge the skeleton cannot express (if any)
@@ -374,8 +376,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   (`charge.three_c_internal_edges` states the rule). They carry one pair between three
     #   centres, so the charge must not price them as two 2c-2e bonds; a bridge reached through
     #   the metal keeps its charge — see `three_c_unpaired_edges`.
-    three_c_leg = {e for legs in three_c_legs(el, G, btag).values() for e in legs}
-    b3_int = b_3c_of(G, orders, three_c_unpaired_edges(el, G, btag))
+    _unpaired = three_c_unpaired_edges(el, G, btag)
+    #   `"shared"` — this leg carries no pair of its own; the pair is on the bridging atom.
+    #   `"pair"`   — an ordinary two-centre bond that happens to be a leg (a diboranyl `B–B`).
+    three_c_leg = {e: ("shared" if e in _unpaired else "pair")
+                   for legs in three_c_legs(el, G, btag).values() for e in legs}
+    b3_int = b_3c_of(G, orders, _unpaired)
 
     # -- group by ligand fragment
     NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
@@ -399,7 +405,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         #    `charge.is_cluster_frag` comment.
         coord = sorted({x for _m, x in ml_pred if x in cs})
         qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord),
-                                      three_c_unpaired_edges(el, G, btag)))
+                                      _unpaired))
         q_all[key] = qL
         coord_of[key] = coord
         coord_set = set(coord)
@@ -451,11 +457,15 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "smiles_ok": ok,
             "smiles_note": why,          # failure reason ("" if it passed)
             "coordinating": coord,
-            # ★ every ligand-**internal** leg of a 3c2e bridge. Together with the M–L legs in
-            #   `ml_bonds[...]["bridge"]` this enumerates the whole three-centre bond, so the
-            #   tagging is symmetric: `κ²-BH₄` reports its `B–H` here and its `H···M` there,
-            #   `B–H–B` reports both legs here. `charge.three_c_legs` states what a leg is.
-            "bonds_3c2e": [e for e in sorted(three_c_leg) if e[0] in cs],
+            # ★ every ligand-**internal** leg of a 3c2e bridge, and **whether it holds a pair**.
+            #   With the M–L legs in `ml_bonds[...]["bridge"]` this enumerates the whole
+            #   three-centre bond: `κ²-BH₄` reports its `B–H` here and its `H···M` there,
+            #   `B–H–B` reports both legs here. 🔴 A consumer building an electron ledger must
+            #   read the value, not just the key — `"shared"` means this edge carries **no**
+            #   pair (put it on the bridging atom, the way an M–L leg is treated) and `"pair"`
+            #   means it is an ordinary bond. `charge.three_c_legs` states what a leg is and
+            #   `charge.three_c_unpaired_edges` how the two are told apart.
+            "bonds_3c2e": {e: v for e, v in sorted(three_c_leg.items()) if e[0] in cs},
             "ml_bonds": mlb_out,
             "eta": eta_out,
             "charge": qL,
