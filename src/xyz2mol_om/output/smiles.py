@@ -250,4 +250,18 @@ def verify_complex(smi, el, atoms, bonds, charges, ml_pairs, mm_bonds=(), total_
         return False, f"dative count {want_dat} -> {n_dat}"
     if any(a.GetNumImplicitHs() for a in m.GetAtoms()):
         return False, "RDKit added implicit H"
+    # 🔴 A bridging H is expressible here **only through the arrows**: `M<-[H-]->M` writes the
+    #   three-centre bond without ever giving H two σ bonds, so the count is over **non-dative**
+    #   bonds and a μ-H on metals still passes. An all-internal bridge has no arrow to hide in —
+    #   `B–H–B` puts a ligand atom on both sides, so both legs come out as ordinary single bonds
+    #   and the H really is two-σ-bonded. RDKit says so (`Explicit valence for B, 4, is greater
+    #   than permitted`) but `catchErrors=True` swallows it, so it has to be caught here.
+    #   `verify_roundtrip` runs the same rule with no arrows to exclude; the two agreeing is the
+    #   point — a `smiles_ok` that differs between a fragment and its molecule cannot be read.
+    for a in m.GetAtoms():
+        if a.GetSymbol() != "H":
+            continue
+        deg = sum(1 for b in a.GetBonds() if b.GetBondType() != Chem.BondType.DATIVE)
+        if deg > 1:
+            return False, f"bridging H (3c2e) - not expressible in 2-center form (deg {deg})"
     return True, ""

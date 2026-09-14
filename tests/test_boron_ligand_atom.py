@@ -95,6 +95,24 @@ def test_diborane_charges_are_b_plus_and_bridging_hydride():
     assert "3c2e" in fr["smiles_note"]
 
 
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_molecule_refuses_the_same_smiles_its_fragment_refuses():
+    """🔴 `smiles_ok` used to disagree between a fragment and the molecule holding it.
+
+    `verify_complex` counts a bridging H over **non-dative** bonds, because at complex level
+    `M<-[H-]->M` expresses the three-centre bond without giving H two σ bonds. `B–H–B` has no
+    arrow to hide in — B is a ligand atom, so both legs are ordinary single bonds — and the check
+    had no branch for that, so the molecule said `True` about the very string its own fragment
+    said `False` about.
+    """
+    el, xyz = _b2h6()
+    mol = predict(el, xyz, total_charge=0)["molecules"][0]
+    (fr,) = mol["fragments"]
+    assert mol["smiles"] == fr["smiles"]                   # metal-free: one string, two verdicts
+    assert mol["smiles_ok"] is fr["smiles_ok"] is False
+    assert "3c2e" in mol["smiles_note"]
+
+
 def test_b_3c_flips_the_sign_of_the_bridge():
     # bridging H — both legs are 3c2e, so `b` drops to 0 and the atom is a hydride
     assert q_atom("H", 2.0, b_3c=2.0) == -1

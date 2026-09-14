@@ -9,7 +9,8 @@
   "n_unpaired": 0,
   "atom": null,
   "site": null,
-  "note": ""
+  "note": "",
+  "sign": 1
  },
  "molecules": [
   {
@@ -90,8 +91,8 @@
     }
    ],
    "smiles": "[H][B+]1([H])[H-][B+]([H])([H])[H-]1",
-   "smiles_ok": true,
-   "smiles_note": "",
+   "smiles_ok": false,
+   "smiles_note": "bridging H (3c2e) - not expressible in 2-center form (deg 2)",
    "atom_order": [
     4,
     0,

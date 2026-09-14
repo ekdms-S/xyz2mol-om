@@ -142,8 +142,10 @@ prices an entry of `bonds_3c2e` at 1 so the skeleton draws, but an electron ledg
 the way it treats an M–L leg: nothing on the edge.
 
 ⚠️ Such a fragment cannot be rebuilt from two-centre bonds — `assemble_complex` refuses it, and
-`smiles_ok` is `False` when one atom holds the pair for two legs at once (`B₂H₆`).
-`complex_smiles` still writes it, as a dative arrow.
+`smiles_ok` is `False` when one atom holds the pair for two legs at once (`B₂H₆`), on the
+**molecule and the fragment alike**. The SMILES string is still written, so use `bonds_kekule`
+and `bonds_3c2e` instead of parsing it. Where the bridge reaches a metal (`μ-H`, `κ²-BH₄`) the
+dative arrow expresses it and the round trip passes.
 
 ### More than one molecule in the input
 
