@@ -126,13 +126,22 @@ def test_a_leg_is_a_bond_to_a_metal_like_neighbour_not_any_bond():
     assert three_c_legs(el, G, tags) == {2: [(1, 2)], 3: [(1, 3)]}
     assert three_c_unpaired_edges(el, G, tags) == {(1, 2), (1, 3)}
 
-    # 🔴 a **boron** bridging atom can: a diboranyl `R₂B–BR₂` on a metal has an ordinary `B–B`
-    #    and a separate M–B σ. Subtracting that leg read `[B+2]` and put the metal at −2.
+    # 🔴 a **boron does not bridge to a boron.** A diboranyl `R₂B–BR₂` on a metal has an
+    #    ordinary `B–B` and a separate M–B σ, so it has no leg at all — reporting one and
+    #    subtracting it read `[B+2]` and put the metal at −2 (`ITUNOB` · `WIQQEU`).
     G5 = nx.Graph()
     G5.add_edges_from([(1, 2), (1, 3), (1, 4)])
     el5 = {1: "B", 2: "B", 3: "C", 4: "Br"}
-    assert three_c_legs(el5, G5, {1: "3c2e"}) == {1: [(1, 2)]}
+    assert three_c_legs(el5, G5, {1: "3c2e"}) == {}
     assert three_c_unpaired_edges(el5, G5, {1: "3c2e"}) == set()
+
+    # a **carbon** with a boryl substituent does have a leg, and it keeps its pair — an
+    # ordinary `C–B` bond. That is what the `"pair"` value in `bonds_3c2e` marks.
+    G6 = nx.Graph()
+    G6.add_edges_from([(2, 1), (2, 3), (2, 4)])
+    el6 = {1: "B", 2: "C", 3: "C", 4: "C"}
+    assert three_c_legs(el6, G6, {2: "3c2e"}) == {2: [(1, 2)]}
+    assert three_c_unpaired_edges(el6, G6, {2: "3c2e"}) == set()
 
     # μ-H between two metals — no internal neighbour at all, so no internal leg
     G2 = nx.Graph()

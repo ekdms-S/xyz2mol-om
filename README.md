@@ -136,12 +136,13 @@ lands in depends only on whether that leg touches a centre:
 μ-CO      M–CO–M     2 M–L legs                    ml_bonds ×2 · bonds_3c2e []
 κ²-BH₄    B–H···M    1 M–L leg + the B–H           ml_bonds ×1 · bonds_3c2e {(B,H): "shared"}   ← ④
 B–H–B     diborane   2 internal legs, no metal     ml_bonds []  · bonds_3c2e ×2 "shared"        ← ⑥
-R₂B–BR₂   diboranyl  1 M–L leg + the B–B           ml_bonds ×1 · bonds_3c2e {(B,B): "pair"}
+Cp(Bpin)  boryl-Cp   1 M–L leg + the C–B           ml_bonds ×1 · bonds_3c2e {(C,B): "pair"}
 ```
 
 `bonds_3c2e` is a field of **every** fragment, empty for almost everything. A leg is a bond to a
 centre or to a `B`/`Al` neighbour — T7's `n_center` decomposition — so `μ-CO`'s `C≡O` and
-`μ-CH₃`'s `C–H` are **not** legs: those bridges are spanned by their two metals.
+`μ-CH₃`'s `C–H` are **not** legs: those bridges are spanned by their two metals. Neither is a
+`B–B`: a boron does not bridge to a boron, it bonds to it.
 
 🔴 **The pair sits on the bridging atom unless that atom can hold its legs as separate bonds.**
 A three-centre bond holds one pair and no M–L leg ever carries it, so the question is only about
@@ -150,8 +151,8 @@ the internal legs:
 - **A bridging hydrogen never can** — one orbital and one electron cannot make two σ bonds. So a
   bridging H is `[H-]` **wherever it sits**, against a `B(+1)`: κ²-`BH₄` and `B₂H₆` give the same
   motif, which is what you want if something downstream is learning from this.
-- **A bridging boron can.** In a diboranyl `R₂B–BR₂` on a metal the `B–B` is an ordinary bond and
-  the M–B σ is separate, so that leg keeps its pair.
+- **A heavier bridging atom can.** A Cp carbon carrying a boryl substituent is tagged 3c2e and
+  its `C–B` is reported as a leg, but that bond is ordinary and keeps its pair — `"pair"`.
 
 🔴 **You do not have to re-derive that** — the `bonds_3c2e` value says it. A `"shared"` leg is
 one `bonds_kekule` prices at 1 while the charge does not (`charge.q_atom`, argument `b_3c`), so

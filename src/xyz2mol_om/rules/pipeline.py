@@ -523,7 +523,19 @@ def bridge_tags(el, G, ml_pred, cls):
     #      term is always 0.
     for x in G.nodes():
         nm = nmet.get(x, 0)
-        n_center = nm + sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
+        # 🔴 **A metal-like atom does not bridge to its own kind.** The `MLIKE_EXTRA` term is
+        #   here so a *non-metal* can be seen bridging two borons with no metal in sight
+        #   (`B–H–B`). Counting it for `x` that is itself `B`/`Al` made a diboranyl
+        #   `M–B(Mes)=B(Mes)Br` read as a bridge — the second B is a substituent, not a third
+        #   centre — and tagged its ordinary `B=B` as part of a 3c2e (`ITUNOB` · `WIQQEU`).
+        #   ⚠️ Narrowing this further — to `el[x] == "H"`, the case the term was written for —
+        #      **was measured and rejected.** It also drops the tag from a boryl-substituted Cp
+        #      carbon and from cage carbons, and those tags are load-bearing in the valence
+        #      tally: holdout violations 0.35% → 1.38% with every other task unmoved. Whether
+        #      those atoms are really bridging is a separate question from whether they are
+        #      outside the two-centre formalism, which they are.
+        n_like = 0 if el[x] in MLIKE_EXTRA else sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
+        n_center = nm + n_like
         if n_center < 2:
             continue
         b_use = bint.get(x, 0.0) + nm

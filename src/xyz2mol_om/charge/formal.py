@@ -128,8 +128,8 @@ def three_c_legs(el, G, btag):
     """
     out = {}
     for x, t in (btag or {}).items():
-        if t != "3c2e" or x not in G:
-            continue
+        if t != "3c2e" or x not in G or el[x] in MLIKE_EXTRA:
+            continue        # a B/Al does not bridge to a B/Al — same condition as `bridge_tags`
         legs = [(min(x, y), max(x, y)) for y in G[x] if el[y] in MLIKE_EXTRA]
         if legs:
             out[x] = legs
