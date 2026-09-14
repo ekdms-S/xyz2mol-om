@@ -13,11 +13,9 @@ What the figure shows
   * internal bonds are drawn with 1 / 2 / 3 lines from `bonds_kekule`
   * M–L bonds are arrows — `sigma` solid black · `haptic` **green dotted** · **3c2e** orange dashed
   *   (a `dative` bridge is drawn like `sigma` — it is an ordinary donor bond, not a 3c2e one)
-  * **orange marks a 3c2e bond, all of it.** A 3-centre bond is one object, so every leg is
-  *   orange — the M–L leg as an arrow, a ligand-internal leg as a line. **Dashed** where the
-  *   edge carries no electron pair of its own (every M–L leg, and both legs of an all-internal
-  *   `B–H–B`); **solid** on the inner leg of a metal-mediated bridge (`B–H` of a κ²-`BH₄`,
-  *   `C≡O` of a μ-CO), which is an ordinary two-centre bond and is where the pair sits
+  * **orange dashed marks a 3c2e bond, all of it.** A 3-centre bond is one object and no leg of
+  *   it carries a pair of its own, so every leg is drawn alike — the M–L leg as an arrow, a
+  *   ligand-internal leg (`bonds_3c2e`) as a line
   * M–M bonds are drawn purple, one line per order
   * the metal is a **purple circle** with its symbol and oxidation state (`Ti⁺⁴`)
   * a non-metal is labelled with its formal charge when non-zero (`O⁻`); a neutral carbon is a dot
@@ -304,14 +302,11 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
 
     fig, ax = plt.subplots(figsize=(9.5, 7.2), dpi=130)
 
-    # ★ the ligand-internal legs of a 3c2e bridge. Orange marks the whole three-centre bond,
-    #   M–L legs included; dashed or solid then says which edge holds the pair, which is what
-    #   `bonds_3c2e` values say (`"shared"` — the bridging atom holds it — against `"pair"`).
-    _3c, _3c_inner = set(), set()
-    for mol in (result.get("molecules") or []):
-        for fr in (mol.get("fragments") or []):
-            for e3, kind3 in (fr.get("bonds_3c2e") or {}).items():
-                (_3c if kind3 == "shared" else _3c_inner).add((min(e3), max(e3)))
+    # ★ the ligand-internal legs of a 3c2e bridge. They carry no pair of their own, so they
+    #   are drawn like the M–L legs — orange dashed — and the three-centre bond reads as one
+    #   object whichever side of it you look at.
+    _3c = {(min(e), max(e)) for mol in (result.get("molecules") or [])
+           for fr in (mol.get("fragments") or []) for e in (fr.get("bonds_3c2e") or [])}
 
     # internal bonds — one line per order, offset sideways
     for (a, b), order in kek.items():
@@ -322,16 +317,14 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
         n = n / (np.linalg.norm(n) + 1e-9) * 0.055
         hot = (min(a, b), max(a, b)) in hl
         is3c = (min(a, b), max(a, b)) in _3c            # no pair on this edge → dashed
-        inner = (min(a, b), max(a, b)) in _3c_inner     # part of a 3c2e, holds the pair → solid
         for k in {1: [0.0], 2: [-1.0, 1.0], 3: [-1.3, 0.0, 1.3]}[int(order)]:
             ax.plot(
                 [pos[a][0] + k * n[0], pos[b][0] + k * n[0]],
                 [pos[a][1] + k * n[1], pos[b][1] + k * n[1]],
                 ML_STYLE["bridge"] if is3c else "-",
-                lw=3.0 if hot else (2.2 if (is3c or inner) else 1.5),
-                color=HIGHLIGHT_COLOR if hot else (
-                    ML_COLOR["bridge"] if (is3c or inner) else "#303030"),
-                zorder=2 if (hot or is3c or inner) else 1,
+                lw=3.0 if hot else (2.2 if is3c else 1.5),
+                color=HIGHLIGHT_COLOR if hot else (ML_COLOR["bridge"] if is3c else "#303030"),
+                zorder=2 if (hot or is3c) else 1,
             )
 
     # M–M bonds — plain lines in the metal colour, one per order

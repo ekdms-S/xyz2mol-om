@@ -14,11 +14,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-_BOND_KEYED = ("bonds_4class", "bonds_kekule", "ml_bonds", "bonds_3c2e")
+_BOND_KEYED = ("bonds_4class", "bonds_kekule", "ml_bonds")
 # values that are a **list of bonds**, not a bond-keyed dict. JSON turns a tuple into a
 # list, so the round trip has to put the tuples back or a caller cannot use the entries as
 # keys into `bonds_kekule`.
-_BOND_LIST = ("pi_suppressed",)
+_BOND_LIST = ("pi_suppressed", "bonds_3c2e")
 
 
 def _k2s(d):

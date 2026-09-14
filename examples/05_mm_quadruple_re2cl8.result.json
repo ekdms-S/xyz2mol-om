@@ -61,7 +61,7 @@
      "coordinating": [
       1
      ],
-     "bonds_3c2e": {},
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,1": {
        "type": "sigma",
@@ -87,7 +87,7 @@
      "coordinating": [
       2
      ],
-     "bonds_3c2e": {},
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,2": {
        "type": "sigma",
@@ -113,7 +113,7 @@
      "coordinating": [
       3
      ],
-     "bonds_3c2e": {},
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,3": {
        "type": "sigma",
@@ -139,7 +139,7 @@
      "coordinating": [
       4
      ],
-     "bonds_3c2e": {},
+     "bonds_3c2e": [],
      "ml_bonds": {
       "0,4": {
        "type": "sigma",
@@ -165,7 +165,7 @@
      "coordinating": [
       6
      ],
-     "bonds_3c2e": {},
+     "bonds_3c2e": [],
      "ml_bonds": {
       "5,6": {
        "type": "sigma",
@@ -191,7 +191,7 @@
      "coordinating": [
       7
      ],
-     "bonds_3c2e": {},
+     "bonds_3c2e": [],
      "ml_bonds": {
       "5,7": {
        "type": "sigma",
@@ -217,7 +217,7 @@
      "coordinating": [
       8
      ],
-     "bonds_3c2e": {},
+     "bonds_3c2e": [],
      "ml_bonds": {
       "5,8": {
        "type": "sigma",
@@ -243,7 +243,7 @@
      "coordinating": [
       9
      ],
-     "bonds_3c2e": {},
+     "bonds_3c2e": [],
      "ml_bonds": {
       "5,9": {
        "type": "sigma",

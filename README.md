@@ -85,9 +85,9 @@ r["molecules"] == [
       "ml_bonds": {(0, 1): {"type": "sigma",   # sigma | haptic | bridge
                             "order": 3,        # None if haptic
                             "bridge": None}},  # if bridging, "3c2e" | "dative"
-      "bonds_3c2e": {},          # {(i,j): "shared"|"pair"} — ligand-internal legs of a
-                                 #   3c2e bridge, and whether the leg holds a pair. The
-                                 #   legs that touch a metal are in `ml_bonds`. See below
+      "bonds_3c2e": [],          # [(i,j)] — ligand-internal legs of a 3c2e bridge; they
+                                 #   carry no pair, the bridging atom holds it. The legs
+                                 #   that touch a metal are in `ml_bonds`. See below
       "eta": {},                 # {metal: k} — counted **per ligand**, so a bridged
                                  #   (ansa) metallocene is one η¹⁰, not η⁵:η⁵
       "charge": -3,              # this fragment's charge
@@ -126,17 +126,20 @@ all_fragments(r)   # every fragment record, across molecules
 A three-centre bond is one object with two **legs**, and both are tagged. Which field a leg
 lands in depends only on whether that leg touches a centre:
 
-| leg | reported in | holds a pair? |
-|---|---|---|
-| leg to a centre | `ml_bonds[(m,x)]["bridge"] == "3c2e"` | never |
-| ligand-internal leg | **`bonds_3c2e`** on the fragment | the value says: `"shared"` no, `"pair"` yes |
+| leg | reported in |
+|---|---|
+| leg to a centre | `ml_bonds[(m,x)]["bridge"] == "3c2e"` |
+| ligand-internal leg | **`bonds_3c2e`** on the fragment |
+
+**No leg of a 3c2e carries an electron pair of its own** — the bridging atom holds it. That is
+what both fields mean, so a consumer treats an entry of `bonds_3c2e` exactly the way it treats an
+M–L leg: nothing on the edge.
 
 ```
 μ-H       M–H–M      2 M–L legs                    ml_bonds ×2 · bonds_3c2e []
 μ-CO      M–CO–M     2 M–L legs                    ml_bonds ×2 · bonds_3c2e []
-κ²-BH₄    B–H···M    1 M–L leg + the B–H           ml_bonds ×1 · bonds_3c2e {(B,H): "shared"}   ← ④
-B–H–B     diborane   2 internal legs, no metal     ml_bonds []  · bonds_3c2e ×2 "shared"        ← ⑥
-μ-C(B)    카보란 C   2 M–L leg + the C–B           ml_bonds ×2 · bonds_3c2e {(C,B): "pair"}
+κ²-BH₄    B–H···M    1 M–L leg + the B–H           ml_bonds ×1 · bonds_3c2e [(B,H)]   ← ④
+B–H–B     diborane   2 internal legs, no metal     ml_bonds []  · bonds_3c2e ×2       ← ⑥
 ```
 
 `bonds_3c2e` is a field of **every** fragment, empty for almost everything. A leg is a bond to a
@@ -144,22 +147,18 @@ centre or to a `B`/`Al` neighbour — T7's `n_center` decomposition — so `μ-C
 `μ-CH₃`'s `C–H` are **not** legs: those bridges are spanned by their two metals. Neither is a
 `B–B`: a boron does not bridge to a boron, it bonds to it.
 
-🔴 **The pair sits on the bridging atom unless that atom can hold its legs as separate bonds.**
-A three-centre bond holds one pair and no M–L leg ever carries it, so the question is only about
-the internal legs:
+🔴 **A bridging hydrogen is a hydride wherever it sits.** One orbital and one electron cannot
+make two σ bonds, so an H in a bridge never keeps its legs as separate two-centre bonds: κ²-`BH₄`
+and `B₂H₆` both give `[H-]` against a `B(+1)`, the same motif for the same local structure.
 
-- **A bridging hydrogen never can** — one orbital and one electron cannot make two σ bonds. So a
-  bridging H is `[H-]` **wherever it sits**, against a `B(+1)`: κ²-`BH₄` and `B₂H₆` give the same
-  motif, which is what you want if something downstream is learning from this.
-- **A heavier bridging atom can.** A carbon that really does bridge two metals and *also* has a
-  boron partner reports that `C–B` as a leg, but the bond is ordinary and keeps its pair —
-  `"pair"`. Rare: 5 legs against 876 `"shared"` across the holdout.
+An entry of `bonds_3c2e` is a bond `bonds_kekule` prices at 1 — so the skeleton draws — while the
+charge does not (`charge.q_atom`, argument `b_3c`). `draw()` draws every leg of a 3c2e alike,
+orange dashed, M–L legs included.
 
-🔴 **You do not have to re-derive that** — the `bonds_3c2e` value says it. A `"shared"` leg is
-one `bonds_kekule` prices at 1 while the charge does not (`charge.q_atom`, argument `b_3c`), so
-an electron ledger has to treat it the way it treats an M–L leg: no electrons on the edge, the
-pair on the bridging atom. A `"pair"` leg is an ordinary bond. `draw()` reads the same value —
-orange for every leg of a 3c2e, dashed for `"shared"` and solid for `"pair"`.
+⚠️ T7's `n_center` decomposition also calls a bond to a `B`/`Al` neighbour a leg when the
+bridging atom is a **carbon** that has a boron partner, and there the bond is an ordinary
+two-centre one. Those are **not** reported: `bonds_3c2e` is the legs that carry no pair, and an
+ordinary bond belongs in `bonds_kekule` alone.
 
 ⚠️ A ligand whose bridging atom holds the pair cannot be rebuilt from two-centre bonds, so
 `assemble_complex` refuses it; with two internal legs even its own `smiles_ok` is `False`. Both

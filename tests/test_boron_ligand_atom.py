@@ -86,9 +86,7 @@ def test_diborane_charges_are_b_plus_and_bridging_hydride():
     el, xyz = _b2h6()
     r = predict(el, xyz, total_charge=0)
     fr = r["molecules"][0]["fragments"][0]
-    # every leg says whether it holds a pair — here none does, the bridging H do
-    assert fr["bonds_3c2e"] == {(0, 2): "shared", (0, 3): "shared",
-                                (1, 2): "shared", (1, 3): "shared"}
+    assert fr["bonds_3c2e"] == [(0, 2), (0, 3), (1, 2), (1, 3)]
     assert fr["charge"] == 0
     # 🔴 the signs are the point — without `b_3c` the sum is also 0, with B(−1)/H(+1)
     assert fr["smiles"] == "[H][B+]1([H])[H-][B+]([H])([H])[H-]1"
@@ -135,8 +133,9 @@ def test_a_leg_is_a_bond_to_a_metal_like_neighbour_not_any_bond():
     assert three_c_legs(el5, G5, {1: "3c2e"}) == {}
     assert three_c_unpaired_edges(el5, G5, {1: "3c2e"}) == set()
 
-    # a **carbon** with a boryl substituent does have a leg, and it keeps its pair — an
-    # ordinary `C–B` bond. That is what the `"pair"` value in `bonds_3c2e` marks.
+    # a **carbon** with a boron partner keeps that `C–B` as an ordinary bond — it is a leg by
+    # T7's decomposition but it holds its own pair, so it is **not reported**: `bonds_3c2e` is
+    # the set of legs that carry none, and an ordinary bond belongs in `bonds_kekule` alone.
     G6 = nx.Graph()
     G6.add_edges_from([(2, 1), (2, 3), (2, 4)])
     el6 = {1: "B", 2: "C", 3: "C", 4: "C"}
