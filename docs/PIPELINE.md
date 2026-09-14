@@ -10,23 +10,23 @@ Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q
 `b_ML(X)` sum of M–L bond orders · `n_ML(X)` **number** of M–L bonds of X · `n_lp(X)` lone pairs X still has to give ·
 `v` number of valence electrons.
 
-## Current performance — shipped defaults, measured 2026-09-13
+## Current performance — shipped defaults
 
 | task | holdout 6,793 | train 27,294 |
 |---|---|---|
-| T1 internal bond existence | .9998 | .9998 |
-| T3 `Single`/`Double`/`Triple`/`Conj` | **.9906 / .7753 / .9771 / .9618** | .9896 / .7624 / .9782 / .9592 |
-| T4 M–L·M–M existence | **.9916** | .9928 |
-| T5 haptic | **.9796** | .9797 |
-| T6 η^k | .9865 | .9835 |
-| T8 M–L `Single`/`Double`/`Triple` | **.9932 / .7473 / .7228** | .9935 / .7527 / .7734 |
-| T10 `Σq_L` · `OS` | **.8596 · .8971** | .8505 · .8782 |
-| valence-violating structures | **.0125** | .0191 |
-| harmful `Double` errors | **283 bonds · 158 structures (2.33%)** | — |
-| reported fragment charge ≠ the emitted structure's | **129 (1.90%)** | — |
+| T1 internal bond existence | **.9998** | .9998 |
+| T3 `Single`/`Double`/`Triple`/`Conj` | **.9901 / .7667 / .9775 / .9617** | .9895 / .7601 / .9792 / .9592 |
+| T4 M–L·M–M existence | **.9915** | .9927 |
+| T5 haptic | **.9800** | .9807 |
+| T6 η^k | **.9865** | .9832 |
+| T8 M–L `Single`/`Double`/`Triple` | **.9935 / .7556 / .7254** | .9937 / .7621 / .7735 |
+| T10 `Σq_L` · `OS` | **.8648 · .8967** | .8580 · .8909 |
+| valence-violating structures | **.0035** | .0037 |
+| harmful `Double` errors | 283 bonds · 158 structures (2.33%) | — |
+| reported fragment charge ≠ the emitted structure's | 129 (1.90%) | — |
 
-⚠️ Only the **holdout** column is from the 2026-09-13 run. The `train` column and the last two
-rows were last measured 2026-09-08 and are not directly comparable with it.
+⚠️ The last two rows are a **2026-09-08** snapshot and are not comparable with the rest; every
+other figure is one run of `260907_deploy_full_score` over both splits.
 
 *harmful `Double`* is the deployment error metric: a reference `Double` the emitted Kekulé
 structure does not call 2, excluding positions where the fragment has an equally good alternative

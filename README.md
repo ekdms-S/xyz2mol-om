@@ -123,47 +123,27 @@ all_fragments(r)   # every fragment record, across molecules
 
 ### Where a 3c2e bridge is reported
 
-A three-centre bond is one object with two **legs**, and both are tagged. Which field a leg
-lands in depends only on whether that leg touches a centre:
+A bridge has two **legs**, and which field a leg lands in depends only on whether it touches a
+centre:
 
 | leg | reported in |
 |---|---|
 | leg to a centre | `ml_bonds[(m,x)]["bridge"] == "3c2e"` |
 | ligand-internal leg | **`bonds_3c2e`** on the fragment |
 
-**No leg of a 3c2e carries an electron pair of its own** — the bridging atom holds it. That is
-what both fields mean, so a consumer treats an entry of `bonds_3c2e` exactly the way it treats an
-M–L leg: nothing on the edge.
-
 ```
-μ-H       M–H–M      2 M–L legs                    ml_bonds ×2 · bonds_3c2e []
-μ-CO      M–CO–M     2 M–L legs                    ml_bonds ×2 · bonds_3c2e []
-κ²-BH₄    B–H···M    1 M–L leg + the B–H           ml_bonds ×1 · bonds_3c2e [(B,H)]   ← ④
-B–H–B     diborane   2 internal legs, no metal     ml_bonds []  · bonds_3c2e ×2       ← ⑥
+μ-H · μ-CO · μ-CH₃   2 M–L legs                  ml_bonds ×2 · bonds_3c2e []
+κ²-BH₄  B–H···M      1 M–L leg + the B–H         ml_bonds ×1 · bonds_3c2e [(B,H)]   ← ④
+B–H–B   diborane     2 internal legs, no metal   ml_bonds []  · bonds_3c2e ×2       ← ⑥
 ```
 
-`bonds_3c2e` is a field of **every** fragment, empty for almost everything. A leg is a bond to a
-centre or to a `B`/`Al` neighbour — T7's `n_center` decomposition — so `μ-CO`'s `C≡O` and
-`μ-CH₃`'s `C–H` are **not** legs: those bridges are spanned by their two metals. Neither is a
-`B–B`: a boron does not bridge to a boron, it bonds to it.
+🔴 **No leg carries an electron pair of its own** — the bridging atom holds it. `bonds_kekule`
+prices an entry of `bonds_3c2e` at 1 so the skeleton draws, but an electron ledger must treat it
+the way it treats an M–L leg: nothing on the edge.
 
-🔴 **A bridging hydrogen is a hydride wherever it sits.** One orbital and one electron cannot
-make two σ bonds, so an H in a bridge never keeps its legs as separate two-centre bonds: κ²-`BH₄`
-and `B₂H₆` both give `[H-]` against a `B(+1)`, the same motif for the same local structure.
-
-An entry of `bonds_3c2e` is a bond `bonds_kekule` prices at 1 — so the skeleton draws — while the
-charge does not (`charge.q_atom`, argument `b_3c`). `draw()` draws every leg of a 3c2e alike,
-orange dashed, M–L legs included.
-
-⚠️ T7's `n_center` decomposition also calls a bond to a `B`/`Al` neighbour a leg when the
-bridging atom is a **carbon** that has a boron partner, and there the bond is an ordinary
-two-centre one. Those are **not** reported: `bonds_3c2e` is the legs that carry no pair, and an
-ordinary bond belongs in `bonds_kekule` alone.
-
-⚠️ A ligand whose bridging atom holds the pair cannot be rebuilt from two-centre bonds, so
-`assemble_complex` refuses it; with two internal legs even its own `smiles_ok` is `False`. Both
-still come out of `complex_smiles`, which writes such a leg as a dative arrow. Read
-`bonds_kekule` + `bonds_3c2e` when you need the skeleton.
+⚠️ Such a fragment cannot be rebuilt from two-centre bonds — `assemble_complex` refuses it, and
+`smiles_ok` is `False` when one atom holds the pair for two legs at once (`B₂H₆`).
+`complex_smiles` still writes it, as a dative arrow.
 
 ### More than one molecule in the input
 
@@ -233,8 +213,8 @@ python examples/draw_examples.py           # redraw the PNGs
 | ⑤ | `05_mm_quadruple_re2cl8` | `[Re₂Cl₈]²⁻` | M–M bond | [json](examples/05_mm_quadruple_re2cl8.result.json) | [png](examples/05_mm_quadruple_re2cl8.png) |
 | ⑥ | `06_diborane_b2h6` | `B₂H₆` (gas phase) | **3c2e with no metal** — `bonds_3c2e`, bridging `[H-]`, `B(+1)`, and no `B–B` | [json](examples/06_diborane_b2h6.result.json) | [png](examples/06_diborane_b2h6.png) |
 
-④ and ⑥ are the two sides of the same rule — a 3c2e bridge with a metal in it and one without.
-See [Where a 3c2e bridge is reported](#where-a-3c2e-bridge-is-reported).
+④ and ⑥ are a 3c2e bridge with a metal in it and one without — see
+[Where a 3c2e bridge is reported](#where-a-3c2e-bridge-is-reported).
 
 To save a result yourself use `save_json(r, path)`, and to read it back `load_json(path)`
 (bond keys `(i, j)` are stored as `"i,j"` and converted back on read).
