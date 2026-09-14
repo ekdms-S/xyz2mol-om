@@ -189,3 +189,58 @@ def test_charge_balance_flags_a_charge_inflated_metal_free_structure():
     assert r2["charge_balance"]["ok"] and r2["charge_balance"]["shortfall"] == 0
     el3, xyz3, wbo3 = _cu_ch3()
     assert predict(el3, xyz3, total_charge=0, wbo=wbo3)["charge_balance"]["shortfall"] is None
+
+# ──────────────────────────────────────────────────────────────────────────────────────────
+#  the acceptor direction — an electron-deficient atom is priced **without** its electron
+# ──────────────────────────────────────────────────────────────────────────────────────────
+#  `q_atom` reads `H₃N→BH₂•` as a neutral boron (`3 − 3 = 0`) when it should be `−1`: boron
+#  spent its three electrons on two `B–H` and the radical, and the third bond's pair came from
+#  the nitrogen. Nothing is mispriced as an anion, so the anion search finds nothing and the
+#  fragment sum comes out **one too high** rather than one too low — `need == −n_unpaired`.
+#  Reported by the flower-om agent: 113 amine-borane / phosphine-borane radicals refused.
+
+_AMINE_BORANE_RADICAL = ["B", "N", "H", "H", "H", "H", "H"], np.array([
+    [0.00, 0.00, 0.00],    # 0 B — three bonds (N, H, H) and the unpaired electron
+    [0.00, 0.00, 1.61],    # 1 N — the dative donor
+    [1.05, 0.00, -0.45],
+    [-1.05, 0.00, -0.45],
+    [0.95, 0.00, 2.00],
+    [-0.48, 0.82, 2.00],
+    [-0.48, -0.82, 2.00],
+])
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_an_electron_deficient_acceptor_takes_the_unpaired_electron():
+    el, xyz = _AMINE_BORANE_RADICAL
+    r = predict(el, xyz, total_charge=0, n_unpaired=1)
+    assert r["radical"]["site"] == "organic"
+    assert r["radical"]["atom"] == 0            # the boron, not the nitrogen
+    assert r["radical"]["sign"] == -1           # it **gains** the electron, 0 → −1
+    assert r["radical"]["note"] == ""
+    assert r["charge_balance"]["ok"], "placing it has to close the shortfall"
+    (fr,) = r["molecules"][0]["fragments"]
+    assert fr["charge"] == 0
+    assert fr["smiles_ok"]
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_same_adduct_closed_shell_is_untouched():
+    # `H₃N→BH₃` has boron at four bonds and is already `[B-]`; nothing to place, nothing to move
+    el = ["B", "N", "H", "H", "H", "H", "H", "H"]
+    xyz = np.array([[0, 0, 0], [0, 0, 1.61], [1.05, 0, -.45], [-.52, .91, -.45],
+                    [-.52, -.91, -.45], [.95, 0, 2.0], [-.48, .82, 2.0], [-.48, -.82, 2.0]])
+    r = predict(el, xyz, total_charge=0, n_unpaired=0)
+    assert r["charge_balance"]["ok"]
+    assert r["molecules"][0]["fragments"][0]["charge"] == 0
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_a_carbon_radical_still_goes_the_other_way():
+    # the original direction: `CH₃•` is mispriced as `CH₃⁻` and the electron **neutralises** it
+    el = ["C", "H", "H", "H"]
+    xyz = np.array([[0, 0, 0], [1.08, 0, 0], [-.54, .93, 0], [-.54, -.93, 0]])
+    r = predict(el, xyz, total_charge=0, n_unpaired=1)
+    assert r["radical"]["site"] == "organic"
+    assert r["radical"]["sign"] == +1
+    assert r["molecules"][0]["fragments"][0]["charge"] == 0

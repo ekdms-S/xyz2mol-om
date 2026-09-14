@@ -68,11 +68,14 @@ salt with its counter-ion — and everything below is solved inside one molecule
                         `None` when a metal is present or no `total_charge` was given). A
                         non-zero one means a bond order was written too low and the missing pi
                         became two lone pairs -- not a real ion.
-    r["radical"]      = {"n_unpaired", "atom", "site", "note"}
+    r["radical"]      = {"n_unpaired", "atom", "site", "sign", "note"}
                         Where the unpaired electron went when `n_unpaired=1`. `site` is
                         `"organic"` (on `atom`), `"metal"` (the oxidation state carries it, and
                         nothing else changed), or `None` with `note` giving the reason it was
-                        refused. See `## Limits` in the README.
+                        refused. `sign` says which way the charge moved: `+1` neutralised an
+                        atom `q_atom` had mispriced as an anion (`CH₃•` read as `CH₃⁻`), `−1`
+                        gave the electron to an electron-deficient acceptor that was priced
+                        without it (`H₃N→BH₂•`, boron read as neutral). See `## Limits`.
     r["total_charge"] = the input total charge (unchanged)
 
 Most fragments are ligands — `ml_bonds` says what they coordinate — but a molecule with no metal
@@ -114,7 +117,7 @@ import numpy as np
 from .charge import (abs_charge_sum, b_3c_of, frag_charge_or_eht, kekulize, octet_fix_period2,
                      pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel,
                      three_c_unpaired_edges)
-from .config import MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
+from .config import FULL, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
@@ -503,7 +506,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #                   same in the graph, and nothing in the input says which is which.
     #   The result still comes back, with the closed-shell answer and `radical["note"]` saying why
     #   — a caller that wants the strict behaviour drops the structure on a non-empty note.
-    radical = {"n_unpaired": n_unpaired, "atom": None, "site": None, "note": ""}
+    radical = {"n_unpaired": n_unpaired, "atom": None, "site": None, "note": "", "sign": +1}
     if n_unpaired:
         bsum = collections.Counter()
         for (i, j), o in orders.items():
@@ -512,6 +515,20 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         free_atoms = [a for m in molecules if not m["metals"] for a in m["atoms"]]
         cand = sorted(a for a in free_atoms
                       if qat_all.get(a, 0) < 0 and VAL.get(el[a], 0) - bsum[a] >= 1)
+        # ★ **the other direction** — an electron-deficient acceptor is priced *without* the
+        #   electron, not with a spurious one. `q_atom` reads `H₃N→BH₂•` as a neutral boron
+        #   (`3 − 3 = 0`) when it should be `−1`: boron spent its three electrons on two `B–H`
+        #   and the radical, and the third bond's pair came from the nitrogen. Nothing is
+        #   mispriced as an anion here, so the loop above finds nothing and the fragment sum
+        #   comes out **one too high** instead of one too low.
+        #     the atom has put **all its own electrons into bonds** (no lone pair to mistake)
+        #     and its shell still has room  ⇒  `v − b == 0` and `2·b < FULL`
+        #   `B`/`Al` at three bonds are the case; a saturated `C` (`8 = 8`) and an amine `N`
+        #   (a lone pair, `5 − 3 = 2`) are both excluded by construction.
+        acc = sorted(a for a in free_atoms
+                     if qat_all.get(a, 0) == 0
+                     and VAL.get(el[a], 0) - bsum[a] == 0
+                     and 2 * bsum[a] < FULL.get(el[a], 8))
         # 🔴 A **structural** formal charge is not a radical site. `q = v + b - 8` writes nitro,
         #   an N-oxide, a diazo and an azide with a negative atom next to its own complementary
         #   positive one, and those pairs are the notation, not an unpaired electron. The
@@ -534,7 +551,14 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             #   the same sum that assignment uses.
             _qf = {fr["atoms"][0]: fr["charge"] for fr in fragments}
             need = total_charge - sum(_qf[i] for m in molecules for i in m["fragments"])
-            if need != n_unpaired:
+            # ★ `need == −n_unpaired` is the acceptor direction: the sum is **one too high**
+            #   because an electron-deficient atom was priced without its electron. Placing it
+            #   lowers the sum, so that is the justified case for `acc`. The positive-neighbour
+            #   exclusion above must not apply — the donor's `+1` is exactly what is expected
+            #   next to `H₃N→BH₂•`, not a nitro-style structural pair.
+            if need == -n_unpaired and acc and not cand:
+                cand, radical["sign"] = acc, -1
+            elif need != n_unpaired:
                 radical["note"] = (
                     f"charge shortfall {need} does not match n_unpaired={n_unpaired} - with no "
                     "metal to absorb it the emitted charges should add up to total_charge, so "
@@ -546,15 +570,17 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         elif not cand:
             radical["site"] = "metal" if mets else None
             if not mets:
-                radical["note"] = ("no site for the unpaired electron - no metal, and no atom of "
-                                   "a metal-free molecule carries a negative charge")
+                radical["note"] = ("no site for the unpaired electron - no metal; no atom of a "
+                                   "metal-free molecule carries a negative charge, and none is "
+                                   "an electron-deficient acceptor with room for one")
         elif len(cand) == 1:
             site = cand[0]
             radical["atom"], radical["site"] = site, "organic"
-            qat_all[site] += 1
+            _d = radical["sign"]          # +1 neutralise a mispriced anion · −1 give an acceptor
+            qat_all[site] += _d
             for fr in fragments:
                 if site in fr["atoms"]:
-                    fr["charge"] += 1
+                    fr["charge"] += _d
                     # the fragment SMILES was written with the anionic charge - redo that one
                     bk = {e: int(o) for e, o in orders.items() if e[0] in set(fr["atoms"])}
                     qat = {a: qat_all[a] for a in fr["atoms"]}
