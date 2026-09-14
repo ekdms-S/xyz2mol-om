@@ -513,8 +513,15 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             bsum[i] += o
             bsum[j] += o
         free_atoms = [a for m in molecules if not m["metals"] for a in m["atoms"]]
-        cand = sorted(a for a in free_atoms
-                      if qat_all.get(a, 0) < 0 and VAL.get(el[a], 0) - bsum[a] >= 1)
+        _neg = sorted(a for a in free_atoms if qat_all.get(a, 0) < 0)
+        cand = sorted(a for a in _neg if VAL.get(el[a], 0) - bsum[a] >= 1)
+        # ★ which negative atoms were **rejected**, and by how much. "no atom carries a negative
+        #   charge" is a different report from "the negative atom it points at has nowhere to put
+        #   the electron", and saying the first when the second is true sends the reader looking
+        #   for a missing charge that is right there. A four-bond `[B-]` is the case: its `−1` is
+        #   structural, and adding an electron would give boron nine.
+        _full = [f"{el[a]}#{a} (q {qat_all.get(a, 0):+d}, {int(bsum[a])} bonds, "
+                 f"v−b = {VAL.get(el[a], 0) - int(bsum[a]):+d})" for a in _neg if a not in cand]
         # ★ **the other direction** — an electron-deficient acceptor is priced *without* the
         #   electron, not with a spurious one. `q_atom` reads `H₃N→BH₂•` as a neutral boron
         #   (`3 − 3 = 0`) when it should be `−1`: boron spent its three electrons on two `B–H`
@@ -570,9 +577,14 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         elif not cand:
             radical["site"] = "metal" if mets else None
             if not mets:
-                radical["note"] = ("no site for the unpaired electron - no metal; no atom of a "
-                                   "metal-free molecule carries a negative charge, and none is "
-                                   "an electron-deficient acceptor with room for one")
+                radical["note"] = (
+                    "no site for the unpaired electron - no metal, and " + (
+                        f"the negative atom(s) present have no room for it: {', '.join(_full)}. "
+                        "A structural charge like a four-bond borate's is not a mispriced "
+                        "radical - adding the electron would put nine on the boron"
+                        if _full else
+                        "no atom of a metal-free molecule carries a negative charge, and none "
+                        "is an electron-deficient acceptor with room for one"))
         elif len(cand) == 1:
             site = cand[0]
             radical["atom"], radical["site"] = site, "organic"
