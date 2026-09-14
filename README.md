@@ -289,9 +289,6 @@ Everything a caller normally needs is re-exported at the top: `from xyz2mol_om i
 read_xyz, draw, save_json`. The subpackages are there for reading the code, and each one's
 `__init__` says what it is for.
 
-The test suite needs no workspace and no network — `pip install -e ".[dev]" && pytest -q`.
-[`tests/README.md`](tests/README.md) says what each file pins.
-
 ## Performance
 
 holdout **6,793 structures** (not used in the fit) · measured **2026-09-14** · reference labels:
