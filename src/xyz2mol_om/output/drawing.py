@@ -54,9 +54,8 @@ MM_COLOR = "#8000a0"
 HIGHLIGHT_COLOR = "#d00000"
 
 # ── projection score weights (`_clutter` · `projection_axes`) ──────────────────────────────────
-# Tuned against the hand-judge set, where the owner could not read several figures. They are
-# **relative**, and the ordering is the point: hiding an atom under the metal is worse than
-# crowding two labels, which is worse than a slightly foreshortened M–L arrow.
+# The weights are **relative**, and the ordering is the point: hiding an atom under the metal is
+# worse than crowding two labels, which is worse than a slightly foreshortened M–L arrow.
 METAL_DISC = 0.62      # metal circle radius, in mean-bond-length units (matches `boxstyle=circle`)
 METAL_OCCLUSION = 6.0  # cost of one labelled atom inside that circle — the largest occluder
 ON_BOND = 1.5          # cost of a labelled atom sitting on a bond it is not part of
@@ -81,23 +80,20 @@ def _import_pyplot():
 def _clutter(pts, bonds, heavy=None, metals=()):
     """How unreadable a 2D layout is. **Lower is better.** Units are "one bad overlap".
 
-    🔴 Rewritten 2026-09-10. The old score counted *pairs of atoms closer than 0.55 mean bond
-    lengths* and nothing else, which is blind to the three things that actually made the
-    hand-judge figures unreadable (owner, on `A_dOS2_no_topo_change__09__P`: "P쪽이 도무지 어떻게
-    생긴건지 모르겠고… atom 들이 너무 겹쳐보이면 내가 인지하기가 어려움"):
+    Three terms:
 
-      ① **it was a step function.** Two atoms at 0.56 scored the same as two atoms 3 Å apart, so
-         a rotation that pulls a pair from "just touching" to "clearly apart" won nothing and the
-         scan had no gradient to follow. Now every pair contributes `(1 − d/lim)²`.
-      ② **the metal's disc was invisible to it.** The metal is drawn as a circle with a bold
-         label, far larger than an atom label, and anything under it is simply gone. An atom
-         inside that disc now costs `METAL_OCCLUSION` each — the dominant term, because it is
-         the one that hides a whole ligand.
-      ③ **an atom sitting on an unrelated bond was free.** That is what makes a bond look like it
-         ends nowhere. A non-incident atom within half a label width of a bond segment now costs.
+      ① **crowding.** Every non-bonded pair closer than `lim = 0.55` mean bond lengths
+         contributes `(1 − d/lim)²` — smooth, so the rotation scan has a gradient to follow.
+      ② **metal occlusion.** The metal is drawn as a circle with a bold label, and anything under
+         it is gone. Each atom inside that disc (`METAL_DISC`) costs up to `METAL_OCCLUSION` — the
+         dominant term, because it is the one that hides a whole ligand.
+      ③ **atoms on bonds.** An atom lying on a bond it is not part of makes that bond look like it
+         ends nowhere; a non-incident atom within `0.30` mean bond lengths of a bond segment
+         costs up to `ON_BOND`.
 
-    `heavy` restricts the pairwise terms to the atoms that get a **label** (non-H, non-metal) —
-    a hydrogen drawn as a small dot is not what ruins a figure, and counting it drowns out ①.
+    `heavy` restricts the scored atoms to the ones that get a **label** (`projection_axes` builds
+    that set) — a hydrogen drawn as a small dot is not what ruins a figure, and counting it
+    drowns out ①.
     """
     if len(bonds) == 0:
         return 0.0
@@ -150,15 +146,14 @@ def projection_axes(xyz, keep, bonds, ml_bonds=(), metals=(), elements=None):
     atom then looks unbonded. Trimming the arrow margins does not help, because what covers the
     line is the label box.
 
-    ⚠️ `metals` and `elements` are optional only so old callers keep working; **pass them.**
+    ⚠️ `metals` and `elements` are optional, but **pass them.**
     Without `metals` the score cannot see the largest occluder on the page, and without
     `elements` it weighs a hydrogen dot as heavily as a labelled heteroatom.
 
     ★ **`xyz` may be a stack** — `(n_frames, n_atoms, 3)`. The axis returned is then the one that
     is best for **every frame at once**, scored as the sum. That is what an R/P pair needs: the
-    two must share an axis to be comparable at all, but optimising the axis on R alone and
-    handing it to P is how `A_dOS2_no_topo_change__09__P` came out unreadable (owner: "P쪽이
-    도무지 어떻게 생긴건지 모르겠고"). Pass `np.stack([xyz_R, xyz_P])` and both are legible.
+    two must share an axis to be comparable at all, and an axis optimised on one frame alone can
+    leave the other unreadable. Pass `np.stack([xyz_R, xyz_P])`.
     `bonds` and `ml_bonds` should then be the **union** over the frames.
     """
     stack = np.asarray(xyz, dtype=float)
@@ -171,8 +166,7 @@ def projection_axes(xyz, keep, bonds, ml_bonds=(), metals=(), elements=None):
     del ref
     # 🔴 M–L bonds count as bonds here. Without them a complex whose ligands are single atoms
     #    (`[Re₂Cl₈]²⁻`: eight Cl⁻, no internal bond anywhere) has an empty bond list, the clutter
-    #    score is 0 for every rotation, and the scan silently returns the first candidate — which
-    #    is how eight chlorides ended up drawn as four superimposed pairs.
+    #    score is 0 for every rotation, and the scan silently returns the first candidate.
     pairs = list(bonds) + [(m, x) for m, x in ml_bonds]
     bb = np.array([[idx[a], idx[b]] for a, b in pairs if a in idx and b in idx], dtype=int)
     if bb.size == 0:
@@ -180,14 +174,10 @@ def projection_axes(xyz, keep, bonds, ml_bonds=(), metals=(), elements=None):
     mset = {idx[m] for m in metals if m in idx}
     lab = None
     if elements is not None:
-        # 🔴 Hydrogen is left out of the pairwise overlap term because a terminal H is a small
-        #    dot and counting every one of them drowns out the labelled atoms. But `keep` has
-        #    **already dropped** the terminal H — an H that survives to be drawn is one bonded to
-        #    a centre or inside a 3c2e bridge, which is the thing the figure exists to show.
-        #    Leaving those out let two of them land on the *same point* for free: `Me₂Ga(BH₄)`
-        #    drew one bridging H where there are two (a κ¹ borohydride, which is a different
-        #    compound), and `B₂H₆` drew five hydrogens. Count an H that is bonded to something in
-        #    `mset`, or that has two or more neighbours among the atoms being drawn.
+        # 🔴 A plain H is left out of the scored set — it is a small dot, and counting every one
+        #    drowns out the labelled atoms. An H bonded to a centre or with two or more neighbours
+        #    among the drawn atoms (a 3c2e bridge) **is** counted: it is what the figure exists to
+        #    show, and leaving it out lets two bridging H land on the same point unpenalised.
         _deg = collections.Counter()
         for a, b in pairs:
             if a in idx and b in idx:
@@ -198,9 +188,8 @@ def projection_axes(xyz, keep, bonds, ml_bonds=(), metals=(), elements=None):
                if k not in mset and (elements[a] != "H" or a in _onm or _deg[a] >= 2)}
     mlb = np.array([[m, x] for m, x in ml_bonds], dtype=int) if len(ml_bonds) else None
     best, score = vt[:2], None
-    # 🔴 The scan is 24 × 24, not 13 × 13. With the smooth score there is a gradient to follow,
-    #    and the extra resolution is what finds the rotation that clears the metal disc — the
-    #    coarse grid regularly missed it by a few degrees. Cost is ~0.02 s for a 100-atom complex.
+    # 🔴 The scan is 24 × 24 — the resolution needed to find the rotation that clears the metal
+    #    disc; a coarser grid can miss it by a few degrees.
     for th in np.linspace(0, np.pi, 24, endpoint=False):
         for ph in np.linspace(0, np.pi, 24, endpoint=False):
             ct, st, cp, sp = np.cos(th), np.sin(th), np.cos(ph), np.sin(ph)
@@ -260,13 +249,10 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
         nbr.setdefault(b, set()).add(a)
     # ★ Which H to draw. The skeletal convention: **an H on carbon is implied, an H on a
     #   heteroatom is written.** N–H · O–H · S–H are exactly what fix the formal charge, and a
-    #   reader cannot check a charge they cannot see — an amido `Ar–N(H)⁻` looked like a nitrogen
-    #   with one bond and an unexplained minus (owner, on `B_ML_type_flip_only__07__P`: "여기서
-    #   N은 왜 N-지? 결합이 ML 제외하고 한개밖에 없잖아").
+    #   reader cannot check a charge they cannot see (an amido `Ar–N(H)⁻` would look like a
+    #   nitrogen with one bond and an unexplained minus).
     #   Kept for the same reason: an H bound to a metal, and a **highlighted** H — `highlight`
-    #   means "look here", so hiding its atom defeats the argument. An R/P pair whose only change
-    #   is a proton transfer came out as two identical-looking skeletons with a red bond floating
-    #   at nothing.
+    #   means "look here", so hiding its atom would leave a red bond pointing at nothing.
     _hlatoms = {a for e_ in hl for a in e_}
     hide = {
         i for i, e in enumerate(el)
@@ -279,11 +265,12 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
         projection = projection_axes(xyz, keep, list(kek), list(ml), list(met), el)
     pos = xyz @ projection.T
 
-    # ★ **떨어져 있는 분자는 그림에서도 떼어 놓는다.** 하나의 투영으로는 서로 다른 분자가
-    #   겹쳐 그려지는 일이 잦고, 그러면 어느 선이 어느 분자의 것인지 읽을 수가 없다.
-    #   분자마다 **평행이동만** 한다 — 회전도 축소도 하지 않으므로 **분자 안의 기하는 그대로**다.
-    #   ⚠️ 잃는 것은 **분자 사이의 상대 위치**다. 해리해 나가는 조각이 얼마나 멀어졌는지는 이
-    #   그림으로 못 읽는다 — 그 값이 필요하면 좌표를 봐야 한다.
+    # ★ **Separate molecules are laid out side by side.** In one projection they often overlap,
+    #   and then no one can tell which line belongs to which molecule.
+    #   Each molecule is **translated only** — no rotation or scaling — so the geometry **within**
+    #   a molecule is unchanged.
+    #   ⚠️ What is lost is the **relative position between molecules** (e.g. how far a
+    #   dissociating fragment has moved); read that from the coordinates.
     _mols = [[i for i in mol["atoms"] if i in set(keep)] for mol in result["molecules"]]
     _mols = [m for m in _mols if m]
     if len(_mols) > 1:
@@ -351,17 +338,15 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
             k = 0.55 * length / (sa + sb)
             sa, sb = sa * k, sb * k
         kind = d.get("type", "sigma")
-        # 🔴 **`3c2e` 만 갈색 파선이다.** T7 의 `bridge` 태그는 두 갈래인데(`3c2e` · `dative`),
-        #   갈색이 뜻하는 것은 «2중심 형식 밖의 결합» 즉 3c2e 다. `dative` 는 그냥 주개 결합이고
-        #   (μ-Cl 의 3c4e, 또는 `MLIKE_EXTRA={B,Al}` 때문에 보론산의 `B–O(H)→M` 까지 걸린다),
-        #   그것을 같은 갈색으로 그리면 3c2e 와 구별이 안 된다 — 오너 지적 2026-09-11:
-        #   "bridge 여도 3c2e 에 해당하는 것만 갈색으로 그리고, 그 외는 dative 와 같은 색으로".
+        # 🔴 **Only `3c2e` is orange dashed.** T7's `bridge` tag has two values (`3c2e` ·
+        #   `dative`), and orange dashed means a bond outside two-centre form, i.e. 3c2e. A
+        #   `dative` bridge is an ordinary donor bond (μ-Cl, or a boronic acid's `B–O(H)→M` via
+        #   `MLIKE_EXTRA={B,Al}`) and is drawn like `sigma`, so the two stay distinguishable.
         if kind == "bridge" and d.get("bridge") != "3c2e":
             kind = "sigma"
-        # ★ haptic·bridge 는 σ 보다 굵고 위에 그린다. 이들은 **점선·파선**이라 같은 굵기면
-        #   실선보다 훨씬 옅게 읽히고, 하필 η² 의 두 선은 강조된(`lw` 3.0 빨간) π 결합 바로
-        #   옆에 놓이는 일이 잦다 — 오너가 η² 를 η¹ 로 읽은 것이 그 경우였다. 두 선 다
-        #   그려져 있었지만 굵은 빨간 선에 묻혔다.
+        # ★ haptic and 3c2e arrows are drawn thicker than σ and on top. Being **dotted/dashed**,
+        #   at the same width they read much fainter than a solid line, and the two lines of an
+        #   η² often sit right next to a highlighted (`lw` 3.0 red) π bond that would bury them.
         thick = kind != "sigma"
         ax.annotate(
             "", xy=pos[m], xytext=pos[x], zorder=3 if thick else 1,
@@ -373,18 +358,14 @@ def draw(elements, coords, result, out, *, title="", subtitle=None, highlight=()
 
     # per-atom formal charge, recomputed with the library's own rule — the ligand total alone
     # would not say which atom carries the charge
-    # ★ **H 도 전하를 받는다.** 하이드라이드는 이온 절단하면 `H⁻` 이고, 그것이 금속 산화수를
-    #   1 올린 이유인데, 그리지 않으면 독자가 그 +1 이 어디서 왔는지 알 길이 없다 (오너, on
-    #   `C_acyclic_DS_flip__02__P`: "왜 W가 +1이지? H- 때문에?"). 탄소에 붙어 안 그려지는 H 는
-    #   `keep` 에 없으므로 애초에 여기 오지 않는다.
-    #   ⚠️ 조각(리간드) 전하를 **별도 배지**로 그리는 것도 해봤고 **되돌렸다** — 원소 옆 윗첨자가
-    #   이미 같은 정보를 담고 있어 중복이고, 배지가 그 원소를 가려서 오히려 못 읽게 된다
-    #   (오너: "그냥 원소에 윗첨자로 전하 달면 되잖아"). 조각 합계는 부제에 남아 있다.
-    # 🔴 `n_ml` 을 넘겨야 한다. `q_atom` 의 카벤 분기는 **금속에 배위했는지**로 갈린다 —
-    #   자유 카벤 `:CR₂` 는 중성 6전자지만, 금속에 붙은 같은 탄소는 Schrock 알킬리덴이라
-    #   이온 절단 규약에서 `C²⁻` 다. 안 넘기면 배위한 알킬리덴이 **중성으로 그려져서**,
-    #   부제의 조각 전하(−2)와 그림 위의 전하(0)가 어긋난다
-    #   (오너, `B_ML_type_flip_only__05__R`: "이건 아예 전하가 사라져버렸네").
+    # ★ **H gets a charge label too.** Under ionic cleavage a hydride is `H⁻`, which is what
+    #   raises the metal's oxidation state by 1; without the label the reader cannot see where
+    #   that +1 came from. A hidden H (on carbon) is not in `keep`, so it never reaches here. The
+    #   fragment (ligand) totals are in the subtitle.
+    # 🔴 `n_ml` must be passed. `q_atom`'s carbene branch depends on **whether the carbon is
+    #   coordinated** — a free carbene `:CR₂` is neutral, but the same carbon on a metal is a
+    #   Schrock alkylidene, `C²⁻` under ionic cleavage. Without it a coordinated alkylidene is
+    #   drawn neutral and the atom labels disagree with the subtitle's fragment charge.
     _coord = {x for _m, x in (k if isinstance(k, tuple)
                               else tuple(int(t) for t in str(k).split(","))
                               for k in ml)}

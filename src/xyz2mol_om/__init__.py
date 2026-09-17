@@ -24,8 +24,8 @@ __all__ = [
     "all_metals",
     "all_fragments",
     # small helpers a caller needs to feed `predict` — reading an xyz file and
-    # asking which elements this pipeline treats as metals (`METALS` no longer holds B; `METALS_HARD` is a legacy alias
-    # does not · `RCOV` are the covalent radii the connectivity uses)
+    # asking which elements this pipeline treats as metals (`METALS`, which excludes B;
+    # `METALS_HARD` is an alias of it · `RCOV` are the covalent radii the connectivity uses)
     "read_xyz",
     "METALS",
     "METALS_HARD",

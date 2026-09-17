@@ -126,14 +126,14 @@ def verify_roundtrip(smi, el, atoms, bonds, charges):
 # ══════════════════════════════════════════════════════════════════════════════
 # ★ complex SMILES — the **whole complex** including metals
 #   M-L bonds are **all written as dative arrows** (`->`). Bond order is collapsed here (every M-L
-#   is a single arrow); the real order stays in `ml_bonds[(m,x)]["order"]` — owner's decision.
-#   🔴 **The arrow is a connectivity marker only.** It must not change any formal charge (owner,
-#) — every atom charge is stamped with our `q_atom` / oxidation state as-is, and
+#   is a single arrow); the real order stays in `ml_bonds[(m,x)]["order"]`.
+#   🔴 **The arrow is a connectivity marker only.** It must not change any formal charge — every
+#      atom charge is stamped with our `q_atom` / oxidation state as-is, and
 #      `verify_complex` enforces that via the **(element, charge) multiset**. RDKit is locked out
 #      of reassigning them.
-#   Why dative: RDKit's `BondType.DATIVE` **is not counted toward the donor's valence** (measured —
-#   an `N` with 3 σ bonds + 1 dative passes sanitize at charge 0). Our `q_atom` already reflects the
-#   electron-pair donation as a charge, so writing M-L as a normal bond would count the donor twice.
+#   Why dative: RDKit's `BondType.DATIVE` **is not counted toward the donor's valence**. Our
+#   `q_atom` already reflects the electron-pair donation as a charge, so writing M-L as a normal
+#   bond would count the donor twice.
 #   The arrow points **ligand -> metal** (donor -> acceptor).
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -204,8 +204,8 @@ def verify_complex(smi, el, atoms, bonds, charges, ml_pairs, mm_bonds=(), total_
     Checked — **(element, formal charge) multiset · normal-bond order multiset · dative count ·
     implicit H = 0**.
     🔴 Charge is checked **per atom, not as a sum** — the dative arrow is only a connectivity
-       marker and must not change a single one of the formal charges we stamped (owner,
-       A sum-only check misses a charge that moved to a different atom.
+       marker and must not change a single one of the formal charges we stamped. A sum-only
+       check misses a charge that moved to a different atom.
     If `total_charge` is given, it also checks that **the charge sum equals it** (⚠️ a residual
     charge that the skeleton cannot express, such as an even-ring dianion, is caught here — see
     `residual_charge`).
@@ -217,10 +217,10 @@ def verify_complex(smi, el, atoms, bonds, charges, ml_pairs, mm_bonds=(), total_
         Chem.SanitizeMol(m, sanitizeOps=_SANI, catchErrors=True)
     except Exception:
         return False, "sanitize failed"
-    # 🔴 **The arrow is a connectivity marker only — it must not change a single charge**
-    #. So the check is the **(element, formal charge) multiset**, not the
-    #   sum. A sum-only check cannot catch a `+1` that moved to a different atom. This check
-    #   doubles as the composition check.
+    # 🔴 **The arrow is a connectivity marker only — it must not change a single charge.**
+    #   So the check is the **(element, formal charge) multiset**, not the sum. A sum-only check
+    #   cannot catch a `+1` that moved to a different atom. This check doubles as the composition
+    #   check.
     want_q = sorted((el[a], int(round(charges.get(a, 0)))) for a in atoms)
     got_q = sorted((a.GetSymbol(), a.GetFormalCharge()) for a in m.GetAtoms())
     if want_q != got_q:
@@ -252,12 +252,11 @@ def verify_complex(smi, el, atoms, bonds, charges, ml_pairs, mm_bonds=(), total_
         return False, "RDKit added implicit H"
     # 🔴 A bridging H is expressible here **only through the arrows**: `M<-[H-]->M` writes the
     #   three-centre bond without ever giving H two σ bonds, so the count is over **non-dative**
-    #   bonds and a μ-H on metals still passes. An all-internal bridge has no arrow to hide in —
-    #   `B–H–B` puts a ligand atom on both sides, so both legs come out as ordinary single bonds
-    #   and the H really is two-σ-bonded. RDKit says so (`Explicit valence for B, 4, is greater
-    #   than permitted`) but `catchErrors=True` swallows it, so it has to be caught here.
-    #   `verify_roundtrip` runs the same rule with no arrows to exclude; the two agreeing is the
-    #   point — a `smiles_ok` that differs between a fragment and its molecule cannot be read.
+    #   bonds and a μ-H on metals passes. An all-internal bridge (`B–H–B`) has no arrow, so both
+    #   legs are ordinary single bonds and the H is two-σ-bonded. RDKit's valence error for that
+    #   is swallowed by `catchErrors=True`, so it is caught here.
+    #   Keep in sync with the same rule in `verify_roundtrip` (no arrows to exclude there), so a
+    #   fragment and its molecule always agree on `smiles_ok`.
     for a in m.GetAtoms():
         if a.GetSymbol() != "H":
             continue

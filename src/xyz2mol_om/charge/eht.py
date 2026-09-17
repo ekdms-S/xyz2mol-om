@@ -16,9 +16,9 @@ from ..config import EHT_CUTOFF, METALS, _EHT_VE
 def eht_frag_charges(el, xyz, G):
     """Extended Hückel **charge per connected component (= ligand fragment)**.
 
-    Returns {min atom idx of fragment: q}. Ported verbatim from xyz2mol_tm
-    `get_proposed_ligand_charge` (HOMO/LUMO correction loop included) —
-    cf/code/xyz2mol_tm/.../xyz2mol_tmc.py:227. A fragment that fails gets no key.
+    Returns {min atom idx of fragment: q}. Same algorithm as xyz2mol_tm's
+    `get_proposed_ligand_charge` (HOMO/LUMO correction loop included). A fragment that fails
+    gets no key.
     """
     from rdkit import Chem, RDLogger
     from rdkit.Chem import rdEHTTools

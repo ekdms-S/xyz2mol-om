@@ -50,13 +50,13 @@ salt with its counter-ion — and everything below is solved inside one molecule
               "charge":       int,          fragment charge q_L
               "residual_charge": int | None,  charge the skeleton cannot express (if any)
               "pi_suppressed": [(i,j), ...],  bonds ⑥ wrote `Single` between two anionic atoms
-                                            (⚠️ a charge ⑥ *could* have cancelled by moving a π
-                                            along an alternating path is not reported here — it
-                                            is **corrected**, see `config.QSHIFT`)
                                             where the ③ likelihood preferred `Double`. **A flag,
                                             not a correction** — each one means this fragment's
                                             charge is 2 too negative and, on a metal-bearing
                                             molecule, the metal's oxidation state 2 too high.
+                                            (⚠️ a charge ⑥ *could* have cancelled by moving a π
+                                            along an alternating path is not reported here — it
+                                            is **corrected**, see `config.QSHIFT`.)
                                             Empty for almost every fragment; see `## Limits`
           }, ... ],
       }, ... ]
@@ -85,10 +85,9 @@ has one fragment that coordinates nothing, and that is how a free organic molecu
 🔴 **How the charge is split.** A metal-free molecule's charge is its formal-charge sum, so with
    exactly one metal-bearing molecule the remainder is exact. With two or more it is spread evenly
    over their metals and everything derived from it is flagged: `oxidation_is_exact` False,
-   the molecule `charge` None, and `smiles_note` says so. Solving over the whole input instead
-   would average one molecule's charge into another's metals — `CpTiCl3` alone is Ti(IV) and
-   `[Os(CO)3Cl3]-` is Os(III), but fed together they came out Ti(III)/Os(III) with the sum still
-   right and every check passing.
+   the molecule `charge` None, and `smiles_note` says so. Pooling the whole input would silently
+   average one molecule's charge into another's metals; the flags mark the one case where the
+   split cannot avoid it.
 🔴 **A metal's formal charge is its oxidation state.** Without `total_charge` there is no
    oxidation state, so the molecule SMILES is not built either (the reason goes in `smiles_note`).
 🔴 **The M–L orders are collapsed in the molecule SMILES.** An oxo `M=O` and a nitrido `M≡N` both
@@ -209,14 +208,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     for ii in range(len(idx)):
         for jj in range(ii + 1, len(idx)):
             a, b = idx[ii], idx[jj]
-            # 🔴 Two guards apply **first** (aligned · same as the scorer):
+            # 🔴 Two guards apply **first** (same as the scorer):
             #   ① `H–H` is never a candidate
             #   ② `d > 1.8·(r_cov(a)+r_cov(b))` is not a candidate — an element pair with **no**
             #      fitted cutoff uses the global fallback `d_int = 2.0542 Å`, which is so long
-            #      that it **turns hydrogen-bond contacts into covalent bonds.** Measured
-            #      (`DEKKEJ` ·): 12 `F···H` contacts at 1.99 Å were taken as bonds
-            #      (a covalent `F–H` is 0.92 Å and is absent from the reference labels). Those 12
-            #      joined ligand fragments together and flipped 4 `C=O` bonds to `Single`.
+            #      that it would **turn hydrogen-bond contacts into covalent bonds** (an `F···H`
+            #      contact at 1.99 Å against a covalent `F–H` of 0.92 Å).
             if el[a] == "H" and el[b] == "H":
                 continue
             d_ab = float(np.linalg.norm(xyz[a] - xyz[b]))
@@ -231,9 +228,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   `R₂B(μ-H)₂BR₂` has `2·3 + 2·1 + 4·1 = 12` valence electrons and the 4 B–R bonds (8 e)
     #   plus the 2 bridges (4 e) already spend all 12 — a B–B would need 14.
     #   The condition is deliberately narrow: **two bridging H and no third boron.** A cage B
-    #   keeps every bond it has, which is what the 88 % of bridged `B–B` in the reference that
-    #   sit inside a polyhedron need (263 of 299). The 12 reference structures this disagrees
-    #   with are the diborane motif itself, where the electron count above is the argument.
+    #   keeps every bond it has.
     _bs = [i for i in idx if el[i] == "B"]
     for _u in range(len(_bs)):
         for _v in range(_u + 1, len(_bs)):
@@ -259,12 +254,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             dbond[(r["M"], r["X"])] = (float(r["d_bond"]), float(r["w_veto"]))
     ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo, cen)
 
-    # ③④⑤ T3 · M–L orders · T5 (haptic) · R7 — **one function** produces all of it
-    #.
-    #   Why the caller does not assemble it: whether haptic and agostic are removed from the
-    #   budget, how the M–L order candidates are chosen, and what T5's Y candidates are were each
-    #   assembled differently per caller, and that diverged from the scorer in **four places**
-    #   (measured · (`docs/PIPELINE.md`). Now only `ml_raw` and `wbo` are passed in.
+    # ③④⑤ T3 · M–L orders · T5 (haptic) · R7 — **one function** produces all of it.
+    #   The caller does not assemble the pieces (whether haptic and agostic are removed from the
+    #   budget, the M–L order candidates, T5's Y candidates), so they cannot diverge from the
+    #   scorer; only the T4 candidates `ml_raw` and `wbo` are passed in.
     q_eht = eht_frag_charges(el, xyz, G)
     # `w_raw` is the ③ likelihood margin `score[Double] − score[Single]` **before** ④'s
     #   `CAPINESS` penalty is folded into `w`. Only the π-suppression report reads it.
@@ -274,14 +267,15 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                                                       w_raw_out=w_raw)
     # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
     # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
-    # 🔴 Before this loop had no 3c2e term at all, so ⑥ could undo what ④ allowed.
+    # 🔴 This must stay the same budget as ④'s, 3c2e term included, or ⑥ can undo what ④
+    #   allowed.
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
     bml = bml_budget([p for p in ml_pred if p not in hap], three_c)
 
-    # ★ 거리 적합 판정자 — «차수를 하나 올리면 결합 길이가 더 잘 맞는가».
-    #   🔴 새 상수를 만들지 않는다. `scores4` 에는 원소쌍·클래스별 **결합 길이 중앙값** `med`
-    #   가 이미 들어 있고(③ 의 거리 우도가 쓰는 바로 그 표), 판정은 두 중앙값 중 어느 쪽이
-    #   가까운지를 비교하는 것뿐이라 문턱이 없다.
+    # ★ distance-fit test — «does the bond length fit the `new` order better than `cur`».
+    #   🔴 No new constant. `scores4` already holds the per-element-pair, per-class **bond-length
+    #   median** `med` (the same table ③'s distance likelihood uses), and the test only asks which
+    #   of the two medians is closer, so there is no threshold.
     def _fits(a, b, cur, new, strict=False):
         ent = sc4.get(tuple(sorted((el[a], el[b]))))
         if not ent:
@@ -295,10 +289,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         d = float(np.linalg.norm(xyz[a] - xyz[b]))
         if not strict:
             return abs(d - mn) < abs(d - mc)
-        # 🔴 **M–L 을 끊을 때는 «더 가깝다» 만으로 부족하다.** 실측(holdout)에서 그것만 쓰면
-        #   카보란 `B–C`(Mayer 0.92) · `Os–C`(0.77) · CSD 가 `Double` 이라 부르는 Fe 카벤까지
-        #   **24 개**가 잘렸다. 그래서 «현재 차수가 그 분포 **밖**» 을 더 요구한다. `scl` 은
-        #   ③ 이 이미 쓰는 클래스별 폭이라 새 상수가 아니다.
+        # 🔴 `strict` (used when cutting an M–L): «closer» alone would cut genuine bonds, so it
+        #   also requires the length to lie **outside** the current order's distribution (more
+        #   than one class width `scl` from its median). `scl` is ③'s per-class width, not a new
+        #   constant.
         sc_c = scl.get(ci[cur])
         if sc_c is None or abs(d - mc) <= sc_c:
             return False
@@ -308,25 +302,27 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     orders, frag_q = kekulize(G, el, cls, dict(bml), w)
     if NOCTET:
         octet_fix_period2(el, G, orders)
-    # ★ `QSHIFT` — 같은 골격 위에 |전하| 가 더 작은 유효한 배치가 있으면 π 를 옮긴다
+    # ★ `QSHIFT` — move a π when the same skeleton has a valid arrangement with a smaller |charge|
     shift_pi_to_cancel(orders, el, G, bml, {x for _m, x in ml_pred}, fit=_fits)
-    # 🔴 **이동 뒤에 한 번 더.** (a″) 는 «N 은 다섯 결합을 못 가진다» 는 규칙인데, `QGEM` 이
-    #   나이트로기의 두 `N–O` 를 같이 올리면 `N(=O)=O`(b 5) 가 다시 만들어진다. 그러면 파이프라인
-    #   내부 전하는 N 0 인데 RDKit 은 `[N+](=O)[O-]` 로 읽어 **(원소, 전하) 다중집합이 어긋난다**
-    #   — Gold-DIGR 재처리에서 `smiles_not_ok` 가 10 → 42 로 늘어난 것이 전부 이 꼴이었다.
+    # 🔴 **Once more after the shift.** (a″) is the rule «N cannot have five bonds», and `QGEM`
+    #   raising both `N–O` of a nitro group recreates `N(=O)=O` (b 5). The pipeline's charge on
+    #   that N is 0, but RDKit reads `[N+](=O)[O-]`, so the **(element, charge) multiset** check
+    #   of the SMILES would fail.
     if NOCTET:
         octet_fix_period2(el, G, orders)
 
-    # ★ `SIGCUT` — σ M–L 하나가 인접 음이온 쌍의 상쇄를 막고 있으면 그 M–L 을 빼고 **다시 푼다.**
-    #   ⑥ 뒤에서 차수만 고칠 수는 없다 — M–L 이 빠지면 haptic 집합 · η · 예산 · 조각 분할이 전부
-    #   달라지므로, ③④⑤⑥ 을 통째로 다시 돌려야 답이 서로 어긋나지 않는다. 비용은 이 신호가 걸린
-    #   구조에서만 드는 두 번째 풀이 한 번이다 (Gold-DIGR 프레임의 5.5%).
+    # ★ `SIGCUT` — when one σ M–L blocks the cancellation of an adjacent anion pair, drop that
+    #   M–L and **solve again.** Patching orders after ⑥ is not enough — removing an M–L changes
+    #   the haptic set · η · the budget · the fragment split, so ③④⑤⑥ are rerun as a whole to
+    #   keep the answers consistent. The second solve runs only on structures that raise this
+    #   signal.
     _eta: set = set() if SIGETA else None
     _cut = sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap, wbo=wbo,
                                     fit=lambda *t: _fits(*t, strict=True), eta_out=_eta)
     if _cut or _eta:
-        # ★ `SIGETA` 의 짝 원자는 T4 후보에 **없다** (그것이 애초에 짝이 안 만들어진 이유다).
-        #   그래서 후보로 넣어 주고, `force_hap` 으로 둘 다 haptic 이 되게 한다.
+        # ★ a `SIGETA` partner atom is **not** among the T4 candidates (which is why no η² pair
+        #   formed on the first pass), so it is added as a candidate and `force_hap` makes both
+        #   atoms haptic.
         _keep = [p for p in ml_raw if p not in _cut]
         _keep += [p for p in (_eta or ()) if p not in _keep]
         _wraw = {}
@@ -341,28 +337,26 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         shift_pi_to_cancel(_orders, el, G, _bml, {x for _m, x in _mlp}, fit=_fits)
         if NOCTET:
             octet_fix_period2(el, G, _orders)
-        # 🔴 **실제로 줄 때만 채택한다** — `QSHIFT` 와 같은 규율. M–L 을 끊는 것은 T4 의 판정을
-        #   뒤집는 일이므로, 전하가 나아지지 않으면 원래 답을 그대로 둔다.
+        # 🔴 **Accepted only if it actually lowers the total |charge|** — the same rule as
+        #   `QSHIFT`. Cutting an M–L overrides T4, so without an improvement the first answer stands.
         if abs_charge_sum(_orders, el, G) < abs_charge_sum(orders, el, G):
             cls, mlout, hap, ml_pred, btag, w = _cls, _mlout, _hap, _mlp, _btag, _w
             three_c, bml, orders, frag_q = _three, _bml, _orders, _frag_q
             w_raw.clear()
             w_raw.update(_wraw)
 
-    # ⑦ M–M bonds (those T4 called with a metal at both ends) — the order is left at 1 because
-    #   no distance boundary is implemented yet
+    # ⑦ M–M bonds (those T4 called with a metal at both ends) — the order is always 1; there is
+    #   no distance boundary for higher M–M orders
     mets = sorted(cen)
     mm = {}
     for a in range(len(mets)):
         for b in range(a + 1, len(mets)):
             m1, m2 = mets[a], mets[b]
             d = float(np.linalg.norm(xyz[m1] - xyz[m2]))
-            # 🔴 `d_bond` stores a **heteronuclear** metal pair in one direction only, so the key
-            #   has to be tried both ways. Every genuine M–M pair in the table used to be
-            #   homonuclear (`Fe,Fe`), which hid this: the only heteronuclear entries are
-            #   `(TM, B)`, and `mets` is in **atom-index** order, so a B whose index came first
-            #   looked up `('B','Pd')`, missed, and fell back to the RCOV estimate — 3.17 Å
-            #   against the fitted 2.498 Å, which invents M–M bonds.
+            # 🔴 `d_bond` stores a **heteronuclear** metal pair in one direction only, and `mets`
+            #   is in **atom-index** order, so the key has to be tried both ways. A miss falls
+            #   back to the RCOV estimate, which is far longer than a fitted cutoff and invents
+            #   M–M bonds.
             tb, wv = dbond.get(
                 (el[m1], el[m2]),
                 dbond.get(
@@ -373,10 +367,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             if d < tb and (wbo or {}).get((m1, m2), (wbo or {}).get((m2, m1), 1.0)) > wv:
                 mm[(m1, m2)] = 1
 
-    # ★ the ligand-internal legs of an **all-internal** 3c2e bridge — `B–H–B` and nothing else
-    #   (`charge.three_c_internal_edges` states the rule). They carry one pair between three
-    #   centres, so the charge must not price them as two 2c-2e bonds; a bridge reached through
-    #   the metal keeps its charge — see `three_c_unpaired_edges`.
+    # ★ the ligand-internal 3c2e legs that carry **no electron pair of their own** — a bridging
+    #   H's legs, or an atom with two internal legs (`charge.three_c_unpaired_edges` states the
+    #   rule). One pair spans three centres, so the charge must not price them as two 2c-2e bonds.
     three_c_leg = three_c_unpaired_edges(el, G, btag)
     b3_int = b_3c_of(G, orders, three_c_leg)
 
@@ -384,7 +377,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     NAME4 = {0: "Single", 1: "Double", 2: "Triple", 3: "Conj"}
     hapset = {(min(a, b), max(a, b)) for a, b in hap}
     # T7 (`docs/PIPELINE.md`) — bridge tags `{coordinating atom: "3c2e" | "dative"}`.
-    # 🔴 Taken from `predict_T3_T5` rather than recomputed: the rule now reads the
+    # 🔴 Taken from `predict_T3_T5` rather than recomputed: the rule reads the
     # **pass-1** internal orders, which only that function has, and reusing its result is what
     # guarantees the output tag and the ④·⑥ budget cannot diverge.
     coord_of = collections.defaultdict(set)  # fragment representative -> coordinating atoms
@@ -398,8 +391,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         b4 = {e: NAME4[v] for e, v in cls.items() if e[0] in cs}
         bk = {e: int(o) for e, o in orders.items() if e[0] in cs}
         # 🔴 For a cluster fragment (carborane and the like) the formal-charge sum cannot be
-        #    trusted — use the EHT fragment charge. For the rule and its evidence see the
-        #    `charge.is_cluster_frag` comment.
+        #    trusted — use the EHT fragment charge. For the rule see `charge.is_cluster_frag`.
         coord = sorted({x for _m, x in ml_pred if x in cs})
         qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord),
                                       three_c_leg))
@@ -422,8 +414,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         mlb_out = {}
         eta_out = {}
         # 🔴 `ml_pred`, not `ml_raw` — the agostic `C–H···M` contacts that T4 removes must not
-        #   reappear in the output. They used to, so `ml_bonds` disagreed with the molecule's
-        #   SMILES, which is built from `ml_pred`.
+        #   reappear in the output, and `ml_bonds` must agree with the molecule's SMILES, which
+        #   is built from `ml_pred`.
         for m, x in ml_pred:
             if x not in cs:
                 continue
@@ -437,13 +429,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             mlb_out[(m, x)] = {
                 "type": "haptic" if is_h else ("bridge" if br else "sigma"),
                 "order": None if is_h else int(mlout.get((m, x), 0)) + 1,
-                "bridge": br,  # None | "3c2e" | "dative"  (T7 · (`docs/PIPELINE.md`)
+                "bridge": br,  # None | "3c2e" | "dative"  (T7 · `docs/PIPELINE.md`)
             }
         # 🔴 η^k is counted **per ligand**. Both the scorer
         #    (`len(comp ∩ hall)`) and the reference labels (`n_haptic_bound`) are per ligand.
-        #    Counting per π fragment splits η, because a 5-ring turned Kekule by R2/R3 **breaks
-        #    into 2 fragments** — `ZEGVIQ` has all 5 M–L bonds haptic yet the old count gave
-        #    **η2** (truth η5 · measured).
+        #    Counting per π fragment would split η, because a 5-ring turned Kekule by R2/R3 can
+        #    **break into 2 fragments** — an η5 ring would be reported as η2.
         for m in {m0 for m0, x0 in hap if x0 in cs}:
             eta_out[m] = sum(1 for m0, x0 in hap if m0 == m and x0 in cs)
         fragments.append({
@@ -470,9 +461,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # -- molecules. The input may hold **several disconnected molecules** — an IRC endpoint where
     #   the product has separated, a salt with its counter-ion, a solvate. Splitting them matters
     #   for more than tidiness: the oxidation state is `(charge - sum q_L) / n_metals`, and run
-    #   over the whole input that averages one molecule's charge into another's metals. Measured:
-    #   `CpTiCl3` alone gives Ti(IV) and `[Os(CO)3Cl3]-` alone gives Os(II), but fed together they
-    #   come out Ti(III) and Os(III) — both wrong, the sum still right, and every check passing.
+    #   over the whole input that would average one molecule's charge into another's metals.
     mol_of = _molecule_of(el, cls, ml_pred, mm)
     molecules = []
     for mi in sorted(set(mol_of.values())):
@@ -489,13 +478,13 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   `q_atom` already points at the right atom; what it gets wrong is the **pricing** — an
     #   unpaired electron is read as a lone pair, so `CH3•` comes out `CH3-`. With a metal in the
     #   structure that invented `-1` is cancelled by a `+1` on the metal, so the total is right
-    #   while the oxidation state is not: `Cu(I)Cl + CH3•` came out as Cu(II).
+    #   while the oxidation state is not: `Cu(I)Cl + CH3•` would read as Cu(II).
     #
     #   Placement — candidates are atoms of a **metal-free molecule** carrying a negative charge
     #   **that can still hold the electron**: neutralising the atom must leave it a non-bonding
     #   place to put it, `v(X) - b_int(X) >= 1`. A borate's `-1` fails that (B with four bonds:
     #   `3 - 4 = -1`) because the charge is structural, not a mispriced radical -- neutralising it
-    #   produced a neutral four-bond boron that RDKit rejects outright. Same for a six-bond P.
+    #   would give a neutral four-bond boron that RDKit rejects outright. Same for a six-bond P.
     #   A carbanion passes (`4 - 3 = 1`), and so does a bare halide (`7 - 0 = 7`).
     #     0 candidates  the electron is on the metal. The oxidation state already carries it, so
     #                   nothing changes (`site = "metal"`).
@@ -515,11 +504,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         free_atoms = [a for m in molecules if not m["metals"] for a in m["atoms"]]
         _neg = sorted(a for a in free_atoms if qat_all.get(a, 0) < 0)
         cand = sorted(a for a in _neg if VAL.get(el[a], 0) - bsum[a] >= 1)
-        # ★ which negative atoms were **rejected**, and by how much. "no atom carries a negative
-        #   charge" is a different report from "the negative atom it points at has nowhere to put
-        #   the electron", and saying the first when the second is true sends the reader looking
-        #   for a missing charge that is right there. A four-bond `[B-]` is the case: its `−1` is
-        #   structural, and adding an electron would give boron nine.
+        # ★ which negative atoms were **rejected**, and by how much — so the note can say "the
+        #   negative atom has nowhere to put the electron" (a four-bond `[B-]`: its `−1` is
+        #   structural) rather than "no atom carries a negative charge".
         _full = [f"{el[a]}#{a} (q {qat_all.get(a, 0):+d}, {int(bsum[a])} bonds, "
                  f"v−b = {VAL.get(el[a], 0) - int(bsum[a]):+d})" for a in _neg if a not in cand]
         # ★ **the other direction** — an electron-deficient acceptor is priced *without* the
@@ -622,10 +609,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         _qf = {fr["atoms"][0]: fr["charge"] for fr in fragments}
         _sf = total_charge - sum(_qf[i] for m in molecules for i in m["fragments"])
         charge_balance["shortfall"] = _sf
-        # 🔴 **Where** the missing electrons are, not just how many. A consumer that only gets the
-        #   scalar has to open the geometry and count bonds by hand to find out what happened —
-        #   which is exactly what the first version made them do. Each site is one atom sitting
-        #   below its neutral-atom bond total, so `v - b_int` is the deficit that produced it.
+        # 🔴 **Where** the missing electrons are, not just how many — so a consumer does not have
+        #   to open the geometry and count bonds by hand. Each site is one atom sitting below its
+        #   neutral-atom bond total, so `v - b_int` is the deficit that produced it.
         if _sf:
             _b = collections.Counter()
             for (i, j), o in orders.items():
@@ -666,8 +652,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # A metal-free molecule's charge is its ligands' formal-charge sum — nothing is unknown there.
     # What is left of `total_charge` belongs to the metal-bearing molecules, and with exactly one
     # of those the split is **exact**. With two or more there is one equation and two unknowns per
-    # molecule, and nothing in the input says how to divide the remainder, so the oxidation state
-    # is left as `None` rather than guessed.
+    # molecule, and nothing in the input says how to divide the remainder, so the molecule charge
+    # is left as `None` and any oxidation state is flagged as not exact (below).
     os_metal, os_exact = {}, True
     q_of_frag = {fr["atoms"][0]: fr["charge"] for fr in fragments}
     for mol in molecules:
@@ -686,28 +672,20 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         else:
             # ⚠️ Two or more metal-bearing molecules: nothing in the input says how `total_charge`
             #   divides between them. The fallback spreads what is left evenly over **all** their
-            #   metals, which is the pre- behaviour and is right only when the molecules
-            #   happen to be symmetric. Measured on holdout: 7 structures land here and the even
-            #   split gets 5 of them — so it is kept, but every value it produces is flagged
-            #   `oxidation_is_exact = False` and the molecule charge is left `None`, because when
-            #   it is wrong it is wrong silently (CpTiCl3 + [Os(CO)3Cl3]- gives Ti(III)/Os(III),
-            #   the sum still correct and every check passing).
+            #   metals, which is right only when the molecules happen to be symmetric. Every value
+            #   it produces is flagged `oxidation_is_exact = False` and the molecule charge is left
+            #   `None`, because when it is wrong nothing else in the result shows it.
             allm = [x for m in with_metal for x in m["metals"]]
             num = rest - sum(q_of_frag[i] for m in with_metal for i in m["fragments"])
             if num % len(allm) == 0:
                 os_metal = dict.fromkeys(allm, num // len(allm))
                 os_exact = False
 
-    # -- ⑧ complex SMILES — the whole complex. M–L bonds are **all dative arrows** (owner's
-    #   decision). Bond order is collapsed here — the real M–L order is in
-    #   `ml_bonds[(m,x)]["order"]`.
-    #   A metal's formal charge = its **oxidation state**. Without `total_charge` the oxidation
-    #   state cannot be found, so it is not built (stamping 0 would emit a SMILES whose total
-    #   charge is wrong — better absent than silently wrong).
-    # -- per-molecule SMILES. Each molecule gets its own — M–L bonds as dative arrows, the metal's
-    #   formal charge stamped with its oxidation state. Without an oxidation state a metal-bearing
-    #   molecule gets none (stamping 0 would emit a SMILES whose total charge is wrong — better
-    #   absent than silently wrong); a metal-free molecule needs none.
+    # -- ⑧ per-molecule SMILES. Each molecule gets its own — M–L bonds as **dative arrows** (bond
+    #   order is collapsed here; the real M–L order is in `ml_bonds[(m,x)]["order"]`), the metal's
+    #   formal charge stamped with its **oxidation state**. Without an oxidation state a
+    #   metal-bearing molecule gets none (stamping 0 would emit a SMILES whose total charge is
+    #   wrong — better absent than silently wrong); a metal-free molecule needs none.
     frag_by_key = {fr["atoms"][0]: fr for fr in fragments}
     out_mols = []
     for mol in molecules:
@@ -718,9 +696,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         if not mol["metals"]:
             # 🔴 Built the same way as a metal-bearing molecule, with the M–L and M–M lists empty
             #   — **not** by reusing the fragment SMILES. The string comes out identical (same
-            #   sanitize, same canonicalization) but `complex_smiles` is what returns the output
-            #   atom order, and reusing the fragment left `atom_order` empty on every metal-free
-            #   molecule.
+            #   sanitize, same canonicalization) but only `complex_smiles` returns the output atom
+            #   order that fills `atom_order`.
             qcx = {a: q for a, q in qat_all.items() if a in aset}
             smi, order = complex_smiles(el, mol["atoms"], {e: v for e, v in orders.items() if e[0] in aset},
                                         qcx, [], {}, with_map=complex_atom_map,
