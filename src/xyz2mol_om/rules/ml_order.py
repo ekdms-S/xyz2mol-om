@@ -15,7 +15,7 @@ from ..config import CLS, DATA, T8FORM
 
 
 B_ML_CSV = DATA / "b_ml_mayer.csv"
-# for `lik1`/`thr` — all three forms live in one file (produced by 260901_export_t8_forms.py)
+# for `lik1`/`thr` — all three forms live in one file
 B_ML_FORMS_CSV = DATA / "b_ml_t8forms.csv"
 
 def _load_b_ml_forms(form, path=None):
@@ -25,8 +25,8 @@ def _load_b_ml_forms(form, path=None):
     `thr` score:  s(0)=0 · s(1)=k(w−t1) · s(2)=k(w−t1)+k(w−t2),  k = 1/scl_pool
     ⇒ the argmax is exactly the threshold rule, and the sign of the increment `s(c+1)−s(c)`
     used by the exact solution is right too.
-    A class whose threshold is `inf` does not occur for that element pair (that is what the fit
-    chose).
+    A class whose threshold is `inf` does not occur for that element pair (a fit result, not a
+    rule).
     """
     p = Path(path) if path else B_ML_FORMS_CSV
     mdl, fb = {}, 0
@@ -111,10 +111,9 @@ def ml_order_scores(el, ml_pairs, wbo, bml_model=None, fb=None):
     """M–L order **score table** `{(m, x): {class: score}}` — used when the ④ exact solution
     optimizes M–L jointly.
 
-    🔴 **Built in exactly one place**. It used to be built separately by the CV
-    script, the tool comparison, CRW and the library, and some of them did not build it at all
-    (`ml_sc=None`), **pinning** the M–L order to the T8 argmax. That gives different answers for
-    the same input.
+    🔴 **Built in exactly one place.** A caller that builds its own table, or passes
+    `ml_sc=None` (which **pins** the M–L order to the T8 argmax), gets different answers for the
+    same input.
 
     `wbo` {(metal, atom): Mayer w} · `bml_model`/`fb` = output of `load_b_ml_mayer()` (read
     directly if omitted)
@@ -150,7 +149,7 @@ def ml_order_scores(el, ml_pairs, wbo, bml_model=None, fb=None):
 # Why: with `predict(..., wbo=None)` the Mayer path above degenerates entirely to the fallback
 #      (`Single`). A per-element-pair distance model fills that gap.
 #
-# rule (adopted form = `thr`; `T8DISTFORM=lik` switches to the likelihood form)
+# rule (default form `thr`; `T8DISTFORM=lik` switches to the likelihood form)
 #     Double or higher ⟺ d(M,X) <= t1(M,X)
 #     Triple           ⟺ d(M,X) <= t2(M,X)      (t2 <= t1, both in Å)
 #   A class with `t = -inf` is one the fit did not select for that element pair (= never predicted).
@@ -159,16 +158,6 @@ def ml_order_scores(el, ml_pairs, wbo, bml_model=None, fb=None):
 #   ⇒ the argmax is exactly the threshold rule above, and the sign of `s(c+1)-s(c)` is right too.
 #   **Only the sign differs** from the Mayer version (`ml_order_scores`) — for Mayer a larger value
 #   means a higher order, for distance a shorter one does.
-#
-# performance (reference labels CSD `bond_type` · geometry `ref_xtb2` · train sample 158,048 ·
-#       refcode 5-fold **CV**):
-#       variant                        Single   Double   Triple   accuracy   params
-#       trivial (all Single)           0.9815   0.0000   0.0000     0.9636        0
-#       distance monotone thr (here)   0.9915   0.6976   0.6515     0.9821      464
-#       Mayer monotone thr (current)   0.9928   0.7318   0.7230     0.9846      464
-#   ⚠️ **This measures T8 alone** — only orders were assigned, on the CSD reference M–L bonds.
-#      Without `wbo` the T4 gate (bond presence) changes too, so this table says nothing about
-#      whole-pipeline performance.
 # ============================================================================
 
 B_ML_DIST_CSV = DATA / "b_ml_dist.csv"

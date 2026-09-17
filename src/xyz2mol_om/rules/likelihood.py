@@ -22,13 +22,12 @@ def deg_cell(el, a, b, deg):
     return (db, da) if el[a] > el[b] else (da, db)
 
 def fit_scores4(samples, n_min=300):
-    """Fit the 4-class distance likelihood — **shared by the release and CV**. Also holds the
-    `LPCOND` cell priors.
+    """Fit the 4-class distance likelihood (the `scores4` table). Also holds the `LPCOND` cell
+    priors.
 
     `samples[k] = (distance list, class list, cell list)`  (cell = `deg_cell` value)
     Returns `{k: (med, scl, lp, {}, {}, lp_cell)}` — the 6th is `{cell: {class: lnP}}`.
-    ⚠️ The 3rd and 4th (`rmed`, `rscl`) are the ROP slots. Left as empty dicts when
-    `USE_ROP` is off.
+    ⚠️ Indices 3 and 4 (`rmed`, `rscl`) are the `USE_ROP` slots; this fit leaves them empty.
     """
     out = {}
     for k, sam in samples.items():

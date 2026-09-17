@@ -1,4 +1,5 @@
-"""★ Adopted pipeline — `predict_T3_EHT` (`docs/PIPELINE.md`).
+"""The T3 pipeline (`predict_T3_EHT`) and the unified T3 · T5 · T7 · T8 entry point
+(`predict_T3_T5`) — `docs/PIPELINE.md`.
 
 """
 
@@ -27,14 +28,13 @@ def _sgn(q):
 
 
 def _adjq_pairs(G, el, e, db, bs, qn, deg, nbrs):
-    """`ADJQW` (proposal 1) — how many **adjacent same-sign nonzero formal-charge pairs** the
-    move `e: order += db` adds.
+    """The ⑤ veto count — how many **adjacent same-sign nonzero formal-charge pairs** the move
+    `e: order += db` adds.
 
     Only the two endpoints of `e` change charge (see `atom_bond_sums`), so only the bonds
     touching them can gain or lose such a pair — the count runs over exactly those bonds, with
     `e` itself counted once.
-    Returns `max(0, after − before)`: this is a **penalty, not a reward** — a move that removes
-    a same-sign pair is not paid a bonus, so the baseline (`ADJQW=0`) is a strict subset.
+    Returns `max(0, after − before)`: a move that removes a same-sign pair earns nothing.
     """
     a, b = e
     q2 = dict(qn)
@@ -54,9 +54,8 @@ def _adjq_pairs(G, el, e, db, bs, qn, deg, nbrs):
 def _is_nitro(G, el, x):
     """`x` is the N of a nitro/nitrite group — N carrying **exactly two** terminal O.
 
-    Exactly two, not at least two: three terminal O is nitrate, and the EHT target is **right**
-    for nitrate (0 of 75 holdout fragments wrong) while it is wrong for 54 of 64 `R–NO2` and
-    13 of 13 free `NO2-`. See the `EHTNITRO` comment in `config`.
+    Exactly two, not at least two: three terminal O is nitrate, whose EHT target is trusted
+    (`docs/PIPELINE.md §T3 ⑤`).
     """
     return el[x] == "N" and sum(1 for y in G[x] if el[y] == "O" and G.degree(y) == 1) == 2
 
@@ -65,9 +64,9 @@ def _eht_untrusted(G, el, comp):
     """Why ⑤ must not use the EHT fragment-charge target for this fragment — or `None`.
 
     One rule with three conditions, all of the same kind: *for this class of fragment the
-    bare-fragment EHT charge is not a target worth chasing.* Each condition's evidence is in
-    the `EHTMINFRAG` / `EHTSKIP` / `EHTNITRO` comments in `config`; the reason code is returned
-    so the caller (and a probe) can tell them apart.
+    bare-fragment EHT charge is not a target worth chasing* — size (`EHTMINFRAG`), composition
+    (`EHTSKIP`) and the nitro motif (`_is_nitro`); see `docs/PIPELINE.md §T3 ⑤`. The reason code
+    is returned so the caller can tell them apart.
     """
     if len(comp) < EHTMINFRAG:
         return "small"
@@ -80,8 +79,8 @@ def _eht_untrusted(G, el, comp):
 
 def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None,
                    w_out=None, w_raw_out=None):
-    """★ Adopted option `D_eht` — all stages of `docs/PIPELINE.md` `1c`.
-    Returns `(internal classes, M–L classes)`.
+    """T3 — the internal bond classes, stages ①–⑤ of `docs/PIPELINE.md §T3` (⑥ runs on the
+    returned classes in `api.predict`). Returns `(internal classes, M–L classes)`.
 
     `bml`   {coordinating atom: sum of M–L bond orders} — enters the capacity budget
             (baseline Single)
@@ -93,8 +92,8 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     `coord` set of coordinating atoms — **waives the under-valence penalty** in the conjugation
             search (M–L absorbs it)
     `w_out` optional dict — filled with `{edge: score[Double] − score[Single]}`, the tie-break
-            weight the ⑥ Kekule matching breaks ties with. The return signature is unchanged
-            because `predict_T3_EHT` is part of the public API.
+            weight the ⑥ Kekule matching breaks ties with. An out-parameter, so the public
+            return signature stays two-valued.
 
     ⚠️ **Haptic M–L bonds must not go into `bml`** — a haptic bond gets no order and is shared
        across the π system, so it is not attributed to an atom (`docs/PIPELINE.md`). Including
@@ -103,12 +102,10 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
     bml = bml or {}
     if q_eht is None:
         q_eht = eht_frag_charges(el, xyz, G)
-    # ① rule A — applies only to atoms of a planar ring (size >= 5) that **still have π headroom**
+    # ①② rule A — applies only to atoms of a planar ring (size >= 5) that **still have π headroom**
     # ★ `SATML` -- the headroom test counts the **sigma M-L bonds** (`bml`), not only the
-    #   internal degree. A ring carbon carrying an H *and* a sigma bond to the metal has four
-    #   sigma bonds and is sp3, but the ring still passes `TAU_P`, so rule A pinned it `Conj`
-    #   anyway -- and a pinned bond is not the ④ matching's to move, so nothing downstream
-    #   could take the pi back. See `config.SATML`.
+    #   internal degree: a ring carbon carrying an H *and* a sigma bond to the metal is sp3 even
+    #   in a planar ring, and a bond rule A pins `Conj` is not the ④ matching's to move.
     sat = {x for x in G.nodes
            if G.degree(x) + (bml.get(x, 0.0) if SATML else 0.0) >= CAP.get(el[x], 4)}
     ringA = set()
@@ -119,7 +116,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
                 for a, b in zip(r, r[1:] + r[:1])
                 if a not in sat and b not in sat
             }
-    # ② per-element-pair 4-class distance likelihood
+    # ③ per-element-pair 4-class distance likelihood
     sc = {}
     for a, b in G.edges:
         e = (min(a, b), max(a, b))
@@ -150,13 +147,13 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             for c in list(sc[e]):
                 if c in rmed:
                     sc[e][c] += ROPW * (-abs(rv - rmed[c]) / rscl[c])
-    # ③ conjugated set — decided on a likelihood where bonds touching a saturated atom are
+    # ①② conjugated set — decided on a likelihood where bonds touching a saturated atom are
     #   allowed to be Single only
     sc_sat = {
         e: ({0: v[0]} if (e[0] in sat or e[1] in sat) and 0 in v else dict(v))
         for e, v in sc.items()
     }
-    if R2CONJ:  # ★ R2 — forbid `Conj` at pyrrole-type heteroatoms (see the comment above)
+    if R2CONJ:  # ★ R2 (+ R3 · R4) — bonds that may not be `Conj` (`conjugation.conj_forbidden`)
         qf = {}
         if q_eht:
             for comp0 in nx.connected_components(G):
@@ -172,16 +169,15 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
         Gj.add_edges_from(conj)
         conj = {e for e in conj if Gj.degree(e[0]) > 1 or Gj.degree(e[1]) > 1}
     # `w` carries two things into ⑥: the `score[Double] − score[Single]` tie-break (this line)
-    #   and the `CAPINESS` promise (`−1e6`, added below). Both are unconditional — the
-    #   tie-break was measured at 28 harmful `Double` on holdout (see `config`).
+    #   and the `CAPINESS` promise (`−1e6`, added below). Both are unconditional.
     w = {e: v.get(1, 0.0) - v.get(0, 0.0) for e, v in sc.items()}
     # 🔴 `w_raw_out` — the likelihood margin **before** the `CAPINESS` penalty added below, for a
     #   reader asking *"did the geometry want `Double` here"* (`charge.formal.pi_suppressed`).
     #   The `−1e6` is a matching **constraint**, not a likelihood, and it lands on exactly the
     #   edges such a reader is about. `1 in v` is required rather than `v.get(1, 0.0)`: `As-C` and
     #   `B-B` ship with **no `Double` class fitted**, and a missing score read as 0.0 makes
-    #   `0 − score[Single]` positive on almost every such bond. `w` itself keeps the old form —
-    #   it is ⑥'s tie-break and changing it would change the output.
+    #   `0 − score[Single]` positive on almost every such bond. `w` above keeps `v.get(1, 0.0)`:
+    #   it is ⑥'s tie-break, and changing it changes the output.
     if w_raw_out is not None:
         w_raw_out.clear()
         w_raw_out.update({e: v[1] - v.get(0, 0.0) for e, v in sc.items() if 1 in v})
@@ -192,12 +188,11 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
                             coord=coord or set())
     if iness:
         # 🔴 `CAPINESS` gave these atoms headroom **on the promise that ⑥ leaves them unmatched**.
-        #   ⑥ runs its own matching and will happily pair one up, and then the cap it was granted
-        #   against is broken — measured: valence violations +0.7%p on train before this coupling.
-        #   So the promise is carried into ⑥ as a large negative weight on every edge touching an
-        #   atom that is now **at capacity**. `maxcardinality=True` still holds, so this cannot
-        #   shrink the matching — and a maximum matching leaving the atom out is exactly what the
-        #   `_inessential` test verified exists.
+        #   ⑥ runs its own matching and would otherwise pair one up, breaking the cap it was
+        #   granted against. So the promise is carried into ⑥ as a large negative weight on
+        #   every edge touching an atom that is now **at capacity**. `maxcardinality=True` still
+        #   holds, so this cannot shrink the matching — and a maximum matching leaving the atom
+        #   out is exactly what the `_inessential` test verified exists.
         k_of = collections.Counter()
         for e in cls:
             if cls[e] == 3:
@@ -214,10 +209,8 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
                     e = (min(x, y), max(x, y))
                     if cls.get(e) == 3:
                         w[e] = w.get(e, 0.0) - 1e6
-    # 🔴 sync **after** the `CAPINESS` penalty — filling `w_out` before it meant ⑥ (which runs in
-    #   `api.predict` on the returned dict) never saw the penalty, and the granted atom got paired
-    #   up anyway. Measured: 33 atoms newly violated the cap, every one of them a granted atom in
-    #   a fragment with deficiency 1 and exactly 1 grant, i.e. a promise that *was* keepable.
+    # 🔴 sync **after** the `CAPINESS` penalty — ⑥ (which runs in `api.predict` on the returned
+    #   dict) must see it, or the granted atom gets paired up anyway.
     if w_out is not None:
         w_out.clear()
         w_out.update(w)
@@ -255,12 +248,11 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
                         continue
                     c1 = c0 - 1
                 g = sc[e].get(c1, -1e9) - sc[e].get(c0, 0.0)
-                # 🔴 ⑤ may not create a new pair of adjacent same-sign formal charges. A veto,
-                #   not a penalty: with a single candidate a weight only reorders the list and
-                #   the bad move is still taken (measured — `ADJQW=1e9` changed nothing).
+                # 🔴 ⑤ may not create a new pair of adjacent same-sign formal charges — a hard
+                #   veto (`docs/PIPELINE.md §T3 ⑤`).
                 adj = _adjq_pairs(G, el, e, ORD4[c1] - ORD4[c0], bs, qn, DEGa, NBa)
                 if adj:
-                    continue  # rejected — ⑤ takes the next-best move, or gives up
+                    continue  # vetoed — ⑤ takes the next-best move, or gives up
                 if best is None or g > best[0]:
                     best = (g, e, c1)
             if best is None:
@@ -273,22 +265,19 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
             cls[best[1]] = best[2]
     r6_swap(
         G, el, xyz, cls, bml
-    )  # ⑥ R6 — align distance and order ranking for same-element bonds on one center
-    #      (a swap, so the total is unchanged)
+    )  # R6 — align distance and order ranking for same-element bonds on one center
+    #      (a swap, so the total is unchanged; off unless `R6SWAP=1`)
     return cls, mlout
 
 
-# ★★ unified entry point — **T3, M–L order, haptic (T5) and R7 all come out of one
-#   function.**
-#   Why: the scorer (`260831_propagation_prior_cv.py`) and the release (`xyz2mol-om`) each
-#   assembled the same decisions themselves, and they diverged in **four places** (measured
-#, 0.12-0.90% of bonds):
-#     ① was haptic removed from the `b_ML` budget passed to the ④ cap solution?
-#     ② was haptic removed from the M–L order candidates?
-#     ③ was agostic (`C–H···M`) removed?
-#     ④ are T5's Y candidates the fragment neighbors or all neighbors?
-#   ⇒ **Assembly is not left to the caller.** The caller supplies only the T4 candidates
-#     (`ml_raw`) and Mayer (`wbo`).
+# ★★ unified entry point — **T3, M–L order, haptic (T5), bridge tags (T7) and R7 all come out
+#   of one function** (`predict_T3_T5`).
+#   **Assembly is not left to the caller.** The caller supplies only the T4 candidates
+#   (`ml_raw`) and Mayer (`wbo`); these decisions are made here and nowhere else:
+#     · haptic bonds are removed from the `b_ML` budget passed to the ④ cap solution
+#     · haptic bonds are removed from the M–L order candidates
+#     · agostic contacts (`C–H···M`) are removed
+#     · T5's Y candidates are the neighbors in the same π fragment
 # `MLIKE_EXTRA` is defined in `config` — imported above, re-exported here for callers.
 
 
@@ -311,35 +300,21 @@ def drop_agostic(el, G, ml_raw):
 
 
 def drop_agostic_carbon(el, xyz, G, ml_raw, cut=None):
-    """`C–H···M` 의 **탄소 쪽** 후보도 지운다 — 단, 그 조각이 그 금속에서 떨어지지 않을 때만.
+    """Also remove the **carbon** candidate of a `C–H···M` contact (`AGOC`) — unless that would
+    detach the fragment from that metal.
 
-    `drop_agostic` 은 M–**H** 만 지운다. 그것은 맞다. 문제는 **남는 M–C** 다: 아고스틱에서 금속은
-    탄소의 네 번째 결합손을 차지한 것이 아니라 **이미 있는 C–H 결합의 전자쌍을 옆에서 빌려 쓴다.**
-    그런데 이 형식에는 `sigma`(원자가 1 소비) 와 `haptic`(0 소비) 둘뿐이라, 남은 M–C 를 `sigma`
-    말고는 부를 이름이 없고, 그 1 이 탄소를 질식시킨다.
+    `drop_agostic` removes only the M–**H**. The M–C left behind is the problem: in an agostic
+    contact the metal does not take the carbon's fourth bond, it **borrows the electron pair of
+    the existing C–H bond**. This format has only `sigma` (spends one valence unit) and `haptic`
+    (spends none), so the leftover M–C could only be `sigma`, and that unit saturates the carbon:
+    no π, a dearomatized ring, carbanions, and a metal oxidation state two too high.
 
-    🔴 `10.1039_D2QO00332E__14_TS3A-Me` R 이 그 예다.
+    Rule (geometry only — no fitted parameter)::
 
-        Ru···H39 **1.799 Å**  <  Ru–C36 **2.279 Å**       ∠Ru–C–H **51.2°**
-        C36–H39 1.089 → **1.141 Å** (전자쌍을 나눠 써서 늘어남)
+        el[X] = C  AND  X carries an H  AND  d(M,H) < d(M,C)  AND  d(M,H) < `cut` (default `AGOC`)
 
-        σ 로 세면   C36 = 고리C + 고리C + H + Ru = **4 = CAP** ⇒ π 불가 ⇒ 페닐 탈방향족
-                    ⇒ 카바니온 2 개 ⇒ 조각 −2 ⇒ **Ru +3**
-        빼고 세면   C36 = 고리C + 고리C + H = **3** ⇒ 방향족 유지 ⇒ 중성 ⇒ **Ru +1**  (P 프레임과 일치)
-
-    판정 (기하만 쓴다 — 적합 파라미터 없음)::
-
-        el[X] = C  AND  X 에 붙은 H 가 있고  d(M,H) < d(M,C)  AND  d(M,H) < `AGOC`
-
-    ⚠️ **떼면 그 조각이 금속에서 완전히 떨어지는 경우에는 떼지 않는다.** 아고스틱 접촉이 유일한
-    연결이면(실측 Gold-DIGR 3,000 프레임 · 해당 조각 55 개 중 **17 개 = 30.9%**) 떼는 순간
-    자유 분자가 되어, σ 과대평가라는 오류를 «해리했다» 는 더 나쁜 오류로 바꾼다. 그런 (금속,
-    조각) 짝은 통째로 손대지 않는다. 나머지 **69.1%** 는 다른 M–L 로 붙어 있어 안전하다.
-
-    ⚠️ **CSD 채점은 이것을 손해로 본다** — 정답지는 이런 접촉(H 가 더 가깝고 탄소가 포화)의
-    **93.8%(30/32)** 를 `Single` M–C 라고 적는다. 상온 결정 구조에 활성화 직전 기하가 거의 없어
-    정답지가 이 구분을 가르쳐주지 않기 때문이다. **오너 판단으로 채택한다** — 아고스틱 상호작용은
-    지금 이 형식이 맞출 수 있는 대상이 아니고, 그렇다면 라벨을 지우는 쪽이 옳다.
+    ⚠️ **A (metal, fragment) pair the removal would leave with no M–L candidate is left
+    untouched** — removing it would turn an overcounted σ into a false dissociation.
     """
     cut = AGOC if cut is None else cut
     if not cut or not ml_raw:
@@ -358,7 +333,7 @@ def drop_agostic_carbon(el, xyz, G, ml_raw, cut=None):
             drop.add((m, x))
     if not drop:
         return ml_raw
-    # 떼고 나서 그 (금속, 조각) 이 연결을 하나도 못 가지면, 그 짝은 통째로 되돌린다
+    # a (metal, fragment) pair left with no contact after the removal keeps all of its candidates
     left = collections.Counter()
     for m, x in ml_raw:
         if (m, x) not in drop:
@@ -376,19 +351,15 @@ def drop_saturated(el, G, ml_raw):
 
     `deg_int` is the **number of internal neighbours**, not the bond-order sum. T4 runs before ③,
     so no order exists yet; and since every bond order is ≥ 1, `deg_int ≥ CAP` already implies
-    `b_int ≥ CAP`. Using `b_int` instead would be wrong even if it were available: an η²-alkene
-    carbon has `deg 3` but `b_int 4 = CAP`, so a `b_int` test would veto every alkene, arene and
-    Cp coordination.
+    `b_int ≥ CAP`. Do not switch it to `b_int`: an η²-alkene carbon has `deg 3` but
+    `b_int 4 = CAP`, so a `b_int` test would veto every alkene, arene and Cp coordination.
 
     H is excluded — `CAP(H) = 1` and an H always has one internal neighbour, so the test would
     veto every M–H bond, μ-H and borohydride included. Agostic `C–H···M` is `drop_agostic`'s job.
     B and Al are excluded, **and so is any atom bonded to one**, because cluster bonding
     (carborane) is outside the two-centre formalism — the same exception the valence-violation
-    tally makes. That second half is what the CSD holdout forced: of the 97 saturated candidates
-    there, **95 are real M–L bonds** and 100 of 101 are dicarbollide **cage carbons** bonded to
-    three or four B, where `deg 5 > CAP 4` says nothing about the metal. With the cage exception
-    the rule fires on **1 candidate in 55,519** on CSD (a `–SiMe₃` methyl carbon) and leaves the
-    holdout numbers unchanged.
+    tally makes. A dicarbollide cage carbon has `deg 5 > CAP 4`, which says nothing about the
+    metal.
     """
     if not SATVETO:
         return ml_raw
@@ -414,9 +385,7 @@ def drop_bound_halide(el, G, ml_raw, wbo):
 
     🔴 It does **not** remove a genuine oxidative-addition halide. At an `R–I`/`R–Cl` oxidative
     addition the halogen is still bonded to carbon *and* genuinely bonded to the metal, and its
-    Mayer order is far above the floor (measured on Gold-DIGR: `Cl` bound median 0.354, `I` bound
-    median 0.556, **0.0% of either below 0.30**, against `F` bound median 0.157 with 96.7% below).
-    That gap is what the rule reads.
+    Mayer order sits well above `HALW`, while a bound `F` contact sits well below it.
 
     With `wbo=None` there is nothing to test, so nothing is removed.
     """
@@ -438,9 +407,6 @@ def drop_eta1(hapset, G, el):
     test alone can produce it: the metal happens to sit under one atom of a π fragment while no
     second atom of that fragment coordinates it.
 
-    Measured on the CSD holdout: 17 such M–L bonds, and the reference calls **none** of them `Pi`
-    (all 17 `Single`; S 9 · O 7 · C 1). Every higher k is 95-100% right.
-
     Applied to the pass-1 set as well as the output, so the atom that stops being haptic also
     starts paying its valence unit in ④ -- otherwise a sigma bond would be spending 0.
     """
@@ -452,8 +418,8 @@ def drop_eta1(hapset, G, el):
 
 
 def is_3c2e(el0, b_use, n_center):
-    """The **raw predicate** of the T7 3c2e decision — shared by `bridge_tags` and the scorer
-    (the rule lives in one place).
+    """The **raw predicate** of the T7 3c2e decision, used by `bridge_tags` — the rule lives here
+    and nowhere else.
 
     `b_use`    = `b_int(X) + n_ML(X)` — what X has **used**. Internal bonds count by their
                  **order** (Kekule sum), M–L bonds by their **number** (one donated lone pair
@@ -486,10 +452,10 @@ def bridge_tags(el, G, ml_pred, cls, hap=()):
           budget, so reading pass-2 orders here would be circular. Pass 1 runs with no metal
           budget at all — the same trick the provisional haptic set uses (pass-1 π fragments →
           budget → pass 2).
-       ⚠️ The scorer `260831_propagation_prior_cv.py:is_3c2e` computes this the old way
-          (neighbour count) and must be updated alongside.
 
-    rule (the same formula as the scorer `260831_propagation_prior_cv.py:is_3c2e`)
+    `hap` — haptic M–L bonds; they count toward `n_center` but not toward `b_use`.
+
+    rule
 
         n_center(X) = (number of M–L bonds of X) + (number of internal neighbors of X whose
                                                    element is B or Al)
@@ -500,7 +466,7 @@ def bridge_tags(el, G, ml_pred, cls, hap=()):
                                                               (H 1 · C·Si 4 · B 3)
         dative(X) ⟺ bridge(X)  AND  3c2e(X) is false
 
-    5 real cases (`n_center` · `b_use` · tag)
+    Examples (`n_center` · `b_use` · tag)
 
         μ-H       M–H–M         n_center 2 · b_use 2 (internal 0 + M–L 2)   →  **3c2e**
         μ-CO      M–CO–M        n_center 2 · b_use 5 (C≡O 3 + M–L 2) > 4    →  **3c2e**
@@ -508,40 +474,31 @@ def bridge_tags(el, G, ml_pred, cls, hap=()):
         μ-Cl      M–Cl–M        n_center 2 · b_use 2 · Cl is not in the table → **dative** (3c4e)
         terminal Cl  M–Cl       n_center 1                                  →  no tag
 
-    ⚠️ `ml_pred` is the set of T4 bonds **after agostic removal and including haptic** — the scorer
-       also counts `Pi` (haptic) M–L bonds toward the metal count, so the same input is used.
+    ⚠️ `ml_pred` is the set of T4 bonds **after agostic removal and including haptic** — haptic
+       (`Pi`) M–L bonds count toward the metal count.
     """
     # 🔴 **A haptic M–L spends nothing**, so it must not enter the electron budget `b_use` —
-    #   that is the same rule `bml_budget` applies for ④·⑥. Counting it tagged an ordinary
-    #   η⁵ ring carbon that happened to carry a boryl substituent: `BACFIV`'s Cp `C` has
-    #   `b_int 4 = CAP` and one haptic bond to Ti, and read `4 + 1 = 5 > 4`. It still counts
-    #   toward `n_center` — the atom *is* connected to that metal, which is the question
-    #   `n_center` asks.
+    #   the same rule `bml_budget` applies for ④·⑥ (otherwise a boryl-substituted η⁵ Cp carbon,
+    #   `b_int 4 = CAP`, reads `4 + 1 = 5 > 4`). It still counts toward `n_center` — the atom
+    #   *is* connected to that metal, which is the question `n_center` asks.
     _hap = {(m, x) for m, x in hap}
     nmet = collections.Counter(x for _m, x in ml_pred)
     nbud = collections.Counter(x for m, x in ml_pred if (m, x) not in _hap)
     bint = _kek_val(G, el, cls)
     tags = {}
     # 🔴 Do not narrow the candidates by `nmet` — **an atom with 0 M–L bonds can also be a
-    #   bridge.** Right now B and Al are in `METALS` so they never appear as internal neighbors,
-    #   but once `B` is treated as a ligand atom, the H of `B–H–B` has 0 M–L bonds and becomes a
-    #   bridge purely through its 2 internal B neighbors. If this loop were keyed on `nmet` it
-    #   would **miss that H entirely.** Keep the rule separate from the center-atom definition.
-    #   ⚠️ Present behavior is unchanged — while B and Al are in `METALS` the internal-neighbor
-    #      term is always 0.
+    #   bridge.** The H of `B–H–B` has 0 M–L bonds and is a bridge purely through its 2 internal
+    #   B neighbors; a loop keyed on `nmet` would **miss that H entirely.** Keep the rule
+    #   separate from the center-atom definition.
     for x in G.nodes():
         nm = nmet.get(x, 0)
         # 🔴 **A metal-like atom does not bridge to its own kind.** The `MLIKE_EXTRA` term is
         #   here so a *non-metal* can be seen bridging two borons with no metal in sight
-        #   (`B–H–B`). Counting it for `x` that is itself `B`/`Al` made a diboranyl
-        #   `M–B(Mes)=B(Mes)Br` read as a bridge — the second B is a substituent, not a third
-        #   centre — and tagged its ordinary `B=B` as part of a 3c2e (`ITUNOB` · `WIQQEU`).
-        #   ⚠️ Narrowing this further — to `el[x] == "H"`, the case the term was written for —
-        #      **was measured and rejected.** It also drops the tag from a boryl-substituted Cp
-        #      carbon and from cage carbons, and those tags are load-bearing in the valence
-        #      tally: holdout violations 0.35% → 1.38% with every other task unmoved. Whether
-        #      those atoms are really bridging is a separate question from whether they are
-        #      outside the two-centre formalism, which they are.
+        #   (`B–H–B`). For an `x` that is itself `B`/`Al` the neighbouring B is a substituent, not
+        #   a third centre (a diboranyl `M–B(Mes)=B(Mes)Br` has an ordinary `B=B`).
+        #   ⚠️ The term is **not** limited to `el[x] == "H"`: boryl-substituted Cp carbons and
+        #      cage carbons keep their tag, and the valence tally relies on it (they are outside
+        #      the two-centre formalism).
         n_like = 0 if el[x] in MLIKE_EXTRA else sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
         n_center = nm + n_like
         if n_center < 2:
@@ -587,16 +544,17 @@ def _closest_mid(xyz, x, m, cand):
 
 
 def _eta2_pair(el, xyz, G, ml_pred, cls_now, dbond=None):
-    """η² is a property of the **bond**, so both of its atoms are haptic (see `config`).
+    """η² is a property of the **bond**, so both of its atoms are haptic (`docs/PIPELINE.md` 5*).
 
     A slipped η² has a large angle at the near atom and a small one at the far atom, so asking
     `∠(M–X–Y) < θ` **per atom** must break the pair apart once the slippage is large enough.
     Asked of the bond instead, one end inside θ is enough.
 
     Conditions, all structural — **no fitted parameter**: X and Y are bonded, both coordinate the
-    same metal, neither is H (a hydrogen beside a coordinating atom is a geometric artifact — of
-    535 such holdout pairs **none** is `Pi`/`Pi` in the reference), and the X–Y bond has π
-    character (it is what would be donated).
+    same metal, neither is H (a hydrogen beside a coordinating atom is a geometric artifact), and
+    the X–Y bond has π character (it is what would be donated).
+    With `ETA2NEAR > 0` and `dbond` given, the partner of an accepted end may itself sit up to
+    `ETA2NEAR` Å outside its T4 threshold.
 
     Returns the `{(m, x)}` to add to the haptic set — always both atoms of a qualifying bond.
     """
@@ -606,20 +564,9 @@ def _eta2_pair(el, xyz, G, ml_pred, cls_now, dbond=None):
     near = collections.defaultdict(set)
     if ETA2NEAR and xyz is not None and dbond is not None:
         # ★ `ETA2NEAR` — the **partner** of an accepted η² end may sit just outside T4.
-        #   The docstring above says η² is a property of the *bond*, but requiring `b in xs`
-        #   puts a per-atom condition back in: both ends must have passed T4 on their own. A
-        #   side-on alkyne fails that routinely, because the far carbon is further from the
-        #   metal than the near one by construction.
-        #   🔴 `10.1021_acs.organomet.8b00684__45_Int9-2` R is the case: Ni–C0 2.089 Å is
-        #   accepted, Ni–C1 is **2.651 Å against a 2.594 Å threshold — 0.057 Å out**, so no pair
-        #   forms, `drop_eta1` turns the lone tag back into σ, that σ eats one of C0's four
-        #   valence units, and `C0≡C1` (1.218 Å) drops to a `Double` with **−1 on each carbon**
-        #   ⇒ Ni **+4**. The P frame, where the same contact does become haptic, reads `C≡C`
-        #   and Ni **+2**.
-        #   ⚠️ The alternative — *dropping* the accepted Ni–C0 so the σ stops costing anything —
-        #   is the wrong lever and unsafe: that bond is real (Mayer 0.274), T4 is the most
-        #   accurate stage in the pipeline (F1 .9918), and letting a later stage revoke it makes
-        #   the answer flip with 0.01 Å of noise. Admitting the partner never revokes anything.
+        #   Requiring `b in xs` alone is a per-atom condition: both ends must pass T4 on their
+        #   own, and the far carbon of a side-on alkyne is further from the metal by
+        #   construction. Admitting the partner never revokes an accepted bond.
         for m, xs in coord.items():
             for a in xs:
                 for b in G[a]:
@@ -639,7 +586,7 @@ def _eta2_pair(el, xyz, G, ml_pred, cls_now, dbond=None):
                 if b <= a or b not in xs or el[a] == "H" or el[b] == "H":
                     continue
                 if a not in xs0 and b not in xs0:
-                    continue   # 완화로 들어온 원자끼리만의 짝은 만들지 않는다
+                    continue   # at least one end must have passed T4 itself, not via `ETA2NEAR`
                 if cls_now.get((a, b)) not in (1, 2, 3):
                     continue  # the bond must have π character to be an η² donor
                 if _angle_ok(xyz, m, a, b, THETA_HAPTIC) or _angle_ok(xyz, m, b, a, THETA_HAPTIC):
@@ -687,9 +634,8 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     #   below, because what it buys is the ④ budget: an M–L bond it turns haptic stops costing a
     #   valence unit, which is exactly what pass 2 needs to raise the π bond.
     _extra = _eta2_pair(el, xyz, G, ml_pred, cls0, dbond)
-    # ★ a partner admitted by `ETA2NEAR` becomes a real M–L bond, not a haptic tag on a bond the
-    #   output does not carry — an eta reported over an atom with no M–L entry is the eta-1
-    #   problem wearing a different hat.
+    # ★ a partner admitted by `ETA2NEAR` becomes a real M–L bond in `ml_pred`, so no haptic tag
+    #   sits on a bond the output does not carry.
     for _p in sorted(_extra - set(ml_pred)):
         ml_pred.append(_p)
     hap_pre |= _extra
@@ -706,12 +652,9 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     btag = bridge_tags(el, G, ml_pred, cls0)
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
     bml = bml_budget(keep, three_c)  # M–L baseline = Single, 3c2e = one pair
-    # 🔴 With no `wbo`, M–L orders come from the **distance fallback**.
-    #   Without Mayer, T8 emits `Single` for every bond (`Double` F1 **0.0000** · measured over
-    #   300 structures, TP 0 / FN 40). On the same pool with refcode 5-fold CV, the monotone
-    #   distance-threshold fallback gives `Double` **0.6976** · `Triple` 0.6515 (Mayer version
-    #   .7318 / .7230 · trivial baseline 0.0000).
-    #   ⚠️ It is **not used when `wbo` is available** — distance clearly loses (`Double` −0.034).
+    # 🔴 With no `wbo`, M–L orders come from the **distance fallback** — the Mayer model alone
+    #   would emit `Single` for every bond.
+    #   ⚠️ It is **not used when `wbo` is available**; the Mayer model is the primary one.
     if wbo:
         ml_sc = ml_order_scores(el, keep, wbo, bml_model, bml_fb)
     else:
@@ -720,9 +663,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     w = {}
     cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, w_out=w,
                                 w_raw_out=w_raw_out)
-    # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**
-    #      (measured: fragment neighbors F1 .9810 · all internal neighbors .9803 —
-    #      precision is higher for fragment neighbors).
+    # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**.
     pi = nx.Graph()
     pi.add_edges_from(e for e, v in cls.items() if v in (1, 2, 3))
     pifrag = {x: i for i, c in enumerate(nx.connected_components(pi)) for x in c}
@@ -744,8 +685,7 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     hap_by_m = collections.defaultdict(set)
     for m, x in hap:
         hap_by_m[m].add(x)
-    # R7 — restore an R2 donor inside a haptic ring as a π candidate (adopted ·
-    #      the rule is (`docs/PIPELINE.md`)
+    # R7 — restore an R2 donor inside a haptic ring as a π candidate (`docs/PIPELINE.md` 5′)
     if R7RING:
         mlset = set(ml_pred)
         donors = {x for x in G if lp_donor(el[x], G.degree(x))}
@@ -770,8 +710,8 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         # 🔴 Skip exactly what the violation tally skips: a `3c2e` atom and `B` are outside the
         #   two-centre formalism, so "b_int + n_ML > CAP" is not a violation for them. A mu-CO
         #   carbon has `C#O` (b_int 3) and two M-L bonds, but as a 3c2e bridge it spends
-        #   `BML3C_COST` **in total** - 3 + 1 = 4 = CAP, which is fine. Counting its M-L bonds
-        #   one each read 5 and turned a bridging carbonyl haptic.
+        #   `BML3C_COST` **in total** - 3 + 1 = 4 = CAP, which is fine; counting its M-L bonds
+        #   one each would read 5 and turn a bridging carbonyl haptic.
         _pi = {x for e, v in cls.items() if v in (1, 2, 3) for x in e}
         _skip = {x for x, t in btag.items() if t == "3c2e"} | {
             x for x in G if el[x] == "B"}
@@ -811,24 +751,14 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
     if ETAPI and hap:
         # ★ `ETAPI` — **a bond whose two ends are both haptic to the same metal gets the π.**
         #   A haptic M–L bond *is* the metal binding a π bond side-on, so an η² written across a
-        #   `Single` is self-contradictory — and worse than untidy for a model trained on this
-        #   output, which then learns that haptic can appear on a single bond (owner: "이 표현을
-        #   보고 학습하는 모델이 일관되게 pi bonding이 있는 부분에서 haptic이 나온다고 생각을
-        #   못하고 single에서도 나올 수 있는 것처럼 학습해버리기 때문").
-        #   🔴 It is a **weight, not a constraint**, and that is the whole point. `w` is ⑥'s
-        #   max-weight Kekule matching tie-break, so the bonus is taken whenever a perfect
-        #   matching still exists without it — "D-S-D-S 순서를 바꾸는게 문제가 없으면" — and is
-        #   silently given up when the alternating pattern cannot afford it. Nothing else moves:
-        #   the 4-class labels, the haptic set and the valence budget are all already decided.
-        #   ⚠️ **η² only.** For every higher η the alternation itself forbids what the request
-        #   asks for, and the emitted output is already at that floor. A ring of `k` atoms has a
-        #   maximum matching of `⌊k/2⌋`, so `⌈k/2⌉` of its bonds **must** be `Single`:
-        #       η⁵ Cp   5 ring bonds · matching 2 ⇒ **60% single** — measured 60%
-        #       η⁶ arene 6 ring bonds · matching 3 ⇒ **50% single** — measured 50%
-        #       η⁴ diene 3 bonds · matching 2 ⇒ 33% — measured 33% · η³ 50% — measured 49%
-        #   η² is the only one whose floor is **0%** (one bond, one double), and it is the only
-        #   one out of line: **59 of 350 (17%)** come out `Single` (Gold-DIGR, 600 reactions,
-        #   `260910_haptic_on_single.py`). Those are the ones this weight is for.
+        #   `Single` is self-contradictory output.
+        #   🔴 It is a **weight, not a constraint**. `w` is ⑥'s max-weight Kekule matching
+        #   tie-break, so the bonus is taken whenever a maximum matching can include the bond,
+        #   and is silently given up when the alternating pattern cannot afford it. Nothing else
+        #   moves: the 4-class labels, the haptic set and the valence budget are already decided.
+        #   ⚠️ **η² only.** A ring of `k` atoms has a maximum matching of `⌊k/2⌋`, so `⌈k/2⌉` of
+        #   its bonds **must** be `Single` whatever the weight (η⁵ Cp 60% · η⁶ arene 50%); η² is
+        #   the only case whose floor is **0%** (one bond, one double).
         #   📌 For π membership a consumer should read `bonds_4class` (`Conj`), not
         #   `bonds_kekule` — the integers are a lossy projection of exactly this alternation.
         _hm = collections.defaultdict(set)
@@ -837,16 +767,14 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
         for e in cls:
             if any(len(xs) == 2 and e[0] in xs and e[1] in xs for xs in _hm.values()):
                 w[e] = w.get(e, 0.0) + ETAPI
-    # ★ `SIGETA` — 호출자가 지목한 쌍을 haptic 으로 강제한다. `drop_eta1` 과 R7 뒤에 놓는 이유는
-    #   외톨이로 들어오지 않기 때문이다: 호출자는 결합의 **양 끝**을 함께 넘긴다.
+    # ★ `force_hap` (`SIGETA`) — force the caller's pairs haptic. It sits after `drop_eta1` and R7
+    #   because these never arrive alone: the caller passes **both ends** of a bond together.
     if force_hap:
         hap = set(hap) | {(m, x) for m, x in force_hap}
         mlout = {k: v for k, v in mlout.items() if k not in hap}
     # 🔴 **Re-tag now that `hap` is known.** T7 runs before T5 because the ④ budget needs the
-    #   3c2e set, so the first pass had to count every M–L in `b_use` — haptic included. A
-    #   haptic bond spends nothing, and counting it tagged ordinary η⁵ ring carbons: `BACFIV`'s
-    #   Cp carbon carries a boryl substituent, has `b_int 4 = CAP`, and read `4 + 1 = 5 > 4`.
-    #   The budget above keeps the first pass (haptic is not known yet when it is built); what
-    #   the caller reports and charges is this one.
+    #   3c2e set, so the first tagging had to count every M–L in `b_use` — haptic included. A
+    #   haptic bond spends nothing (see `bridge_tags`). The budget above keeps the first tags
+    #   (haptic is not known yet when it is built); what the caller reports and charges is this one.
     btag = bridge_tags(el, G, ml_pred, cls0, hap)
     return cls, mlout, hap, ml_pred, btag, w

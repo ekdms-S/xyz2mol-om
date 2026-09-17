@@ -1,4 +1,4 @@
-"""Search — the valence-cap assignment (④) · local search for the conjugated set (③) ·
+"""Search — the valence-cap assignment (④) · local search for the conjugated set (①②) ·
 the R6 swap.
 
 """
@@ -25,9 +25,8 @@ def _qcost_step(x, el, b_int, deg, nb, coord):
                                                  -1 raising creates one
 
     `q` is the real `charge.formal.q_atom`, so the hypervalent branch and the (a') exceptions are
-    included. That matters: a sulfone `S` at `b 4` scores **+1** here (its `|q|` runs 2 -> 1 -> 0
-    as it is raised) where a neutral-valence proxy scores 0 and never raises it. On `CO` the two
-    ends give `+1` and `-1`, so the term cancels and the distance decides.
+    included: a sulfone `S` at `b 4` scores **+1** here (its `|q|` runs 2 -> 1 -> 0 as it is
+    raised). On `CO` the two ends give `+1` and `-1`, so the term cancels and the distance decides.
 
     A **coordinating** atom is waived. Under the ionic cut an anionic donor (`Cl-`, `RO-`) carries
     its charge legitimately, and costing it would push ④ to raise bonds just to neutralise it.
@@ -58,14 +57,11 @@ def _inessential(conj):
     them may be left unmatched **at once** (`CAPINESS`).
 
     `x` is inessential in fragment `F`  ⟺  `|M(F − x)| == |M(F)|`. Such an `x` does not have to
-    take a π bond, so the ④ budget may charge it `k` rather than `k+1` (see the `CAPINESS`
-    comment in `config`).
+    take a π bond, so the ④ budget may charge it `k` rather than `k+1` (`docs/PIPELINE.md §T3 ④`).
 
     🔴 **The count matters, not just the membership.** A fragment leaves exactly
     `deficiency = |F| − 2·|M(F)|` atoms over, so granting headroom to more than that many is a
-    promise it cannot keep — and the extra ones then break the cap. Measured (holdout, before
-    this cap): **every one of the 42 atoms that newly violated** sat in a fragment with
-    deficiency 1 that had granted headroom to 2-9 atoms.
+    promise it cannot keep — and the extra ones then break the cap.
 
     Returns `[(fragment atoms that are inessential, deficiency), ...]`; the caller picks which
     `deficiency` of them to actually grant.
@@ -173,13 +169,9 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord
     """The cap-respecting assignment — high likelihood subject to the valence cap, via a matching
     reduction (Blossom, polynomial time).
 
-    🔴 **Not the exact maximum** (measured, the docstring used to claim it was).
-    `Triple` is confirmed first, greedily, before the `Double`/M–L matching runs, so one `Triple`
-    is never weighed against several `Double`s. Solving the identical objective under the
-    identical constraints as a MILP and comparing: **113 of 12,245** ④ calls on holdout are
-    suboptimal, median loss **4.58** (max 23.07) — about one bond decision. `CAPMILP=1` is that
-    exact path; it is implemented and **off**, because the ④ metrics rise while the deployment
-    output gets worse (see the `CAPMILP` comment in `config`).
+    🔴 **Not the exact maximum.** `Triple` is confirmed first, greedily, before the `Double`/M–L
+    matching runs, so one `Triple` is never weighed against several `Double`s. `CAPMILP=1`
+    switches to the exact solve (`_solve_cap_exact`); it is off by default.
 
     If `ml_sc` is given, **the M–L orders are decided inside the same optimization** (the order
     is raised one unit at a time, with a single dummy per unit so the same unit cannot be used
@@ -202,8 +194,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord
             need = []
             for x in ok:
                 # 🔴 The headroom `r[x]` gates **both** an internal `Double` and an M–L order
-                #   raise, so the demand has to look at both — scoring internal bonds only sent
-                #   the whole T8 `Triple` gain (F1 .639 → .734) back to baseline.
+                #   raise, so the demand has to look at both.
                 cands = [
                     sc[e].get(1, -1e9) - sc[e].get(0, 0.0)
                     for y in G[x]
@@ -241,17 +232,10 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord
             return _r
     out = {e: 3 for e in conj}
     # ① Triple — only where the likelihood argmax is Triple and both ends have headroom of at
-    #    least 2. ★ **Strongest margin first.** The pass is greedy and cannot be anything else
-    #    here (the `Triple`/`Double` trade-off is what `CAPMILP` exists for), but it used to walk
-    #    `G.edges` — **atom-index order, unrelated to the scores** — so when two `Triple`
-    #    candidates shared an atom's headroom the one that happened to be indexed first won.
-    #    🔴 `10.1021_acs.inorgchem.3c02611__09_Int3` P is that failure: the C₅ chain
-    #    `C24–C20–C21–C19–C22` has `Triple` as the argmax on all four bonds
-    #    (−1.67 · −1.48 · −2.03 · **−0.61**) and C19 has room for exactly one. Index order gave
-    #    it to `C21–C19` (−2.03) and left `C19–C22` (−0.61, the strongest evidence in the chain)
-    #    as a `Single`, stranding **−3 on C22**. Ranking by margin gives it to `C19–C22`.
-    #    The margin is over the runner-up, so a bond that is `Triple` by a hair yields to one
-    #    that is `Triple` outright.
+    #    least 2. ★ **Strongest margin first.** The pass is greedy (the `Triple`/`Double`
+    #    trade-off is what `CAPMILP` exists for); when two `Triple` candidates share an atom's
+    #    headroom, the larger margin wins (edge index only breaks exact ties). The margin is over the
+    #    runner-up, so a bond that is `Triple` by a hair yields to one that is `Triple` outright.
     _cands = []
     for e in nonc:
         s3 = sc.get(e)
@@ -266,17 +250,14 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord
             use[e[1]] += 2
     # 🔴 The capacity replicas let **one** bond take **two** units: with `r[a] = r[b] = 2` the
     #   matching can hold `(a,0)-(b,0)` and `(a,1)-(b,1)` at once, double-counting `g` and
-    #   spending two units for a single `Double`. That is a broken reduction, not a tunable
-    #   policy, so the repair is unconditional: whatever a round selected is fixed at **one**
-    #   unit, its ends are charged once, and the wasted unit is offered to the other bonds.
+    #   spending two units for a single `Double`. So whatever a round selects is fixed at
+    #   **one** unit, its ends are charged once, and the wasted unit is offered to the other bonds.
     #   The loop stops when a round selects no duplicate (or after `CAPDUP_MAX` rounds).
     mlout = {}
     if ml_sc:
         for key, sm in ml_sc.items():
-            # 🔴 The baseline is **the lowest class that exists for that pair** (fixed
-            #). The old version pinned it to 0, which emitted `Single` for pairs
-            #   whose T8 constant is `Double`/`Triple`, and it read `sm[0]` unconditionally and
-            #   died with a KeyError on such pairs.
+            # 🔴 The baseline is **the lowest class that exists for that pair** — a pair whose
+            #   T8 constant is `Double`/`Triple` has no class 0.
             mlout[key] = min(sm)
     fixed_int, fixed_ml, spent = set(), collections.Counter(), collections.Counter()
     for _rd in range(CAPDUP_MAX):
@@ -292,10 +273,9 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord
             s3 = sc.get(e)
             if not s3 or 1 not in s3 or 0 not in s3:
                 continue
-            # 🔴 `TAUD` shifts the **weight**, not just the gate. Widening the gate alone does
-            #   nothing: `max_weight_matching` never takes a negative edge, so an edge admitted
-            #   with `g <= 0` is simply ignored (measured — τ = 0.5/1/2 were byte-identical to
-            #   τ = 0). The cost-sensitive form is `g + τ > 0`, i.e. `τ = log(C_FN/C_FP)`.
+            # 🔴 `TAUD` shifts the **weight**, not just the gate: `max_weight_matching` never takes
+            #   a negative edge, so an edge admitted with `g <= 0` would simply be ignored. The
+            #   cost-sensitive form is `g + τ > 0`, i.e. `τ = log(C_FN/C_FP)`.
             g = s3[1] - s3[0] + TAUD
             if QCOST:
                 # ★ the charge-cost term (see `config`). `use - bml + spent` is the atom's
@@ -341,8 +321,7 @@ def _solve_cap(G, el, sc, conj, bml, ml_sc=None, ml_max=2, iness_out=None, coord
             # 🔴 Key the tie-break on the **atoms**, never on a position inside the current
             #   edge set. `H` is rebuilt every round (and differs between two frames of one
             #   reaction path), so a set-position rank moves under it and the canonicalisation
-            #   works against itself — the same defect that made `KEKQ` counter-productive at
-            #   the `Conj` boundary until it was keyed on atom indices instead.
+            #   works against itself. `KEKQ` in ⑥ keys on atom indices for the same reason.
             _n = max(G.number_of_nodes(), 1)
             eps = CAPQ / (10.0 * _n)
 
@@ -398,8 +377,8 @@ def _solve_sc(G, el, sc, ringA, coord, bml, lam_hi=10.0, lam_lo=10.0, maxit=50):
     """Local search on the likelihood under **two-sided valence constraints** — coordinating atoms
     are not penalized for being under-valent.
 
-    This is the same search `D` and `D_satA` use. Here it is used **only to fix the conjugated
-    set** (the orders themselves are decided again by the cap-respecting solve that follows).
+    Used **only to fix the conjugated set** (the orders themselves are decided again by the
+    cap-respecting solve that follows).
     """
     cur = {}
     for a, b in G.edges:
@@ -454,8 +433,7 @@ def r6_swap(G, el, xyz, cls, bml=None, maxit=6):
     """R6 — for same-element bonds on one center, **make the bond-order ranking match the
     distance ranking**.
 
-    Modifies `cls` in place. Returns the number of swaps. For the rule and its evidence see the
-    `R6SWAP` comment.
+    Modifies `cls` in place. Returns the number of swaps. Off (returns 0) unless `R6SWAP=1`.
     """
     if not R6SWAP:
         return 0
