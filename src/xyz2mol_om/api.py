@@ -187,11 +187,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         # ⚠️ Only worth saying when the structure **has** a centre. A metal-free input (an
         #   organic fragment, `B₂H₆`) has no M–L bond for the Mayer order to inform.
         warnings.warn(
-            "no wbo (Mayer bond orders) - the M-L decision uses distance only. "
-            "The T4 veto is off and M-L orders come from the distance fallback "
-            "(`b_ml_dist.csv`): M-L `Double` F1 0.698 under refcode 5-fold CV "
-            "(0.732 for the Mayer version). Obtain them with xtb GFN2 `--sp --wbo` and "
-            "pass `wbo={(metal idx, atom idx): w}` to improve this.",
+            "no wbo (Mayer bond orders) - M-L decisions use distance only: the T4 Mayer veto "
+            "is off, and M-L orders come from the distance thresholds instead. For better M-L "
+            "bonds and orders, run xtb GFN2 `--sp --wbo` and pass "
+            "wbo={(metal idx, atom idx): w}.",
             UserWarning,
             stacklevel=2,
         )
