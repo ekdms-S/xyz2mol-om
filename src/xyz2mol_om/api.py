@@ -437,6 +437,14 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         #    **break into 2 fragments** — an η5 ring would be reported as η2.
         for m in {m0 for m0, x0 in hap if x0 in cs}:
             eta_out[m] = sum(1 for m0, x0 in hap if m0 == m and x0 in cs)
+        # 🔴 `frag_q` is keyed by the **ring's** minimum atom index (the min of its `Conj`
+        #   component), not by the fragment's own `key`. When the fragment holds atoms with
+        #   lower indices than the ring (a substituent bonded through a lower-index atom), the
+        #   two keys differ and `frag_q.get(key)` misses even though the ring's residual is
+        #   still part of this fragment — sum over every residual whose ring lies in `cs`, the
+        #   same membership test `_qfrag_kek` (`charge/formal.py`) uses for `qL` itself.
+        residual = sum(v for k, v in frag_q.items() if k in cs) if any(
+            k in cs for k in frag_q) else None
         fragments.append({
             "atoms": comp,
             "bonds_4class": b4,
@@ -455,7 +463,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "ml_bonds": mlb_out,
             "eta": eta_out,
             "charge": qL,
-            "residual_charge": frag_q.get(key),
+            "residual_charge": residual,
         })
 
     # -- molecules. The input may hold **several disconnected molecules** — an IRC endpoint where
