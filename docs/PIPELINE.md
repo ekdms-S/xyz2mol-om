@@ -18,7 +18,7 @@ Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q
 | T5 haptic | **.9800** | .9807 |
 | T6 η^k | **.9865** | .9832 |
 | T8 M–L `Single`/`Double`/`Triple` | **.9935 / .7556 / .7254** | .9937 / .7621 / .7735 |
-| T10 `Σq_L` · `OS` | **.8648 · .8967** | .8580 · .8909 |
+| T10 `Σq_L` · `OS` | **.8648 · .8967** | .8580 · .8910 |
 | valence-violating structures | **.0035** | .0037 |
 
 Holdout: 6,793 structures. References, pools and baselines: README `## Performance`.
