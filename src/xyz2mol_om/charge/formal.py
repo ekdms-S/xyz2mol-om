@@ -387,14 +387,14 @@ def kekulize(G, el, cls, bml=None, w=None):
         q = frag_charge(el, list(cm), sub, outer, DEG, NB, out=out, w=w)
         for e, o in out.items():
             orders[e] = int(o)
-        # if the skeleton charge and the fragment charge disagree (even-ring dianion), report it
-        # as the ligand charge
+        # store only the part the skeleton cannot express, q - q_skel, so `_qfrag_kek` (which
+        # adds frag_q to a sum that already contains q_skel) does not double-count it
         q_skel = 0
         for v in cm:
             b = sum(out.get((min(v, w), max(v, w)), 1.0) for w in Gc[v]) + outer.get(v, 0.0)
             q_skel += q_atom(el[v], b, DEG.get(v), NB.get(v, ()))
         if round(q_skel) != round(q):
-            frag_q[min(cm)] = q
+            frag_q[min(cm)] = round(q) - round(q_skel)
     return orders, frag_q
 
 
@@ -482,8 +482,8 @@ def _qfrag_kek(G, el, comp, orders, frag_q=None, coord=None, three_c=None):
     user receives -- measured on `MBTZRE01` (benzothiazole-2-thiolate): reported **-3**, emitted
     structure **-1**, and -1 is the correct chemistry.
 
-    `frag_q` carries the part of the charge the skeleton genuinely cannot express (an even-ring
-    dianion has a perfect matching, so its Kekule structure is neutral while the fragment is -2).
+    `frag_q` carries only the part of the charge the skeleton cannot express on its own (q minus
+    the skeleton's own charge), since this sum already counts the skeleton's share.
     """
     q = sum(v for k, v in (frag_q or {}).items() if k in comp)
     b3 = b_3c_of(G, orders, three_c)
