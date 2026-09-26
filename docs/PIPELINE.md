@@ -438,3 +438,59 @@ Global constants:
 | EHT cutoff | −10 eV | occupied-orbital cut in the fragment charge |
 | `LPCOND_NMIN` | 300 | samples a degree cell needs before its own prior is used |
 | `BML3C_COST` | 1.0 | valence a 3c2e atom spends in total for its M–L bonds |
+
+## Opt-in: the joint bond-order solve (`JOINT=1`)
+
+Off by default. Needs `scipy >= 1.9` (`pip install -e ".[joint]"`); without it, or when a fragment
+cannot be solved, the sequential path above answers for that fragment.
+
+**What it replaces.** ①② `Conj` → ④ `Triple` → ④ `Double` → ⑤ EHT target → ⑥ → QSHIFT · QGEM · SIGCUT, and
+the two T3 passes. Every ligand-internal bond order is one integer variable of a single MILP
+(`rules.joint`); the internal classes of **one** metal-free T3 solve only supply the `Conj` label,
+the Hückel ring set and the haptic test.
+
+```
+per bond   order 1 · 2 · 3                                objective: ③ distance score
+per atom   one bond-order-sum level, charge = q_atom(level)           − JOINTQ · Σ |charge|
+per metal  one oxidation state from os_range(element)                 − JOINTOSW · OS prior
+total      Σ ligand charges + Σ oxidation states = total_charge
+```
+
+- **Charges** are `q_atom` itself at each bond-order level, so every convention (carbene, sulfoxide,
+  hypervalence, boron sextet, 3c2e legs, M–L count) is the same in the solve and in the result.
+- **Range**: a free atom `|q| ≤ 1`, a σ donor `−(M–L order) ≤ q ≤ 1`, period-2 atoms within the octet.
+  A donor pays for its first negative unit at `JOINTDON`; units a multiple M–L bond explains (oxo,
+  imido, alkylidene) are free.
+- **M–L**: each order is the Mayer model's own best class (no competition with internal bonds). A
+  donor keeps that much valence free; a 3c2e bridge keeps `BML3C_COST`.
+- **Haptic**: the T5 rule on the metal-free solve, then again on the joint answer; if the set
+  changes, the solve runs once more.
+- **Hückel**: ring carbons of the `Conj` set may be a carbenium (`+1`, reported as residual `+2`); a
+  carbocycle gets back the charges its aromatic count asks for (C5 one anion, C7 one cation, C8 two
+  anions).
+- **Oxidation states**: `os_range` — groups 3–10 `[group − 10, group]`, 11–12 `[0, group]`, others
+  `[0, common max]`; a prior from train-split CSD names (`data/os_prior.json`); same-element metals
+  prefer equal states (`JOINTSYM`).
+- **Unpaired electrons** (`n_unpaired ≥ 1`, any count): on ligand atoms or on d-block metals
+  (`u ≤ min(d, 10 − d)`, `d − u` even). `n_unpaired = 0` does not constrain the d count.
+
+| constant | default | what it is |
+|---|---|---|
+| `JOINTQ` | 2.0 | charged-atom penalty against the distance score — chosen on train |
+| `JOINTDON` | 0.25 | share of `JOINTQ` a σ donor pays for its first negative unit — chosen on train |
+| `JOINTOSW` | 0.1 | OS prior weight (a tie-breaker) |
+| `JOINTSYM` | 0.5 | per-unit OS difference penalty between same-element metals |
+| `JOINTCAT` | 1.0 | extra cost of the charge sign a Hückel ring does not ask for |
+| `JOINTRAD` | 0.5 | cost of an unpaired electron on a ligand atom rather than a metal |
+| `JOINT_MAX` | 5000 | MILP variables per fragment before it falls back |
+
+**Output** adds `r["joint"] = {status, objective, q_status, alt_gap, alt_os}`: `alt_os` is the best
+answer with a different set of oxidation states and `alt_gap` how much worse it scores (`None` = the
+total charge fixes the OS).
+
+**Where it differs from the default path** (holdout 6,793): T3 Double 0.7667 → 0.7728, Triple
+0.9775 → 0.9859, label-Double written as a double bond 0.8497 → 0.8844; ligand charge 0.8648 →
+0.8588, oxidation state 0.8967 → 0.8888, T5 0.9800 → 0.9770. Conventions: an even-ring dianion
+(COT²⁻) carries its charge on two carbanions instead of a residual; two metal-bearing molecules get
+per-metal states from the prior (still `oxidation_is_exact = False`); an ambiguous radical site is
+decided rather than refused.
