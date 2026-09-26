@@ -77,6 +77,8 @@ salt with its counter-ion — and everything below is solved inside one molecule
                         gave the electron to an electron-deficient acceptor that was priced
                         without it (`H₃N→BH₂•`, boron read as neutral). See `## Limits`.
     r["total_charge"] = the input total charge (unchanged)
+    r["joint"]        = {"status", "objective"} — only with `JOINT=1`: how the joint bond-order
+                        solve went (`rules.joint.JointResult`). Absent otherwise.
 
 Most fragments are ligands — `ml_bonds` says what they coordinate — but a molecule with no metal
 has one fragment that coordinates nothing, and that is how a free organic molecule appears.
@@ -116,12 +118,14 @@ import numpy as np
 from .charge import (abs_charge_sum, b_3c_of, frag_charge_or_eht, kekulize, octet_fix_period2,
                      pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel,
                      three_c_unpaired_edges)
-from .config import FULL, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
+from .config import FULL, JOINT, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
 from .rules import load_scores4
 from .rules import bml_budget, predict_T3_T5
+from .rules.joint import conj_annotation, solve_joint
+from .rules.pipeline import bond_scores
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
@@ -270,6 +274,22 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   allowed.
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
     bml = bml_budget([p for p in ml_pred if p not in hap], three_c)
+    # ★ `JOINT` — every ligand-internal bond order in one MILP (`rules.joint`). Only the internal
+    #   orders are replaced: the haptic set, M–L orders and T7 tags above still come from the
+    #   sequential path. M–L bonds spend no valence in the joint solve (`b_ML` is left out), and
+    #   a sigma-coordinating atom is exempt from its FC range. If the solve does not succeed
+    #   (`too_large` · `unavailable` · `failed`), the sequential answer stands.
+    #   🔴 Only **sigma** donors are exempt. The exemption is for the ionic cut (an oxo or an
+    #   alkylidene carries -2 legitimately); a haptic atom donates its pi, and exempting it lets a
+    #   Cp ring come out Cp(5-).
+    joint = None
+    if JOINT:
+        sc_j = bond_scores(el, xyz, G, sc4)
+        joint = solve_joint(G, el, sc_j, {x for m, x in ml_pred if (m, x) not in hap})
+        if joint.orders:
+            conj_j = conj_annotation(G, sc_j, joint.orders)
+            cls = {e: (3 if e in conj_j else o - 1) for e, o in joint.orders.items()}
+    joint_ok = bool(joint is not None and joint.orders)
 
     # ★ distance-fit test — «does the bond length fit the `new` order better than `cur`».
     #   🔴 No new constant. `scores4` already holds the per-element-pair, per-class **bond-length
@@ -297,12 +317,18 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             return False
         return abs(d - mn) < abs(d - mc)
 
-    # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge
-    orders, frag_q = kekulize(G, el, cls, dict(bml), w)
+    # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge.
+    #   Under `JOINT` the integers come from the joint solve itself, so ⑥ and the post-⑥
+    #   repairs (QSHIFT · SIGCUT) are skipped — they exist to patch the sequential solve.
+    if joint_ok:
+        orders, frag_q = dict(joint.orders), {}
+    else:
+        orders, frag_q = kekulize(G, el, cls, dict(bml), w)
     if NOCTET:
         octet_fix_period2(el, G, orders)
     # ★ `QSHIFT` — move a π when the same skeleton has a valid arrangement with a smaller |charge|
-    shift_pi_to_cancel(orders, el, G, bml, {x for _m, x in ml_pred}, fit=_fits)
+    if not joint_ok:
+        shift_pi_to_cancel(orders, el, G, bml, {x for _m, x in ml_pred}, fit=_fits)
     # 🔴 **Once more after the shift.** (a″) is the rule «N cannot have five bonds», and `QGEM`
     #   raising both `N–O` of a nitro group recreates `N(=O)=O` (b 5). The pipeline's charge on
     #   that N is 0, but RDKit reads `[N+](=O)[O-]`, so the **(element, charge) multiset** check
@@ -316,8 +342,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   keep the answers consistent. The second solve runs only on structures that raise this
     #   signal.
     _eta: set = set() if SIGETA else None
-    _cut = sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap, wbo=wbo,
-                                    fit=lambda *t: _fits(*t, strict=True), eta_out=_eta)
+    _cut = set() if joint_ok else sigma_ml_blocking_cancel(
+        orders, el, G, bml, ml_pred, hap, wbo=wbo,
+        fit=lambda *t: _fits(*t, strict=True), eta_out=_eta)
     if _cut or _eta:
         # ★ a `SIGETA` partner atom is **not** among the T4 candidates (which is why no η² pair
         #   formed on the first pass), so it is added as a candidate and `force_hap` makes both
@@ -760,9 +787,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "atom_order": order,
         })
 
-    return {
+    out = {
         "charge_balance": charge_balance,
         "radical": radical,
         "molecules": out_mols,
         "total_charge": total_charge,
     }
+    if JOINT:
+        out["joint"] = {"status": joint.status, "objective": joint.objective}
+    return out
