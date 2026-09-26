@@ -308,22 +308,24 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 _skip.add(min(_c))
             _seq_q[min(_c)] = frag_charge_or_eht(G, el, cls, _c, q_eht, _ord_s, w, _fq_s,
                                                  _coord & _c, _leg)
-        # carbenium candidates: three-neighbour ring carbons of the sequential `Conj` set. On an
-        #   ring wholly in that set, Hückel's rule picks the favoured sign (C3 · C7 cation, C5
-        #   anion, C4 · C8 dianion); elsewhere no sign is favoured.
+        # carbenium candidates: three-neighbour carbons of the sequential `Conj` set. A carbocycle
+        #   wholly in that set whose aromatic count asks for charges gets them refunded (C3 · C7:
+        #   one cation, C5: one anion, C4 · C8: two anions). Heteroaromatic rings are left out —
+        #   a pyrrole-type N carries the pi pair itself.
         _conj = {e for e, v in cls.items() if v == 3}
-        _ring_c = {x: None for e in _conj for x in e if el[x] == "C" and G.degree(x) == 3}
+        _ring_c = {x for e in _conj for x in e if el[x] == "C" and G.degree(x) == 3}
+        _huckel = []
         for _r in nx.cycle_basis(G):
             _n = len(_r)
-            if not all((min(a, b), max(a, b)) in _conj for a, b in zip(_r, _r[1:] + _r[:1])):
+            if any(el[x] != "C" for x in _r) or not all(
+                    (min(a, b), max(a, b)) in _conj for a, b in zip(_r, _r[1:] + _r[:1])):
                 continue
-            if _n % 2:
-                _pref = "cat" if (_n - 1) in HUCKEL else ("an" if (_n + 1) in HUCKEL else None)
-            else:  # an even ring: only a dianion that is aromatic while the neutral is not (C4, C8)
-                _pref = "an" if (_n + 2) in HUCKEL and _n not in HUCKEL else None
-            for x in _r:
-                if x in _ring_c and _pref:
-                    _ring_c[x] = _pref
+            if _n % 2 and (_n - 1) in HUCKEL:
+                _huckel.append((tuple(_r), "cat", 1))
+            elif _n % 2 and (_n + 1) in HUCKEL:
+                _huckel.append((tuple(_r), "an", 1))
+            elif not _n % 2 and (_n + 2) in HUCKEL and _n not in HUCKEL:
+                _huckel.append((tuple(_r), "an", 2))
         _mlo = collections.Counter()
         for m, x in ml_pred:
             if (m, x) not in hap:
@@ -332,7 +334,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         #   (`bml_budget`, the same budget ④ uses) rather than one unit per M–L bond
         _res = {x: (bml.get(x, 0.0) if x in three_c else float(o)) for x, o in _mlo.items()}
         joint = solve_joint(G, el, sc_j, dict(_mlo), reserve=_res,
-                            qfun=_qfun, ring_c=_ring_c, skip=_skip, seq_q=_seq_q,
+                            qfun=_qfun, ring_c=_ring_c, huckel=_huckel, skip=_skip, seq_q=_seq_q,
                             metals={m: el[m] for m in cen},
                             q_total=total_charge if not n_unpaired else None)
         if joint.orders:

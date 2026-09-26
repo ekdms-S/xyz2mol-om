@@ -171,7 +171,7 @@ def _default_qfun(G, el, coord):
     return qfun
 
 
-def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserve):
+def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserve, huckel):
     """Add one fragment's variables and rows to `M`.
 
     Returns `(ycol, lvl, q_terms, q_const)` — bond columns `{(edge, 2 | 3): col}`, level columns
@@ -192,6 +192,7 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
     for e in edges:
         inc[e[0]].append(e)
         inc[e[1]].append(e)
+    hsign = {x: sg for atoms, sg, _n in huckel for x in atoms}
     lvl, q_terms, q_const = {}, {}, 0.0
     for x in sorted(nodes):
         deg = G.degree(x)
@@ -212,22 +213,19 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
             if fc_bounds and not _charge_ok(q, mlo):
                 continue
             levels.append((k, q, False))
-        pref = ring_c.get(x, False) if el[x] == "C" and deg == 3 and mlo is None else False
-        if pref is not False:
+        sign = hsign.get(x)
+        if x in ring_c and el[x] == "C" and deg == 3 and mlo is None:
             levels.append((0, 1.0, True))
         if not levels:
             return None
         cols = []
         for k, q, cat in levels:
             cost = _charge_cost(q, mlo, lam_q)
-            # Hückel: on a ring whose aromatic count asks for a sign ("cat" C3 · C7, "an" C5 · C4 ·
-            #   C8), that sign on a ring carbon is free and the other costs `JOINTCAT` more. Other
-            #   `Conj` carbons (pref None) pay the plain |q|, and a carbenium `JOINTCAT` on top.
-            if cat:
-                cost = 0.0 if pref == "cat" else cost + lam_q * JOINTCAT
-            elif q < 0 and k == 0 and pref == "an":
-                cost = 0.0
-            elif q < 0 and k == 0 and pref == "cat":
+            # the sign a Hückel ring does not ask for costs `JOINTCAT` more; a carbenium off such a
+            #   ring always does. What the ring does ask for is refunded per ring, below.
+            if cat and sign != "cat":
+                cost += lam_q * JOINTCAT
+            elif not cat and q < 0 and sign == "cat":
                 cost += lam_q * JOINTCAT
             cols.append((M.var(cost=cost), k, q, cat))
         M.row({c: 1 for c, _k, _q, _cat in cols}, 1, 1)
@@ -240,6 +238,21 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
         for c, _k, q, _cat in cols:
             q_terms[c] = q_terms.get(c, 0.0) + q
         lvl[x] = cols
+    # ★ Hückel refund: a carbocycle whose aromatic count asks for `n` charges of one sign (C5 one
+    #   anion, C7 one cation, C8 two anions) gets up to `n` of them back — the count, not every
+    #   charge on the ring, or a Cp comes out Cp(3-).
+    nodes_set = set(nodes)
+    for atoms, sg, n in huckel:
+        if not set(atoms) <= nodes_set:
+            continue
+        hits = [c for x in atoms for c, _k, q, cat in lvl.get(x, ())
+                if (cat if sg == "cat" else (q < 0 and not cat))]
+        if not hits:
+            continue
+        z = M.var(cost=-lam_q, lb=0.0, ub=float(n), integer=False)
+        r = {c: -1 for c in hits}
+        r[z] = 1
+        M.row(r, -float("inf"), 0)
     return ycol, lvl, q_terms, q_const
 
 
@@ -259,14 +272,15 @@ def _read(x, G, nodes, qfun, ycol, lvl):
 
 
 def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring_c=(),
-                q_total=None, metals=None, skip=(), seq_q=None, reserve=None):
+                q_total=None, metals=None, skip=(), seq_q=None, reserve=None, huckel=()):
     """Solve every internal bond order of `G`. See the module docstring.
 
     `qfun(x, b)` — the charge of atom `x` at bond-order sum `b` (default: `q_atom` from `G`).
     `coord` — sigma donors as `{atom: total M–L bond order}` (a plain set means order 1).
-    `ring_c` — carbons that may take the carbenium level, as `{atom: "cat" | "an" | None}` (the
-    sign Hückel's rule favours on that ring, `None` = no preference) or a plain set (= `None`).
+    `ring_c` — carbons that may take the carbenium level.
     `metals` — `{index: element}`. `reserve` — `{atom: valence kept for its M–L bonds}`.
+    `huckel` — `[(ring atoms, "cat" | "an", count)]`: carbocycles whose aromatic count asks for
+    `count` charges of one sign (`ring_c` should hold their carbons).
     `skip` — fragments (by min atom index) left to the sequential path, e.g. clusters.
     `seq_q` — `{fragment min index: charge}` of the sequential answer, used as a constant for
     every fragment the joint solve does not take.
@@ -276,7 +290,8 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
     except ImportError:
         return JointResult("unavailable")
     lam_q = JOINTQ if lam_q is None else lam_q
-    ring_c = dict(ring_c) if isinstance(ring_c, dict) else dict.fromkeys(ring_c)
+    ring_c = set(ring_c)
+    huckel = list(huckel)
     coord = dict(coord) if isinstance(coord, dict) else dict.fromkeys(coord, 1)
     qfun = qfun or _default_qfun(G, el, coord)
     skip, seq_q, metals, reserve = set(skip), seq_q or {}, metals or {}, reserve or {}
@@ -290,7 +305,7 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
             continue
         for fb in ((True, False) if fc_bounds else (False,)):
             M = _Model()
-            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fb, ring_c, reserve)
+            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fb, ring_c, reserve, huckel)
             if built is not None and len(M.cost) > JOINT_MAX:
                 status[key] = "too_large"
                 break
@@ -319,7 +334,7 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
             key = nodes[0]
             if status[key] not in _SOLVED:
                 continue
-            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, bounds[key], ring_c, reserve)
+            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, bounds[key], ring_c, reserve, huckel)
             blocks.append((nodes, built))
             for c, v in built[2].items():
                 q_row[c] += v
