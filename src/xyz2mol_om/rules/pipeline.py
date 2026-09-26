@@ -708,12 +708,19 @@ def predict_joint_prep(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=
     for _p in sorted(_eta2_pair(el, xyz, G, ml_pred, cls, dbond) - set(ml_pred)):
         ml_pred.append(_p)  # an `ETA2NEAR` partner becomes a real M–L bond, as in pass 1
     hap = final_haptic(el, xyz, G, ml_pred, cls, bridge_tags(el, G, ml_pred, cls))
-    keep = [p for p in ml_pred if p not in hap]
-    ml_sc = (ml_order_scores(el, keep, wbo, bml_model, bml_fb) if wbo
-             else ml_order_scores_dist(el, keep, xyz))
-    mlout = {k: max(v, key=v.get) for k, v in ml_sc.items()}
+    mlout = ml_orders_mayer(el, xyz, [p for p in ml_pred if p not in hap], wbo, bml_model, bml_fb)
     btag = bridge_tags(el, G, ml_pred, cls, hap)
     return cls, mlout, hap, ml_pred, btag, w
+
+
+def ml_orders_mayer(el, xyz, keep, wbo, bml_model=None, bml_fb=None):
+    """Each M–L bond's own best order class from the Mayer model (the distance model without
+    `wbo`) — `{(m, x): 0 Single · 1 Double · 2 Triple}`, no competition with internal bonds."""
+    if bml_model is None:
+        bml_model, bml_fb = load_b_ml_mayer()
+    ml_sc = (ml_order_scores(el, keep, wbo, bml_model, bml_fb) if wbo
+             else ml_order_scores_dist(el, keep, xyz))
+    return {k: max(v, key=v.get) for k, v in ml_sc.items()}
 
 
 def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,

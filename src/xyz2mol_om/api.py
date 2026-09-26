@@ -127,9 +127,10 @@ from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundt
 from .geometry import load_dint
 from .charge import eht_frag_charges
 from .rules import load_scores4
-from .rules import bml_budget, predict_T3_T5
+from .rules import bml_budget, bridge_tags, predict_T3_T5
 from .rules.joint import solve_joint
-from .rules.pipeline import bond_scores, predict_joint_prep
+from .rules.pipeline import (bond_scores, final_haptic, ml_orders_mayer,
+                             predict_joint_prep)
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
@@ -293,31 +294,19 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   M–L count and 3c2e legs the output uses, so the two cannot disagree. A cluster fragment
     #   (EHT-priced) and any fragment the solve cannot take keep the sequential answer, and its
     #   sequential charge enters the total as a constant.
+    #   Phase 4: the haptic set is then decided again on the joint answer's own π fragments; if it
+    #   changes, the M–L orders, T7 tags and budget follow and the joint solve runs once more.
     joint = None
     if JOINT:
         sc_j = bond_scores(el, xyz, G, sc4)
         _coord = {x for _m, x in ml_pred}
-        _leg = three_c_unpaired_edges(el, G, btag)
-        _b3 = b_3c_of(G, {}, _leg)
         _nb = {x: tuple(sorted(el[y] for y in G[x])) for x in G}
-
-        def _qfun(x, b):
-            return q_atom(el[x], float(b), G.degree(x), _nb[x],
-                          n_ml=(1 if x in _coord else 0), b_3c=_b3.get(x, 0.0))
-
-        _ord_s, _fq_s = kekulize(G, el, cls, dict(bml), w)
-        _skip, _seq_q = set(), {}
-        for _c in nx.connected_components(G):
-            _c = set(_c)
-            if is_cluster_frag(G, el, cls, _c, _ord_s):
-                _skip.add(min(_c))
-            _seq_q[min(_c)] = frag_charge_or_eht(G, el, cls, _c, q_eht, _ord_s, w, _fq_s,
-                                                 _coord & _c, _leg)
         # carbenium candidates: three-neighbour carbons of the sequential `Conj` set. A carbocycle
         #   wholly in that set whose aromatic count asks for charges gets them refunded (C3 · C7:
         #   one cation, C5: one anion, C4 · C8: two anions). Heteroaromatic rings are left out —
         #   a pyrrole-type N carries the pi pair itself.
-        _conj = {e for e, v in cls.items() if v == 3}
+        cls_seq = cls
+        _conj = {e for e, v in cls_seq.items() if v == 3}
         _ring_c = {x for e in _conj for x in e if el[x] == "C" and G.degree(x) == 3}
         _huckel = []
         for _r in nx.cycle_basis(G):
@@ -331,26 +320,57 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 _huckel.append((tuple(_r), "an", 1))
             elif not _n % 2 and (_n + 2) in HUCKEL and _n not in HUCKEL:
                 _huckel.append((tuple(_r), "an", 2))
-        _mlo = collections.Counter()
-        for m, x in ml_pred:
-            if (m, x) not in hap:
-                _mlo[x] += int(mlout.get((m, x), 0)) + 1
-        # each donor keeps room for its M–L bonds; a 3c2e bridge keeps its pair's worth
-        #   (`bml_budget`, the same budget ④ uses) rather than one unit per M–L bond
-        _res = {x: (bml.get(x, 0.0) if x in three_c else float(o)) for x, o in _mlo.items()}
-        joint = solve_joint(G, el, sc_j, dict(_mlo), reserve=_res,
-                            qfun=_qfun, ring_c=_ring_c, huckel=_huckel, skip=_skip, seq_q=_seq_q,
-                            metals={m: el[m] for m in cen},
-                            q_total=total_charge if not n_unpaired else None)
-        if joint.orders:
+
+        def _merged(jt):
             # a fragment the joint solve could not take (`partial`) keeps its sequential classes.
             # ★ The `Conj` **label** is the sequential ①② set (rule A · R2–R5, fitted to how the
             #   reference writes delocalisation); it only labels a bond the joint solve left at 1
             #   or 2 and never enters the solve itself, so it reserves no valence.
-            conj_seq = {e for e, v in cls.items() if v == 3}
-            cls = dict(cls)
-            cls.update({e: (3 if e in conj_seq and o in (1, 2) else o - 1)
-                        for e, o in joint.orders.items()})
+            out = dict(cls_seq)
+            out.update({e: (3 if e in _conj and o in (1, 2) else o - 1)
+                        for e, o in jt.orders.items()})
+            return out
+
+        for _round in (0, 1):
+            _leg = three_c_unpaired_edges(el, G, btag)
+            _b3 = b_3c_of(G, {}, _leg)
+
+            def _qfun(x, b, _b3=_b3):
+                return q_atom(el[x], float(b), G.degree(x), _nb[x],
+                              n_ml=(1 if x in _coord else 0), b_3c=_b3.get(x, 0.0))
+
+            _ord_s, _fq_s = kekulize(G, el, cls_seq, dict(bml), w)
+            _skip, _seq_q = set(), {}
+            for _c in nx.connected_components(G):
+                _c = set(_c)
+                if is_cluster_frag(G, el, cls_seq, _c, _ord_s):
+                    _skip.add(min(_c))
+                _seq_q[min(_c)] = frag_charge_or_eht(G, el, cls_seq, _c, q_eht, _ord_s, w,
+                                                     _fq_s, _coord & _c, _leg)
+            _mlo = collections.Counter()
+            for m, x in ml_pred:
+                if (m, x) not in hap:
+                    _mlo[x] += int(mlout.get((m, x), 0)) + 1
+            # each donor keeps room for its M–L bonds; a 3c2e bridge keeps its pair's worth
+            #   (`bml_budget`, the same budget ④ uses) rather than one unit per M–L bond
+            _res = {x: (bml.get(x, 0.0) if x in three_c else float(o)) for x, o in _mlo.items()}
+            joint = solve_joint(G, el, sc_j, dict(_mlo), reserve=_res,
+                                qfun=_qfun, ring_c=_ring_c, huckel=_huckel, skip=_skip,
+                                seq_q=_seq_q, metals={m: el[m] for m in cen},
+                                q_total=total_charge if not n_unpaired else None)
+            if _round or not joint.orders:
+                break
+            _cj = _merged(joint)
+            _hap1 = final_haptic(el, xyz, G, ml_pred, _cj, bridge_tags(el, G, ml_pred, _cj))
+            if _hap1 == hap:
+                break
+            hap = _hap1
+            mlout = ml_orders_mayer(el, xyz, [p for p in ml_pred if p not in hap], wbo)
+            btag = bridge_tags(el, G, ml_pred, cls_seq, hap)
+            three_c = {x for x, tg in btag.items() if tg == "3c2e"}
+            bml = bml_budget([p for p in ml_pred if p not in hap], three_c)
+        if joint.orders:
+            cls = _merged(joint)
     joint_ok = bool(joint is not None and joint.orders)
 
     # ★ distance-fit test — «does the bond length fit the `new` order better than `cur`».
