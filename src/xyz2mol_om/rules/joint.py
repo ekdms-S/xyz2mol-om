@@ -164,13 +164,14 @@ def _charge_cost(q, ml_order, lam):
     return lam * max(0.0, -q - (ml_order - 1)) if q < 0 else 0.0
 
 
-def _default_qfun(G, el):
+def _default_qfun(G, el, coord):
     def qfun(x, b):
-        return q_atom(el[x], float(b), G.degree(x), tuple(sorted(el[w] for w in G[x])))
+        return q_atom(el[x], float(b), G.degree(x), tuple(sorted(el[w] for w in G[x])),
+                      n_ml=(1 if x in coord else 0))
     return qfun
 
 
-def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c):
+def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserve):
     """Add one fragment's variables and rows to `M`.
 
     Returns `(ycol, lvl, q_terms, q_const)` — bond columns `{(edge, 2 | 3): col}`, level columns
@@ -199,9 +200,12 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c):
         if not ex:
             q_const += qfun(x, deg)
             continue
-        kmax = min(sum(w for _c, w in ex), max(CAP.get(el[x], 4) - deg, 0))
+        # a donor keeps room for its M–L bonds (`reserve`): the Mayer M–L order is a fixed input
+        #   the internal bonds must leave space for, not something they compete with
+        r = int(round(reserve.get(x, 0)))
+        kmax = min(sum(w for _c, w in ex), max(CAP.get(el[x], 4) - deg - r, 0))
         if fc_bounds and el[x] in PERIOD2:
-            kmax = min(kmax, max(4 - deg, 0))
+            kmax = min(kmax, max(4 - deg - r, 0))
         levels = []
         for k in range(kmax + 1):
             q = qfun(x, deg + k)
@@ -255,14 +259,14 @@ def _read(x, G, nodes, qfun, ycol, lvl):
 
 
 def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring_c=(),
-                q_total=None, metals=None, skip=(), seq_q=None):
+                q_total=None, metals=None, skip=(), seq_q=None, reserve=None):
     """Solve every internal bond order of `G`. See the module docstring.
 
     `qfun(x, b)` — the charge of atom `x` at bond-order sum `b` (default: `q_atom` from `G`).
     `coord` — sigma donors as `{atom: total M–L bond order}` (a plain set means order 1).
     `ring_c` — carbons that may take the carbenium level, as `{atom: "cat" | "an" | None}` (the
     sign Hückel's rule favours on that ring, `None` = no preference) or a plain set (= `None`).
-    `metals` — `{index: element}`.
+    `metals` — `{index: element}`. `reserve` — `{atom: valence kept for its M–L bonds}`.
     `skip` — fragments (by min atom index) left to the sequential path, e.g. clusters.
     `seq_q` — `{fragment min index: charge}` of the sequential answer, used as a constant for
     every fragment the joint solve does not take.
@@ -272,10 +276,10 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
     except ImportError:
         return JointResult("unavailable")
     lam_q = JOINTQ if lam_q is None else lam_q
-    qfun = qfun or _default_qfun(G, el)
     ring_c = dict(ring_c) if isinstance(ring_c, dict) else dict.fromkeys(ring_c)
     coord = dict(coord) if isinstance(coord, dict) else dict.fromkeys(coord, 1)
-    skip, seq_q, metals = set(skip), seq_q or {}, metals or {}
+    qfun = qfun or _default_qfun(G, el, coord)
+    skip, seq_q, metals, reserve = set(skip), seq_q or {}, metals or {}, reserve or {}
 
     comps = [sorted(c) for c in nx.connected_components(G)]
     orders, residual, status, bounds, obj = {}, {}, {}, {}, 0.0
@@ -286,7 +290,7 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
             continue
         for fb in ((True, False) if fc_bounds else (False,)):
             M = _Model()
-            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fb, ring_c)
+            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fb, ring_c, reserve)
             if built is not None and len(M.cost) > JOINT_MAX:
                 status[key] = "too_large"
                 break
@@ -315,7 +319,7 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
             key = nodes[0]
             if status[key] not in _SOLVED:
                 continue
-            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, bounds[key], ring_c)
+            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, bounds[key], ring_c, reserve)
             blocks.append((nodes, built))
             for c, v in built[2].items():
                 q_row[c] += v

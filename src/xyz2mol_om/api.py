@@ -328,7 +328,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         for m, x in ml_pred:
             if (m, x) not in hap:
                 _mlo[x] += int(mlout.get((m, x), 0)) + 1
-        joint = solve_joint(G, el, sc_j, dict(_mlo),
+        # each donor keeps room for its M–L bonds; a 3c2e bridge keeps its pair's worth
+        #   (`bml_budget`, the same budget ④ uses) rather than one unit per M–L bond
+        _res = {x: (bml.get(x, 0.0) if x in three_c else float(o)) for x, o in _mlo.items()}
+        joint = solve_joint(G, el, sc_j, dict(_mlo), reserve=_res,
                             qfun=_qfun, ring_c=_ring_c, skip=_skip, seq_q=_seq_q,
                             metals={m: el[m] for m in cen},
                             q_total=total_charge if not n_unpaired else None)
