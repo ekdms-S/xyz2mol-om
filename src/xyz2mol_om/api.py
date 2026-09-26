@@ -129,7 +129,7 @@ from .charge import eht_frag_charges
 from .rules import load_scores4
 from .rules import bml_budget, predict_T3_T5
 from .rules.joint import solve_joint
-from .rules.pipeline import bond_scores
+from .rules.pipeline import bond_scores, predict_joint_prep
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
@@ -269,9 +269,11 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # `w_raw` is the ③ likelihood margin `score[Double] − score[Single]` **before** ④'s
     #   `CAPINESS` penalty is folded into `w`. Only the π-suppression report reads it.
     w_raw = {}
-    cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, dbond=dbond,
-                                                     q_eht=q_eht,
-                                                      w_raw_out=w_raw)
+    # ★ `JOINT`: no second pass — one metal-free T3 solve, haptic on it, M–L orders from Mayer
+    #   (`rules.pipeline.predict_joint_prep`); the internal integers come from the joint solve below.
+    _prep = predict_joint_prep if JOINT else predict_T3_T5
+    cls, mlout, hap, ml_pred, btag, w = _prep(el, xyz, G, sc4, ml_raw, wbo, dbond=dbond,
+                                              q_eht=q_eht, w_raw_out=w_raw)
     # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
     # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
     # 🔴 This must stay the same budget as ④'s, 3c2e term included, or ⑥ can undo what ④

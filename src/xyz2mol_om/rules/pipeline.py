@@ -606,74 +606,11 @@ def _eta2_pair(el, xyz, G, ml_pred, cls_now, dbond=None):
     return out
 
 
-def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
-                  q_eht=None, rop=None, w_raw_out=None, dbond=None, force_hap=()):
-    """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
-    the haptic set** end to end.
-
-    Returns `(cls, mlout, hap, ml_pred, btag, w)`
-      `cls`     {(i,j): 0 Single · 1 Double · 2 Triple · 3 Conj}   internal bonds
-      `mlout`   {(m,x): class}                                     M–L orders (haptic excluded)
-      `hap`     {(m,x)}                                            haptic M–L bonds
-      `ml_pred` [(m,x)]                                            T4 bonds with agostic removed
-      `btag`    {x: "3c2e" | "dative"}                             T7 bridge tags (pass-1 based)
-      `w`       {(i,j): score[Double] − score[Single]}              ⑥ Kekule matching tie-break
-
-    Why 2 passes: a haptic M–L bond **gets no order and spends no budget** (`docs/PIPELINE.md`).
-    But whether a bond is haptic can only be decided once T3 (the π fragments) is known. So the
-    **first pass solves T3 with a budget of 0** to get the π candidates, haptic bonds are decided
-    provisionally **from the angle alone**, and the second pass is solved with those removed from
-    the budget.
-    ⚠️ The provisional decision is for the budget only — **the final haptic set is decided again
-    from the π fragments of the second pass.**
-    """
-    if bml_model is None:
-        bml_model, bml_fb = load_b_ml_mayer()
-    coord = {x for _m, x in ml_raw}
-    ml_pred = drop_bound_halide(
-        el, G, drop_saturated(el, G, drop_agostic_carbon(
-            el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
-    # pass 1 — budget 0 · no M–L optimization
-    cls0, _ = predict_T3_EHT(el, xyz, G, scores4, {}, None, q_eht, coord, rop)
-    unsat0 = {x for e, v in cls0.items() if v in (1, 2, 3) for x in e}
-    hap_pre = set()
-    for m, x in ml_pred:
-        nb = list(G[x])
-        if x in unsat0 and nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
-            hap_pre.add((m, x))
-    # A slipped η² whose far end misses the per-atom angle test. Applied **here** as well as
-    #   below, because what it buys is the ④ budget: an M–L bond it turns haptic stops costing a
-    #   valence unit, which is exactly what pass 2 needs to raise the π bond.
-    _extra = _eta2_pair(el, xyz, G, ml_pred, cls0, dbond)
-    # ★ a partner admitted by `ETA2NEAR` becomes a real M–L bond in `ml_pred`, so no haptic tag
-    #   sits on a bond the output does not carry.
-    for _p in sorted(_extra - set(ml_pred)):
-        ml_pred.append(_p)
-    hap_pre |= _extra
-    hap_pre = drop_eta1(hap_pre, G, el)
-    keep = [p for p in ml_pred if p not in hap_pre]
-    # 🔴 T7 bridge tags — computed **here**, between the two passes, because pass 2's budget
-    #   depends on them. `cls0` (pass-1, metal-free orders) is what makes the bond-order form of
-    #   the rule non-circular. The same tags are returned so the output cannot diverge from the
-    #   budget decision.
-    #   A unit whose single electron pair spans 3 centers is **one** bond of valence, so those
-    #   atoms spend `BML3C_COST` (default 1.0) in total rather than 1.0 per M–L bond.
-    #   ⚠️ They are **not** removed from `keep` (= the M–L order optimization candidates) — T8
-    #      still assigns orders to them.
-    btag = bridge_tags(el, G, ml_pred, cls0)
-    three_c = {x for x, tg in btag.items() if tg == "3c2e"}
-    bml = bml_budget(keep, three_c)  # M–L baseline = Single, 3c2e = one pair
-    # 🔴 With no `wbo`, M–L orders come from the **distance fallback** — the Mayer model alone
-    #   would emit `Single` for every bond.
-    #   ⚠️ It is **not used when `wbo` is available**; the Mayer model is the primary one.
-    if wbo:
-        ml_sc = ml_order_scores(el, keep, wbo, bml_model, bml_fb)
-    else:
-        ml_sc = ml_order_scores_dist(el, keep, xyz)
-    # pass 2 — this is the output
-    w = {}
-    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, w_out=w,
-                                w_raw_out=w_raw_out)
+def final_haptic(el, xyz, G, ml_pred, cls, btag):
+    """T5 — the haptic set from the internal classes `cls`: angle + π-fragment test, the η²
+    pair rule, η¹ = σ, R7 and `SIGCAP` (`docs/PIPELINE.md` 5 · 5* · 5† · 5′ · 5‡). Shared by the
+    sequential path (on its pass-2 classes) and the joint path (on its single metal-free solve).
+    `btag` = the T7 tags on the same classes."""
     # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**.
     pi = nx.Graph()
     pi.add_edges_from(e for e, v in cls.items() if v in (1, 2, 3))
@@ -744,6 +681,110 @@ def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                 moved = True
             if not moved:
                 break
+    return hap
+
+
+def predict_joint_prep(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
+                       q_eht=None, rop=None, w_raw_out=None, dbond=None):
+    """The joint path's counterpart of `predict_T3_T5` — same return value
+    `(cls, mlout, hap, ml_pred, btag, w)`, without the second pass.
+
+    One metal-free T3 solve (`b_ML = 0`, no M–L scores) gives the internal classes. The haptic
+    set is decided on **those** classes (`final_haptic`), the M–L orders are Mayer's own best
+    class per bond (they enter the joint solve as fixed valence it must leave room for, not as
+    scores competing with the internal bonds), and the T7 tags follow. The internal integers
+    themselves are the joint solve's; `cls` here only supplies the `Conj` label, the Hückel ring
+    set and the sequential answer for fragments the joint solve does not take.
+    """
+    if bml_model is None:
+        bml_model, bml_fb = load_b_ml_mayer()
+    coord = {x for _m, x in ml_raw}
+    ml_pred = drop_bound_halide(
+        el, G, drop_saturated(el, G, drop_agostic_carbon(
+            el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
+    w = {}
+    cls, _ = predict_T3_EHT(el, xyz, G, scores4, {}, None, q_eht, coord, rop, w_out=w,
+                            w_raw_out=w_raw_out)
+    for _p in sorted(_eta2_pair(el, xyz, G, ml_pred, cls, dbond) - set(ml_pred)):
+        ml_pred.append(_p)  # an `ETA2NEAR` partner becomes a real M–L bond, as in pass 1
+    hap = final_haptic(el, xyz, G, ml_pred, cls, bridge_tags(el, G, ml_pred, cls))
+    keep = [p for p in ml_pred if p not in hap]
+    ml_sc = (ml_order_scores(el, keep, wbo, bml_model, bml_fb) if wbo
+             else ml_order_scores_dist(el, keep, xyz))
+    mlout = {k: max(v, key=v.get) for k, v in ml_sc.items()}
+    btag = bridge_tags(el, G, ml_pred, cls, hap)
+    return cls, mlout, hap, ml_pred, btag, w
+
+
+def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
+                  q_eht=None, rop=None, w_raw_out=None, dbond=None, force_hap=()):
+    """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
+    the haptic set** end to end.
+
+    Returns `(cls, mlout, hap, ml_pred, btag, w)`
+      `cls`     {(i,j): 0 Single · 1 Double · 2 Triple · 3 Conj}   internal bonds
+      `mlout`   {(m,x): class}                                     M–L orders (haptic excluded)
+      `hap`     {(m,x)}                                            haptic M–L bonds
+      `ml_pred` [(m,x)]                                            T4 bonds with agostic removed
+      `btag`    {x: "3c2e" | "dative"}                             T7 bridge tags (pass-1 based)
+      `w`       {(i,j): score[Double] − score[Single]}              ⑥ Kekule matching tie-break
+
+    Why 2 passes: a haptic M–L bond **gets no order and spends no budget** (`docs/PIPELINE.md`).
+    But whether a bond is haptic can only be decided once T3 (the π fragments) is known. So the
+    **first pass solves T3 with a budget of 0** to get the π candidates, haptic bonds are decided
+    provisionally **from the angle alone**, and the second pass is solved with those removed from
+    the budget.
+    ⚠️ The provisional decision is for the budget only — **the final haptic set is decided again
+    from the π fragments of the second pass.**
+    """
+    if bml_model is None:
+        bml_model, bml_fb = load_b_ml_mayer()
+    coord = {x for _m, x in ml_raw}
+    ml_pred = drop_bound_halide(
+        el, G, drop_saturated(el, G, drop_agostic_carbon(
+            el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
+    # pass 1 — budget 0 · no M–L optimization
+    cls0, _ = predict_T3_EHT(el, xyz, G, scores4, {}, None, q_eht, coord, rop)
+    unsat0 = {x for e, v in cls0.items() if v in (1, 2, 3) for x in e}
+    hap_pre = set()
+    for m, x in ml_pred:
+        nb = list(G[x])
+        if x in unsat0 and nb and _angle_ok(xyz, m, x, _closest_mid(xyz, x, m, nb), THETA_HAPTIC):
+            hap_pre.add((m, x))
+    # A slipped η² whose far end misses the per-atom angle test. Applied **here** as well as
+    #   below, because what it buys is the ④ budget: an M–L bond it turns haptic stops costing a
+    #   valence unit, which is exactly what pass 2 needs to raise the π bond.
+    _extra = _eta2_pair(el, xyz, G, ml_pred, cls0, dbond)
+    # ★ a partner admitted by `ETA2NEAR` becomes a real M–L bond in `ml_pred`, so no haptic tag
+    #   sits on a bond the output does not carry.
+    for _p in sorted(_extra - set(ml_pred)):
+        ml_pred.append(_p)
+    hap_pre |= _extra
+    hap_pre = drop_eta1(hap_pre, G, el)
+    keep = [p for p in ml_pred if p not in hap_pre]
+    # 🔴 T7 bridge tags — computed **here**, between the two passes, because pass 2's budget
+    #   depends on them. `cls0` (pass-1, metal-free orders) is what makes the bond-order form of
+    #   the rule non-circular. The same tags are returned so the output cannot diverge from the
+    #   budget decision.
+    #   A unit whose single electron pair spans 3 centers is **one** bond of valence, so those
+    #   atoms spend `BML3C_COST` (default 1.0) in total rather than 1.0 per M–L bond.
+    #   ⚠️ They are **not** removed from `keep` (= the M–L order optimization candidates) — T8
+    #      still assigns orders to them.
+    btag = bridge_tags(el, G, ml_pred, cls0)
+    three_c = {x for x, tg in btag.items() if tg == "3c2e"}
+    bml = bml_budget(keep, three_c)  # M–L baseline = Single, 3c2e = one pair
+    # 🔴 With no `wbo`, M–L orders come from the **distance fallback** — the Mayer model alone
+    #   would emit `Single` for every bond.
+    #   ⚠️ It is **not used when `wbo` is available**; the Mayer model is the primary one.
+    if wbo:
+        ml_sc = ml_order_scores(el, keep, wbo, bml_model, bml_fb)
+    else:
+        ml_sc = ml_order_scores_dist(el, keep, xyz)
+    # pass 2 — this is the output
+    w = {}
+    cls, mlout = predict_T3_EHT(el, xyz, G, scores4, dict(bml), ml_sc, q_eht, coord, rop, w_out=w,
+                                w_raw_out=w_raw_out)
+    hap = final_haptic(el, xyz, G, ml_pred, cls, btag)
     for e in hap:  # haptic bonds get no order
         mlout.pop(e, None)
     if ETAEXO and hap:
