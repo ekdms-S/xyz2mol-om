@@ -272,12 +272,15 @@ JOINTQ = float(os.environ.get("JOINTQ", "1.0"))
 #   cation (tropylium, cyclopropenium) be written at all. Float, default 1.0.
 JOINTCAT = float(os.environ.get("JOINTCAT", "1.0"))
 # `JOINTSYM` — penalty per unit of oxidation-state difference between two metals of the same
-#   element, so a tie goes to the even split (Re2Cl8 -> III/III). Float, default 0.01.
-JOINTSYM = float(os.environ.get("JOINTSYM", "0.01"))
+#   element, so a tie goes to the even split (Re2Cl8 -> III/III, Co2(CO)8 -> 0/0). Float,
+#   default 0.5 — mixed valence is rare, and it must outweigh the `JOINTOSW` prior.
+JOINTSYM = float(os.environ.get("JOINTSYM", "0.5"))
 # `JOINTOSW` — weight of the oxidation-state prior in the joint solve: each candidate costs
 #   `JOINTOSW · -ln(p / p_max)`, with `p` the element's state frequency in the train-split CSD names
-#   (`data/os_prior.json`, add-one smoothed over the hard range). Float, default 1.0; 0 = off.
-JOINTOSW = float(os.environ.get("JOINTOSW", "1.0"))
+#   (`data/os_prior.json`, add-one smoothed over the hard range). Float, default 0.1 — a
+#   tie-breaker: at 1.0 it outweighed the distance evidence (a mu-CO bent to C=O to buy Fe(II)).
+#   0 = off.
+JOINTOSW = float(os.environ.get("JOINTOSW", "0.1"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,
