@@ -77,6 +77,46 @@ def _eht_untrusted(G, el, comp):
     return None
 
 
+def bond_scores(el, xyz, G, scores4, rop=None):
+    """③ — the per-element-pair 4-class distance likelihood of every internal bond.
+
+    Returns `{(i, j): {class: score}}` (0 Single · 1 Double · 2 Triple · 3 Conj). A pair with no
+    fitted entry in `scores4` is left out. Shared by `predict_T3_EHT` and the joint solve
+    (`rules.joint`), so both read the same numbers.
+    """
+    sc = {}
+    for a, b in G.edges:
+        e = (min(a, b), max(a, b))
+        k = tuple(sorted((el[a], el[b])))
+        if k not in scores4:
+            continue
+        ent = scores4[k]
+        med, scl, lp = ent[0], ent[1], ent[2]
+        d = float(np.linalg.norm(xyz[a] - xyz[b]))
+        # 🔴 `LPCOND` — swap in the prior of this bond's **endpoint degree cell** (global `lp`
+        #    if the cell is absent). With `LPCOND_NOCONJ`, only `Conj` (class 3) reverts to the
+        #    global prior. For the rule see the `LPCOND` comment.
+        lp_e = lp
+        if LPCOND and len(ent) >= 6 and ent[5]:
+            _cell = deg_cell(el, a, b, {x: G.degree(x) for x in (a, b)})
+            _lc = ent[5].get(_cell)
+            if _lc is not None:
+                lp_e = {c: (lp[c] if (LPCOND_NOCONJ and c == 3) else v) for c, v in _lc.items()}
+        sc[e] = {
+            c: -abs(d - med[c]) / scl[c]
+            + LPA * lp_e.get(c, lp[c])
+            - (float(np.log(2 * scl[c])) if LNORM_ON and not (LNORM_SKIP_CONJ and c == 3) else 0.0)
+            for c in med
+        }
+        if USE_ROP and rop is not None and len(ent) >= 5 and e in rop:
+            rmed, rscl = ent[3], ent[4]
+            rv = rop[e]
+            for c in list(sc[e]):
+                if c in rmed:
+                    sc[e][c] += ROPW * (-abs(rv - rmed[c]) / rscl[c])
+    return sc
+
+
 def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=None, rop=None,
                    w_out=None, w_raw_out=None):
     """T3 — the internal bond classes, stages ①–⑤ of `docs/PIPELINE.md §T3` (⑥ runs on the
@@ -117,36 +157,7 @@ def predict_T3_EHT(el, xyz, G, scores4, bml=None, ml_sc=None, q_eht=None, coord=
                 if a not in sat and b not in sat
             }
     # ③ per-element-pair 4-class distance likelihood
-    sc = {}
-    for a, b in G.edges:
-        e = (min(a, b), max(a, b))
-        k = tuple(sorted((el[a], el[b])))
-        if k not in scores4:
-            continue
-        ent = scores4[k]
-        med, scl, lp = ent[0], ent[1], ent[2]
-        d = float(np.linalg.norm(xyz[a] - xyz[b]))
-        # 🔴 `LPCOND` — swap in the prior of this bond's **endpoint degree cell** (global `lp`
-        #    if the cell is absent). With `LPCOND_NOCONJ`, only `Conj` (class 3) reverts to the
-        #    global prior. For the rule see the `LPCOND` comment.
-        lp_e = lp
-        if LPCOND and len(ent) >= 6 and ent[5]:
-            _cell = deg_cell(el, a, b, {x: G.degree(x) for x in (a, b)})
-            _lc = ent[5].get(_cell)
-            if _lc is not None:
-                lp_e = {c: (lp[c] if (LPCOND_NOCONJ and c == 3) else v) for c, v in _lc.items()}
-        sc[e] = {
-            c: -abs(d - med[c]) / scl[c]
-            + LPA * lp_e.get(c, lp[c])
-            - (float(np.log(2 * scl[c])) if LNORM_ON and not (LNORM_SKIP_CONJ and c == 3) else 0.0)
-            for c in med
-        }
-        if USE_ROP and rop is not None and len(ent) >= 5 and e in rop:
-            rmed, rscl = ent[3], ent[4]
-            rv = rop[e]
-            for c in list(sc[e]):
-                if c in rmed:
-                    sc[e][c] += ROPW * (-abs(rv - rmed[c]) / rscl[c])
+    sc = bond_scores(el, xyz, G, scores4, rop)
     # ①② conjugated set — decided on a likelihood where bonds touching a saturated atom are
     #   allowed to be Single only
     sc_sat = {
