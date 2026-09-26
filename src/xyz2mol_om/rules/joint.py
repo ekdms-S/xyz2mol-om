@@ -12,10 +12,11 @@ instead of ①② `Conj` → ④ `Triple` → ④ `Double` → ⑤ in sequence.
 prices charges with — so the carbene, sulfoxide, hypervalent and boron conventions are the same in
 the solve and in the result.
 
-Levels stop at `CAP`. A non-coordinating atom only gets levels with `|q| <= 1`, and a period-2
-atom only levels within the octet (`degree + k <= 4`); `fc_bounds=False` lifts both. A
-sigma-coordinating atom is exempt from the range and the penalty: under the ionic cut an oxo,
-imido or alkylidene carries -2 or -3 legitimately. M–L bonds spend no valence here.
+Levels stop at `CAP`. A non-coordinating atom only gets levels with `|q| <= 1`, a sigma donor levels with
+`-(M–L order) <= q <= 1` (`_charge_ok`), and a period-2 atom only levels within the octet
+(`degree + k <= 4`); `fc_bounds=False` lifts all three. Every charge is paid for (`_charge_cost`),
+except the negative units a multiple M–L bond explains under the ionic cut (oxo, imido,
+alkylidene). M–L bonds spend no valence here.
 
 A ring carbon of the sequential `Conj` set with three neighbours gets one more level, a
 carbenium (sextet, q = +1), so a Hückel cation can be written. `q_atom` reads that carbon as -1,
@@ -144,6 +145,25 @@ class _Model:
         return np.round(res.x).astype(float), float(res.fun)
 
 
+def _charge_ok(q, ml_order):
+    """Is charge `q` admissible under the FC range? A free atom: `|q| <= 1`. A sigma donor with
+    M–L order `o`: `-o <= q <= 1` — under the ionic cut each M–L bond order can carry one unit of
+    negative charge (oxo -2, nitrido -3), but a donor is never more positive than a free atom."""
+    if ml_order is None:
+        return abs(q) <= 1 + 1e-9
+    return -ml_order - 1e-9 <= q <= 1 + 1e-9
+
+
+def _charge_cost(q, ml_order, lam):
+    """The charged-atom penalty of charge `q`. A free atom pays `lam·|q|`. A sigma donor pays for
+    its first unit of negative charge like anyone else — a pyridine N(-) is a charge the metal would
+    have to absorb — but the extra units its multiple M–L bond explains are free (an alkylidene at
+    -2 pays what a -1 would)."""
+    if ml_order is None or q > 0:
+        return lam * abs(q)
+    return lam * max(0.0, -q - (ml_order - 1)) if q < 0 else 0.0
+
+
 def _default_qfun(G, el):
     def qfun(x, b):
         return q_atom(el[x], float(b), G.degree(x), tuple(sorted(el[w] for w in G[x])))
@@ -175,7 +195,7 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c):
     for x in sorted(nodes):
         deg = G.degree(x)
         ex = [(ycol[(e, o)], o - 1) for e in inc[x] for o in (2, 3) if (e, o) in ycol]
-        exempt = x in coord
+        mlo = coord.get(x)
         if not ex:
             q_const += qfun(x, deg)
             continue
@@ -185,22 +205,25 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c):
         levels = []
         for k in range(kmax + 1):
             q = qfun(x, deg + k)
-            if fc_bounds and not exempt and abs(q) > 1 + 1e-9:
+            if fc_bounds and not _charge_ok(q, mlo):
                 continue
             levels.append((k, q, False))
-        pref = ring_c.get(x) if el[x] == "C" and deg == 3 and not exempt else None
-        if pref is not None:
+        pref = ring_c.get(x, False) if el[x] == "C" and deg == 3 and mlo is None else False
+        if pref is not False:
             levels.append((0, 1.0, True))
         if not levels:
             return None
         cols = []
         for k, q, cat in levels:
-            cost = 0.0 if exempt else lam_q * abs(q)
-            # Hückel: the sign the ring's aromatic count asks for costs the plain |q|; the other
-            #   sign on that ring carbon costs `JOINTCAT` more
-            if pref == "cat" and not cat and q < 0:
-                cost += lam_q * JOINTCAT
-            elif pref is not None and pref != "cat" and cat:
+            cost = _charge_cost(q, mlo, lam_q)
+            # Hückel: on a ring whose aromatic count asks for a sign ("cat" C3 · C7, "an" C5 · C4 ·
+            #   C8), that sign on a ring carbon is free and the other costs `JOINTCAT` more. Other
+            #   `Conj` carbons (pref None) pay the plain |q|, and a carbenium `JOINTCAT` on top.
+            if cat:
+                cost = 0.0 if pref == "cat" else cost + lam_q * JOINTCAT
+            elif q < 0 and k == 0 and pref == "an":
+                cost = 0.0
+            elif q < 0 and k == 0 and pref == "cat":
                 cost += lam_q * JOINTCAT
             cols.append((M.var(cost=cost), k, q, cat))
         M.row({c: 1 for c, _k, _q, _cat in cols}, 1, 1)
@@ -236,8 +259,10 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
     """Solve every internal bond order of `G`. See the module docstring.
 
     `qfun(x, b)` — the charge of atom `x` at bond-order sum `b` (default: `q_atom` from `G`).
-    `ring_c` — carbons that may take the carbenium level, as `{atom: "cat" | "an"}` (the sign
-    Hückel's rule favours on that ring) or a plain set (= "an"). `metals` — `{index: element}`.
+    `coord` — sigma donors as `{atom: total M–L bond order}` (a plain set means order 1).
+    `ring_c` — carbons that may take the carbenium level, as `{atom: "cat" | "an" | None}` (the
+    sign Hückel's rule favours on that ring, `None` = no preference) or a plain set (= `None`).
+    `metals` — `{index: element}`.
     `skip` — fragments (by min atom index) left to the sequential path, e.g. clusters.
     `seq_q` — `{fragment min index: charge}` of the sequential answer, used as a constant for
     every fragment the joint solve does not take.
@@ -248,7 +273,8 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
         return JointResult("unavailable")
     lam_q = JOINTQ if lam_q is None else lam_q
     qfun = qfun or _default_qfun(G, el)
-    ring_c = dict(ring_c) if isinstance(ring_c, dict) else dict.fromkeys(ring_c, "an")
+    ring_c = dict(ring_c) if isinstance(ring_c, dict) else dict.fromkeys(ring_c)
+    coord = dict(coord) if isinstance(coord, dict) else dict.fromkeys(coord, 1)
     skip, seq_q, metals = set(skip), seq_q or {}, metals or {}
 
     comps = [sorted(c) for c in nx.connected_components(G)]

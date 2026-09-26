@@ -309,20 +309,26 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             _seq_q[min(_c)] = frag_charge_or_eht(G, el, cls, _c, q_eht, _ord_s, w, _fq_s,
                                                  _coord & _c, _leg)
         # carbenium candidates: three-neighbour ring carbons of the sequential `Conj` set. On an
-        #   odd ring wholly in that set, Hückel's rule picks the favoured sign (C3 · C7 cation,
-        #   C5 anion); elsewhere the anion is the default.
+        #   ring wholly in that set, Hückel's rule picks the favoured sign (C3 · C7 cation, C5
+        #   anion, C4 · C8 dianion); elsewhere no sign is favoured.
         _conj = {e for e, v in cls.items() if v == 3}
-        _ring_c = {x: "an" for e in _conj for x in e if el[x] == "C" and G.degree(x) == 3}
+        _ring_c = {x: None for e in _conj for x in e if el[x] == "C" and G.degree(x) == 3}
         for _r in nx.cycle_basis(G):
             _n = len(_r)
-            if _n % 2 == 0 or not all(
-                    (min(a, b), max(a, b)) in _conj for a, b in zip(_r, _r[1:] + _r[:1])):
+            if not all((min(a, b), max(a, b)) in _conj for a, b in zip(_r, _r[1:] + _r[:1])):
                 continue
-            _pref = "cat" if (_n - 1) in HUCKEL else ("an" if (_n + 1) in HUCKEL else None)
+            if _n % 2:
+                _pref = "cat" if (_n - 1) in HUCKEL else ("an" if (_n + 1) in HUCKEL else None)
+            else:  # an even ring: only a dianion that is aromatic while the neutral is not (C4, C8)
+                _pref = "an" if (_n + 2) in HUCKEL and _n not in HUCKEL else None
             for x in _r:
                 if x in _ring_c and _pref:
                     _ring_c[x] = _pref
-        joint = solve_joint(G, el, sc_j, {x for m, x in ml_pred if (m, x) not in hap},
+        _mlo = collections.Counter()
+        for m, x in ml_pred:
+            if (m, x) not in hap:
+                _mlo[x] += int(mlout.get((m, x), 0)) + 1
+        joint = solve_joint(G, el, sc_j, dict(_mlo),
                             qfun=_qfun, ring_c=_ring_c, skip=_skip, seq_q=_seq_q,
                             metals={m: el[m] for m in cen},
                             q_total=total_charge if not n_unpaired else None)
