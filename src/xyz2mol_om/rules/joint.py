@@ -32,12 +32,15 @@ LINEAR_FC = {"C", "N", "O", "F"}
 @dataclass
 class JointResult:
     """`status` is `optimal` · `relaxed_fc` (solved with the FC range dropped) · `too_large` ·
-    `unavailable` (no scipy) · `failed`. `orders` maps every internal bond to 1 · 2 · 3, and is
-    empty unless the solve succeeded."""
+    `unavailable` (no scipy) · `failed`, or `partial` when some fragments were solved and some
+    were not. `orders` maps every bond of the **solved** fragments to 1 · 2 · 3.
+    `components` is `{min atom index of the fragment: status}` — each connected fragment is its
+    own MILP, so one fragment that cannot be solved does not take the others with it."""
 
     status: str
     orders: dict = field(default_factory=dict)
     objective: float | None = None
+    components: dict = field(default_factory=dict)
 
 
 def order_scores(sc_e):
@@ -56,13 +59,40 @@ def order_scores(sc_e):
     return {1: 0.0 if s1 is None else s1, 2: best(sc_e.get(1), conj), 3: sc_e.get(2)}
 
 
+_SOLVED = ("optimal", "relaxed_fc")
+
+
 def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True):
-    """Solve every internal bond order of `G` at once. See the module docstring."""
+    """Solve every internal bond order of `G`, one MILP per connected fragment. See the module
+    docstring."""
     try:
-        import numpy as np
-        from scipy.optimize import Bounds, LinearConstraint, milp
+        import scipy.optimize  # noqa: F401
     except ImportError:
         return JointResult("unavailable")
+    orders, comps, obj = {}, {}, 0.0
+    for comp in nx.connected_components(G):
+        r = _solve_fragment(G.subgraph(comp), el, sc, coord, lam_q, fc_bounds)
+        comps[min(comp)] = r.status
+        if r.status in _SOLVED:
+            orders.update(r.orders)
+            obj += r.objective or 0.0
+    st = set(comps.values())
+    if st <= {"optimal"}:
+        status = "optimal"
+    elif st <= set(_SOLVED):
+        status = "relaxed_fc"
+    elif st & set(_SOLVED):
+        status = "partial"
+    else:
+        status = "too_large" if "too_large" in st else "failed"
+    return JointResult(status, orders, obj if orders else None, comps)
+
+
+def _solve_fragment(G, el, sc, coord, lam_q=None, fc_bounds=True):
+    """One connected fragment's MILP."""
+    import numpy as np
+    from scipy.optimize import Bounds, LinearConstraint, milp
+
     lam_q = JOINTQ if lam_q is None else lam_q
     edges = sorted((min(a, b), max(a, b)) for a, b in G.edges)
     osc = {e: order_scores(sc.get(e, {})) for e in edges}
@@ -119,7 +149,9 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True):
                 extra[col[("y3", e)]] += 2
         cap = CAP.get(el[x])
         if cap is not None:
-            add(extra.copy(), -np.inf, cap - deg)
+            # an atom already past its cap (a cage atom, a bridging H) gets no raises rather
+            #   than making the fragment infeasible
+            add(extra.copy(), -np.inf, max(cap - deg, 0))
         if x in lin_set:
             v = VAL[el[x]]
             r = extra.copy()
@@ -141,7 +173,7 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True):
         return JointResult("failed")
     if not res.success or res.x is None:
         if fc_bounds:
-            again = solve_joint(G, el, sc, coord, lam_q=lam_q, fc_bounds=False)
+            again = _solve_fragment(G, el, sc, coord, lam_q=lam_q, fc_bounds=False)
             if again.status == "optimal":
                 again.status = "relaxed_fc"
             return again

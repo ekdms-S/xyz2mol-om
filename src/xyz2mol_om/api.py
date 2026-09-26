@@ -287,8 +287,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         sc_j = bond_scores(el, xyz, G, sc4)
         joint = solve_joint(G, el, sc_j, {x for m, x in ml_pred if (m, x) not in hap})
         if joint.orders:
+            # a fragment the joint solve could not take (`partial`) keeps its sequential classes
             conj_j = conj_annotation(G, sc_j, joint.orders)
-            cls = {e: (3 if e in conj_j else o - 1) for e, o in joint.orders.items()}
+            cls = dict(cls)
+            cls.update({e: (3 if e in conj_j else o - 1) for e, o in joint.orders.items()})
     joint_ok = bool(joint is not None and joint.orders)
 
     # ★ distance-fit test — «does the bond length fit the `new` order better than `cur`».
@@ -320,8 +322,14 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge.
     #   Under `JOINT` the integers come from the joint solve itself, so ⑥ and the post-⑥
     #   repairs (QSHIFT · SIGCUT) are skipped — they exist to patch the sequential solve.
+    #   ⚠️ The skip is for the whole input: under a `partial` solve the fragments left on the
+    #   sequential path lose QSHIFT · SIGCUT as well.
     if joint_ok:
-        orders, frag_q = dict(joint.orders), {}
+        # joint fragments go in as their integers (⑥ passes non-`Conj` classes straight
+        #   through); the others keep their sequential classes and get the usual ⑥
+        kin = dict(cls)
+        kin.update({e: o - 1 for e, o in joint.orders.items()})
+        orders, frag_q = kekulize(G, el, kin, dict(bml), w)
     else:
         orders, frag_q = kekulize(G, el, cls, dict(bml), w)
     if NOCTET:
