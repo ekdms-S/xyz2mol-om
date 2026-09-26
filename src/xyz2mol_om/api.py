@@ -185,8 +185,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             complex_atom_map=False, n_unpaired=0):
     """`xyz` → bonds · orders · charges · oxidation states. See the module docstring for the
     arguments and the return value."""
-    if n_unpaired not in (0, 1):
-        raise ValueError(f"n_unpaired={n_unpaired!r}: only 0 (closed shell) and 1 are supported")
+    if not isinstance(n_unpaired, int) or n_unpaired < 0 or (not JOINT and n_unpaired > 1):
+        raise ValueError(f"n_unpaired={n_unpaired!r}: only 0 (closed shell) and 1 are supported"
+                         " (any count with JOINT=1)")
     el = list(elements)
     xyz = np.asarray(coords, dtype=float)
     if not wbo and centers(el):
@@ -357,7 +358,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             joint = solve_joint(G, el, sc_j, dict(_mlo), reserve=_res,
                                 qfun=_qfun, ring_c=_ring_c, huckel=_huckel, skip=_skip,
                                 seq_q=_seq_q, metals={m: el[m] for m in cen},
-                                q_total=total_charge if not n_unpaired else None)
+                                q_total=total_charge, n_unpaired=n_unpaired)
             if _round or not joint.orders:
                 break
             _cj = _merged(joint)
@@ -619,7 +620,33 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   The result still comes back, with the closed-shell answer and `radical["note"]` saying why
     #   — a caller that wants the strict behaviour drops the structure on a non-empty note.
     radical = {"n_unpaired": n_unpaired, "atom": None, "site": None, "note": "", "sign": +1}
-    if n_unpaired:
+    # ★ `JOINT`: the joint solve placed the electrons itself — on ligand atoms (`radicals`,
+    #   `{atom: +1 | -1}`, the same pricing as the placement below) or on d-block metals — so its
+    #   answer is applied instead of the search. `atoms` lists every ligand site.
+    if n_unpaired and joint is not None and (joint.radicals or joint.metal_unpaired):
+        sites = sorted(joint.radicals)
+        radical["atoms"] = sites
+        radical["atom"] = sites[0] if len(sites) == 1 else None
+        radical["site"] = ("metal" if not sites else
+                           "organic" if not joint.metal_unpaired else "mixed")
+        for site in sites:
+            _d = int(round(joint.radicals[site]))
+            radical["sign"] = _d
+            qat_all[site] += _d
+        for fr in fragments:
+            here = [a for a in sites if a in fr["atoms"]]
+            if not here:
+                continue
+            fr["charge"] += sum(int(round(joint.radicals[a])) for a in here)
+            bk = {e: int(o) for e, o in orders.items() if e[0] in set(fr["atoms"])}
+            qat = {a: qat_all[a] for a in fr["atoms"]}
+            smi_f, _m = ligand_smiles(el, fr["atoms"], bk, qat, fr["coordinating"],
+                                      radicals=set(here))
+            ok_f, why_f = (False, "SMILES generation failed")
+            if smi_f:
+                ok_f, why_f = verify_roundtrip(smi_f, el, fr["atoms"], bk, qat)
+            fr["smiles"], fr["smiles_ok"], fr["smiles_note"] = smi_f, ok_f, why_f
+    elif n_unpaired:
         bsum = collections.Counter()
         for (i, j), o in orders.items():
             bsum[i] += o
@@ -718,6 +745,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                                "anion and a radical read as an anion are the same graph, so the "
                                "closed-shell answer is returned unchanged")
 
+    _rad_atoms = set(radical.get("atoms") or
+                     ([radical["atom"]] if radical["atom"] is not None else []))
+
     # ── charge balance — a self-check the caller can act on ───────────────────────────────
     # 🔴 With **no metal** in the structure there is no oxidation state to absorb a charge error,
     #   so the emitted formal charges have to add up to the `total_charge` the caller passed.
@@ -751,7 +781,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         # 🔴 This runs **after** the radical block, so an electron that was placed has already
         #   cancelled its own -1. What should be left is only the unpaired electrons that could
         #   **not** be placed.
-        _left = n_unpaired - (1 if radical["atom"] is not None else 0)
+        _left = n_unpaired - len(radical.get("atoms") or
+                                 ([radical["atom"]] if radical["atom"] is not None else []))
         if _sf != _left:
             charge_balance["ok"] = False
             charge_balance["note"] = (
@@ -835,7 +866,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             qcx = {a: q for a, q in qat_all.items() if a in aset}
             smi, order = complex_smiles(el, mol["atoms"], {e: v for e, v in orders.items() if e[0] in aset},
                                         qcx, [], {}, with_map=complex_atom_map,
-                                        radicals={radical["atom"]} & aset if radical["atom"] is not None else ())
+                                        radicals=_rad_atoms & aset)
             if smi is None:
                 note = "SMILES generation failed"
             else:
@@ -853,7 +884,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             sub_or = {e: v for e, v in orders.items() if e[0] in aset}
             smi, order = complex_smiles(el, mol["atoms"], sub_or, qcx, sub_ml, sub_mm,
                                         with_map=complex_atom_map,
-                                        radicals={radical["atom"]} & aset if radical["atom"] is not None else ())
+                                        radicals=_rad_atoms & aset)
             if smi is None:
                 note = "SMILES generation failed"
             else:
@@ -895,8 +926,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     }
     if JOINT:
         q_status = joint.q_status
-        if n_unpaired and total_charge is not None:
-            q_status = "radical"  # the closed-shell charge model cannot take an odd count yet
         out["joint"] = {"status": joint.status, "objective": joint.objective,
                         "q_status": q_status, "alt_gap": joint.alt_gap,
                         "alt_os": {m: v for m, v in joint.alt_os.items()}}

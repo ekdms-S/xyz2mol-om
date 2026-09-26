@@ -285,6 +285,9 @@ JOINTOSW = float(os.environ.get("JOINTOSW", "0.1"))
 #   (an X-type donor: halide, alkoxide, thiolate, amide). 1.0 = the same as any atom. Float,
 #   default 0.25; chosen on the train sample (1 · 0.5 · 0.25): at 1.0 dithiolates went neutral.
 JOINTDON = float(os.environ.get("JOINTDON", "0.25"))
+# `JOINTRAD` — cost (in units of `JOINTQ`) of putting an unpaired electron on a ligand atom rather
+#   than on a metal, when `n_unpaired > 0`. Float, default 0.5.
+JOINTRAD = float(os.environ.get("JOINTRAD", "0.5"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,

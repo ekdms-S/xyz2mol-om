@@ -40,8 +40,8 @@ from dataclasses import dataclass, field
 import networkx as nx
 
 from ..charge.formal import q_atom
-from ..config import (CAP, DATA, JOINT_MAX, JOINTCAT, JOINTDON, JOINTOSW, JOINTQ, JOINTSYM,
-                      os_range)
+from ..config import (CAP, DATA, FULL, JOINT_MAX, JOINTCAT, JOINTDON, JOINTOSW, JOINTQ,
+                      JOINTRAD, JOINTSYM, VAL, _GROUP, os_range)
 
 PERIOD2 = {"B", "C", "N", "O", "F"}
 _SOLVED = ("optimal", "relaxed_fc")
@@ -70,6 +70,8 @@ class JointResult:
     q_status: str = "no_q"
     alt_os: dict = field(default_factory=dict)
     alt_gap: float | None = None
+    radicals: dict = field(default_factory=dict)
+    metal_unpaired: dict = field(default_factory=dict)
 
 
 _PRIOR = None
@@ -180,12 +182,27 @@ def _default_qfun(G, el, coord):
     return qfun
 
 
-def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserve, huckel):
+def _radical_delta(e, b):
+    """How an unpaired electron on an atom of element `e` at bond-order sum `b` changes the charge
+    `q_atom` reads: +1 where the reading counted a lone pair in its place (CH3· read as CH3-), -1
+    for an electron-deficient acceptor that has put all its electrons into bonds and still has
+    room (H3N->BH2·, boron read as neutral), `None` where there is no place for it."""
+    v = VAL.get(e, 4)
+    if v - b >= 1:
+        return 1.0
+    if v - b == 0 and 2 * b < FULL.get(e, 8):
+        return -1.0
+    return None
+
+
+def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserve, huckel,
+              radical=False):
     """Add one fragment's variables and rows to `M`.
 
     Returns `(ycol, lvl, q_terms, q_const)` — bond columns `{(edge, 2 | 3): col}`, level columns
-    `{atom: [(col, k, q, carbenium)]}`, the fragment charge as `{col: coef}` plus a constant — or
-    `None` if some atom has no admissible level at all."""
+    `{atom: [(col, k, q, carbenium, unpaired)]}`, the fragment charge as `{col: coef}` plus a
+    constant — or `None` if some atom has no admissible level at all. With `radical`, every
+    non-H atom also gets levels carrying one unpaired electron (`_radical_delta`)."""
     edges = sorted((min(a, b), max(a, b)) for a, b in G.subgraph(nodes).edges)
     ycol = {}
     for e in edges:
@@ -207,7 +224,8 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
         deg = G.degree(x)
         ex = [(ycol[(e, o)], o - 1) for e in inc[x] for o in (2, 3) if (e, o) in ycol]
         mlo = coord.get(x)
-        if not ex:
+        rad_ok = radical and el[x] != "H"
+        if not ex and not rad_ok:
             q_const += qfun(x, deg)
             continue
         # a donor keeps room for its M–L bonds (`reserve`): the Mayer M–L order is a fixed input
@@ -218,33 +236,39 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
             kmax = min(kmax, max(4 - deg - r, 0))
         levels = []
         for k in range(kmax + 1):
-            q = qfun(x, deg + k)
-            if fc_bounds and not _charge_ok(q, mlo):
-                continue
-            levels.append((k, q, False))
+            q0 = qfun(x, deg + k)
+            opts = [(q0, False)]
+            if rad_ok:
+                dq = _radical_delta(el[x], deg + k)
+                if dq is not None:
+                    opts.append((q0 + dq, True))
+            for q, rad in opts:
+                if fc_bounds and not _charge_ok(q, mlo):
+                    continue
+                levels.append((k, q, False, rad))
         sign = hsign.get(x)
         if x in ring_c and el[x] == "C" and deg == 3 and mlo is None:
-            levels.append((0, 1.0, True))
+            levels.append((0, 1.0, True, False))
         if not levels:
             return None
         cols = []
-        for k, q, cat in levels:
-            cost = _charge_cost(q, mlo, lam_q)
+        for k, q, cat, rad in levels:
+            cost = _charge_cost(q, mlo, lam_q) + (lam_q * JOINTRAD if rad else 0.0)
             # the sign a Hückel ring does not ask for costs `JOINTCAT` more; a carbenium off such a
             #   ring always does. What the ring does ask for is refunded per ring, below.
             if cat and sign != "cat":
                 cost += lam_q * JOINTCAT
-            elif not cat and q < 0 and sign == "cat":
+            elif not cat and not rad and q < 0 and sign == "cat":
                 cost += lam_q * JOINTCAT
-            cols.append((M.var(cost=cost), k, q, cat))
-        M.row({c: 1 for c, _k, _q, _cat in cols}, 1, 1)
-        r = collections.Counter()
-        for c, k, _q, _cat in cols:
-            r[c] += k
+            cols.append((M.var(cost=cost), k, q, cat, rad))
+        M.row({c: 1 for c, *_ in cols}, 1, 1)
+        row = collections.Counter()
+        for c, k, *_ in cols:
+            row[c] += k
         for c, w in ex:
-            r[c] -= w
-        M.row(dict(r), 0, 0)
-        for c, _k, q, _cat in cols:
+            row[c] -= w
+        M.row(dict(row), 0, 0)
+        for c, _k, q, *_ in cols:
             q_terms[c] = q_terms.get(c, 0.0) + q
         lvl[x] = cols
     # ★ Hückel refund: a carbocycle whose aromatic count asks for `n` charges of one sign (C5 one
@@ -254,34 +278,37 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
     for atoms, sg, n in huckel:
         if not set(atoms) <= nodes_set:
             continue
-        hits = [c for x in atoms for c, _k, q, cat in lvl.get(x, ())
-                if (cat if sg == "cat" else (q < 0 and not cat))]
+        hits = [c for x in atoms for c, _k, q, cat, rad in lvl.get(x, ())
+                if not rad and (cat if sg == "cat" else (q < 0 and not cat))]
         if not hits:
             continue
         z = M.var(cost=-lam_q, lb=0.0, ub=float(n), integer=False)
-        r = {c: -1 for c in hits}
-        r[z] = 1
-        M.row(r, -float("inf"), 0)
+        row = {c: -1 for c in hits}
+        row[z] = 1
+        M.row(row, -float("inf"), 0)
     return ycol, lvl, q_terms, q_const
 
 
 def _read(x, G, nodes, qfun, ycol, lvl):
-    """Orders and carbenium residuals of one fragment from a solution vector."""
-    orders, residual = {}, {}
+    """Orders, carbenium residuals and unpaired-electron atoms of one fragment from a solution."""
+    orders, residual, rads = {}, {}, {}
     for a, b in G.subgraph(nodes).edges:
         e = (min(a, b), max(a, b))
         y2 = int(x[ycol[(e, 2)]]) if (e, 2) in ycol else 0
         y3 = int(x[ycol[(e, 3)]]) if (e, 3) in ycol else 0
         orders[e] = 1 + y2 + 2 * y3
     for a, cols in lvl.items():
-        for c, _k, q, cat in cols:
-            if cat and x[c] > 0.5:
+        for c, k, q, cat, rad in cols:
+            if x[c] > 0.5 and cat:
                 residual[a] = q - qfun(a, G.degree(a))
-    return orders, residual
+            if x[c] > 0.5 and rad:
+                rads[a] = q - qfun(a, G.degree(a) + k)
+    return orders, residual, rads
 
 
 def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring_c=(),
-                q_total=None, metals=None, skip=(), seq_q=None, reserve=None, huckel=()):
+                q_total=None, metals=None, skip=(), seq_q=None, reserve=None, huckel=(),
+                n_unpaired=0):
     """Solve every internal bond order of `G`. See the module docstring.
 
     `qfun(x, b)` — the charge of atom `x` at bond-order sum `b` (default: `q_atom` from `G`).
@@ -293,6 +320,9 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
     `skip` — fragments (by min atom index) left to the sequential path, e.g. clusters.
     `seq_q` — `{fragment min index: charge}` of the sequential answer, used as a constant for
     every fragment the joint solve does not take.
+    `n_unpaired` — unpaired electrons to place, on ligand atoms or on d-block metals (a metal
+    holds `u <= min(d, 10 - d)` with `d - u` even, `d = group - OS`). 0 places none and does
+    **not** constrain the metals' d count: it is the default, and in practice means "not given".
     """
     try:
         import scipy.optimize  # noqa: F401
@@ -320,7 +350,7 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
                 break
             sol = M.solve() if built is not None else None
             if sol is not None:
-                o, r = _read(sol[0], G, nodes, qfun, built[0], built[1])
+                o, r, _u = _read(sol[0], G, nodes, qfun, built[0], built[1])
                 orders.update(o)
                 residual.update(r)
                 obj += sol[1]
@@ -331,26 +361,32 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
 
     res = JointResult(_summary(status), orders, -obj if orders else None, status,
                       residual=residual)
-    if q_total is None:
+    if q_total is None and not n_unpaired:
         return res
 
-    # ── the total charge: every solved fragment and one OS per metal, in one model ─────────────
+    # ── the total charge and the unpaired electrons: every solved fragment and one OS per metal,
+    #    in one model ────────────────────────────────────────────────────────────────────────────
     const = sum(seq_q.get(k, 0.0) for k, st in status.items() if st not in _SOLVED)
 
     def build(widen, cut=None):
         M = _Model()
-        blocks, q_row, q_rhs = [], collections.Counter(), float(q_total) - const
+        blocks, q_row = [], collections.Counter()
+        q_rhs = (float(q_total) if q_total is not None else 0.0) - const
+        rad_cols = []
         for nodes in comps:
             key = nodes[0]
             if status[key] not in _SOLVED:
                 continue
             built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, bounds[key], ring_c,
-                              reserve, huckel)
+                              reserve, huckel, radical=bool(n_unpaired))
+            if built is None:
+                return None
             blocks.append((nodes, built))
+            rad_cols += [c for cols in built[1].values() for c, *_r, rad in cols if rad]
             for c, v in built[2].items():
                 q_row[c] += v
             q_rhs -= built[3]
-        os_col, onehot = {}, {}
+        os_col, onehot, u_col = {}, {}, {}
         for m, e in sorted(metals.items()):
             lo, hi = os_range(e)
             if widen:
@@ -365,6 +401,15 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
             link[os_col[m]] = 1
             M.row(link, 0, 0)
             onehot[m] = one
+            if n_unpaired and e in _GROUP:
+                # d = group - OS; u <= d, u <= 10 - d, d - u even
+                g = _GROUP[e]
+                u = M.var(cost=0.0, lb=0.0, ub=5.0)
+                h = M.var(cost=0.0, lb=-10.0, ub=10.0)
+                M.row({os_col[m]: 1, u: 1, h: 2}, g, g)
+                M.row({u: 1, os_col[m]: 1}, -float("inf"), g)
+                M.row({u: 1, os_col[m]: -1}, -float("inf"), 10 - g)
+                u_col[m] = u
         ms = sorted(metals)
         for i, a in enumerate(ms):
             for b in ms[i + 1:]:
@@ -372,36 +417,46 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
                     d = M.var(cost=JOINTSYM, lb=0.0, ub=20.0, integer=False)
                     M.row({d: 1, os_col[a]: -1, os_col[b]: 1}, 0, float("inf"))
                     M.row({d: 1, os_col[a]: 1, os_col[b]: -1}, 0, float("inf"))
-        M.row(dict(q_row), q_rhs, q_rhs)
+        if q_total is not None:
+            M.row(dict(q_row), q_rhs, q_rhs)
+        if n_unpaired:
+            cnt = dict.fromkeys(rad_cols, 1)
+            cnt.update(dict.fromkeys(u_col.values(), 1))
+            M.row(cnt, n_unpaired, n_unpaired)
         if cut:  # not this combination of oxidation states again
             M.row({onehot[m][v]: 1 for m, v in cut.items() if v in onehot[m]},
                   -float("inf"), len(cut) - 1)
-        return M, blocks, os_col
+        return M, blocks, os_col, u_col
 
     for widen in (False, True):
-        M, blocks, os_col = build(widen)
-        sol = M.solve()
+        built_all = build(widen)
+        sol = built_all[0].solve() if built_all is not None else None
         if sol is None:
             continue
-        orders, residual = dict(orders), {}
+        _M, blocks, os_col, u_col = built_all
+        orders, residual, rads = dict(orders), {}, {}
         for nodes, built in blocks:
-            o, r = _read(sol[0], G, nodes, qfun, built[0], built[1])
+            o, r, u = _read(sol[0], G, nodes, qfun, built[0], built[1])
             orders.update(o)
             residual.update(r)
-        res.orders, res.residual = orders, residual
+            rads.update(u)
+        res.orders, res.residual, res.radicals = orders, residual, rads
+        res.metal_unpaired = {m: int(round(sol[0][c])) for m, c in u_col.items()
+                              if round(sol[0][c])}
         res.objective = -sol[1]
-        res.os = {m: int(round(sol[0][c])) for m, c in os_col.items()}
-        res.q_status = "os_widened" if widen else "q_ok"
+        if q_total is not None:
+            res.os = {m: int(round(sol[0][c])) for m, c in os_col.items()}
+            res.q_status = "os_widened" if widen else "q_ok"
         # ★ the runner-up with a different set of oxidation states (§2.10): a small gap means a
         #   real alternative the geometry barely separates; none means the charge fixes the OS
         if res.os:
-            M2, _b2, os2 = build(widen, cut=res.os)
-            alt = M2.solve()
+            alt_b = build(widen, cut=res.os)
+            alt = alt_b[0].solve() if alt_b is not None else None
             if alt is not None:
-                res.alt_os = {m: int(round(alt[0][c])) for m, c in os2.items()}
+                res.alt_os = {m: int(round(alt[0][c])) for m, c in alt_b[2].items()}
                 res.alt_gap = res.objective - (-alt[1])
         return res
-    res.q_status = "q_relaxed"
+    res.q_status = "q_relaxed" if q_total is not None else "no_q"
     return res
 
 
