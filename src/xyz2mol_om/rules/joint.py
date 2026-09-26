@@ -57,7 +57,9 @@ class JointResult:
     `q_status` — `no_q` (no total charge given) · `q_ok` · `os_widened` (solved only with the OS
     range widened to [-4, 8]) · `q_relaxed` (no solution with the total charge; the per-fragment
     answer stands). `os` — `{metal index: oxidation state}` when the total charge was applied.
-    `residual` — `{carbenium atom: +2}`, the charge its `q_atom` reading misses."""
+    `residual` — `{carbenium atom: +2}`, the charge its `q_atom` reading misses.
+    `alt_os` · `alt_gap` — the best solution with a **different** set of oxidation states, and how
+    much worse it scores (`None`: no other set satisfies the total charge)."""
 
     status: str
     orders: dict = field(default_factory=dict)
@@ -66,6 +68,8 @@ class JointResult:
     os: dict = field(default_factory=dict)
     residual: dict = field(default_factory=dict)
     q_status: str = "no_q"
+    alt_os: dict = field(default_factory=dict)
+    alt_gap: float | None = None
 
 
 _PRIOR = None
@@ -332,32 +336,35 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
 
     # ── the total charge: every solved fragment and one OS per metal, in one model ─────────────
     const = sum(seq_q.get(k, 0.0) for k, st in status.items() if st not in _SOLVED)
-    for widen in (False, True):
+
+    def build(widen, cut=None):
         M = _Model()
         blocks, q_row, q_rhs = [], collections.Counter(), float(q_total) - const
         for nodes in comps:
             key = nodes[0]
             if status[key] not in _SOLVED:
                 continue
-            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, bounds[key], ring_c, reserve, huckel)
+            built = _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, bounds[key], ring_c,
+                              reserve, huckel)
             blocks.append((nodes, built))
             for c, v in built[2].items():
                 q_row[c] += v
             q_rhs -= built[3]
-        os_col = {}
+        os_col, onehot = {}, {}
         for m, e in sorted(metals.items()):
             lo, hi = os_range(e)
             if widen:
                 lo, hi = min(lo, -4), max(hi, 8)
             os_col[m] = M.var(cost=0.0, lb=lo, ub=hi)
             q_row[os_col[m]] += 1
-            if JOINTOSW:
-                # the prior needs a cost per value, so the state is also written one-hot
-                one = {v: M.var(cost=JOINTOSW * c) for v, c in os_prior_cost(e, lo, hi).items()}
-                M.row(dict.fromkeys(one.values(), 1), 1, 1)
-                link = {t: -v for v, t in one.items()}
-                link[os_col[m]] = 1
-                M.row(link, 0, 0)
+            # the state is also written one-hot: the prior needs a cost per value, and the
+            #   runner-up solve needs a cut on the chosen combination
+            one = {v: M.var(cost=JOINTOSW * c) for v, c in os_prior_cost(e, lo, hi).items()}
+            M.row(dict.fromkeys(one.values(), 1), 1, 1)
+            link = {t: -v for v, t in one.items()}
+            link[os_col[m]] = 1
+            M.row(link, 0, 0)
+            onehot[m] = one
         ms = sorted(metals)
         for i, a in enumerate(ms):
             for b in ms[i + 1:]:
@@ -366,6 +373,13 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
                     M.row({d: 1, os_col[a]: -1, os_col[b]: 1}, 0, float("inf"))
                     M.row({d: 1, os_col[a]: 1, os_col[b]: -1}, 0, float("inf"))
         M.row(dict(q_row), q_rhs, q_rhs)
+        if cut:  # not this combination of oxidation states again
+            M.row({onehot[m][v]: 1 for m, v in cut.items() if v in onehot[m]},
+                  -float("inf"), len(cut) - 1)
+        return M, blocks, os_col
+
+    for widen in (False, True):
+        M, blocks, os_col = build(widen)
         sol = M.solve()
         if sol is None:
             continue
@@ -378,6 +392,14 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
         res.objective = -sol[1]
         res.os = {m: int(round(sol[0][c])) for m, c in os_col.items()}
         res.q_status = "os_widened" if widen else "q_ok"
+        # ★ the runner-up with a different set of oxidation states (§2.10): a small gap means a
+        #   real alternative the geometry barely separates; none means the charge fixes the OS
+        if res.os:
+            M2, _b2, os2 = build(widen, cut=res.os)
+            alt = M2.solve()
+            if alt is not None:
+                res.alt_os = {m: int(round(alt[0][c])) for m, c in os2.items()}
+                res.alt_gap = res.objective - (-alt[1])
         return res
     res.q_status = "q_relaxed"
     return res

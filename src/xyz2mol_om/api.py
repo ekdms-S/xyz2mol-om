@@ -77,9 +77,12 @@ salt with its counter-ion — and everything below is solved inside one molecule
                         gave the electron to an electron-deficient acceptor that was priced
                         without it (`H₃N→BH₂•`, boron read as neutral). See `## Limits`.
     r["total_charge"] = the input total charge (unchanged)
-    r["joint"]        = {"status", "objective", "q_status"} — only with `JOINT=1`: how the joint
-                        bond-order solve went, and whether the total charge could be applied
-                        (`rules.joint.JointResult`). Absent otherwise.
+    r["joint"]        = {"status", "objective", "q_status", "alt_gap", "alt_os"} — only with
+                        `JOINT=1`: how the joint bond-order solve went, whether the total charge
+                        could be applied, and the best answer with a **different** set of
+                        oxidation states (`alt_os`) and how much worse it scores (`alt_gap`; a
+                        small gap = a real alternative, `None` = the charge fixes the OS).
+                        See `rules.joint.JointResult`. Absent otherwise.
 
 Most fragments are ligands — `ml_bonds` says what they coordinate — but a molecule with no metal
 has one fragment that coordinates nothing, and that is how a free organic molecule appears.
@@ -873,5 +876,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         if n_unpaired and total_charge is not None:
             q_status = "radical"  # the closed-shell charge model cannot take an odd count yet
         out["joint"] = {"status": joint.status, "objective": joint.objective,
-                        "q_status": q_status}
+                        "q_status": q_status, "alt_gap": joint.alt_gap,
+                        "alt_os": {m: v for m, v in joint.alt_os.items()}}
     return out
