@@ -441,8 +441,11 @@ Global constants:
 
 ## Opt-in: the joint bond-order solve (`JOINT=1`)
 
-Off by default. Needs `scipy >= 1.9` (`pip install -e ".[joint]"`); without it, or when a fragment
-cannot be solved, the sequential path above answers for that fragment.
+Off by default. Needs `scipy >= 1.9` (`pip install -e ".[joint]"`). Without it, or for a fragment
+the solve does not take (a cluster, one over `JOINT_MAX`, one with no solution), the answer is that
+of the **single metal-free T3 solve** below plus ⑥ and QSHIFT — not the default two-pass path.
+SIGCUT does not run under `JOINT`. The joint oxidation states are used only when the output is the
+joint answer and its fragment charges plus those states add up to `total_charge`.
 
 **What it replaces.** ①② `Conj` → ④ `Triple` → ④ `Double` → ⑤ EHT target → ⑥ → QSHIFT · QGEM · SIGCUT, and
 the two T3 passes. Every ligand-internal bond order is one integer variable of a single MILP
@@ -471,8 +474,10 @@ total      Σ ligand charges + Σ oxidation states = total_charge
 - **Oxidation states**: `os_range` — groups 3–10 `[group − 10, group]`, 11–12 `[0, group]`, others
   `[0, common max]`; a prior from train-split CSD names (`data/os_prior.json`); same-element metals
   prefer equal states (`JOINTSYM`).
-- **Unpaired electrons** (`n_unpaired ≥ 1`, any count): on ligand atoms or on d-block metals
-  (`u ≤ min(d, 10 − d)`, `d − u` even). `n_unpaired = 0` does not constrain the d count.
+- **Unpaired electrons** (`n_unpaired ≥ 1`, any count): on ligand atoms or on the metal
+  (d-block `u ≤ min(d, 10 − d)`, `d − u` even; La · Ce the same with 14 f slots; other centres
+  hold none). `n_unpaired = 0` does not constrain the d count. Between two otherwise equal ligand
+  sites the less electronegative atom takes the electron.
 
 | constant | default | what it is |
 |---|---|---|

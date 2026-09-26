@@ -114,6 +114,7 @@ has one fragment that coordinates nothing, and that is how a free organic molecu
 from __future__ import annotations
 
 import collections
+import operator
 import warnings
 
 import networkx as nx
@@ -185,9 +186,17 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             complex_atom_map=False, n_unpaired=0):
     """`xyz` → bonds · orders · charges · oxidation states. See the module docstring for the
     arguments and the return value."""
-    if not isinstance(n_unpaired, int) or n_unpaired < 0 or (not JOINT and n_unpaired > 1):
+    _n = n_unpaired
+    if isinstance(_n, float) and _n.is_integer():
+        _n = int(_n)
+    try:
+        _n = operator.index(_n)
+    except TypeError:
+        _n = None
+    if _n is None or _n < 0 or (not JOINT and _n > 1):
         raise ValueError(f"n_unpaired={n_unpaired!r}: only 0 (closed shell) and 1 are supported"
                          " (any count with JOINT=1)")
+    n_unpaired = _n
     el = list(elements)
     xyz = np.asarray(coords, dtype=float)
     if not wbo and centers(el):
@@ -282,14 +291,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   allowed.
     three_c = {x for x, tg in btag.items() if tg == "3c2e"}
     bml = bml_budget([p for p in ml_pred if p not in hap], three_c)
-    # ★ `JOINT` — every ligand-internal bond order in one MILP (`rules.joint`). Only the internal
-    #   orders are replaced: the haptic set, M–L orders and T7 tags above still come from the
-    #   sequential path. M–L bonds spend no valence in the joint solve (`b_ML` is left out), and
-    #   a sigma-coordinating atom is exempt from its FC range. If the solve does not succeed
-    #   (`too_large` · `unavailable` · `failed`), the sequential answer stands.
-    #   🔴 Only **sigma** donors are exempt. The exemption is for the ionic cut (an oxo or an
-    #   alkylidene carries -2 legitimately); a haptic atom donates its pi, and exempting it lets a
-    #   Cp ring come out Cp(5-).
+    # ★ `JOINT` — every ligand-internal bond order in one MILP (`rules.joint`). `cls`, `hap`,
+    #   `mlout` and `btag` above come from `predict_joint_prep` (one metal-free T3 solve, haptic on
+    #   it, Mayer M–L orders). Each donor keeps room for its M–L order; a sigma donor pays for its
+    #   first negative unit only at `JOINTDON`, and a haptic atom is priced like any other (a Cp must
+    #   not come out Cp(5-)). A fragment the solve does not take keeps the metal-free single-solve
+    #   answer — not the default two-pass one.
     #   With `total_charge` the solve also picks one oxidation state per metal under
     #   `Σ q_lig + Σ OS = Q` (Phase 2). Each atom's charge in the solve is `q_atom` with the same
     #   M–L count and 3c2e legs the output uses, so the two cannot disagree. A cluster fragment
@@ -432,7 +439,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   keep the answers consistent. The second solve runs only on structures that raise this
     #   signal.
     _eta: set = set() if SIGETA else None
-    _cut = set() if joint_ok else sigma_ml_blocking_cancel(
+    # SIGCUT re-solves through the two-pass path, so it never runs under `JOINT` (it would mix
+    #   the two paths on a fallback).
+    _cut = set() if JOINT else sigma_ml_blocking_cancel(
         orders, el, G, bml, ml_pred, hap, wbo=wbo,
         fit=lambda *t: _fits(*t, strict=True), eta_out=_eta)
     if _cut or _eta:
@@ -836,7 +845,11 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 os_exact = False
     # ★ `JOINT` with the total charge applied: the oxidation states are the ones the joint
     #   solve chose, per metal (no even split), and every molecule's charge follows from them.
-    if joint is not None and joint.os:
+    # 🔴 Only when the output **is** the joint answer (`joint_ok`), and only if the charges the
+    #   output actually carries plus those states add up to `total_charge` — a fragment left on
+    #   the fallback path can end with a different charge than the solve assumed for it.
+    if (joint_ok and joint.os and total_charge is not None
+            and sum(q_of_frag.values()) + sum(joint.os.values()) == total_charge):
         # 🔴 with two or more metal-bearing molecules the split of Q between them is still not
         #   fixed by anything in the input — the solve picked one, so it is not exact
         os_metal, os_exact = dict(joint.os), len(with_metal) <= 1

@@ -16,7 +16,8 @@ Levels stop at `CAP`. A non-coordinating atom only gets levels with `|q| <= 1`, 
 `-(M–L order) <= q <= 1` (`_charge_ok`), and a period-2 atom only levels within the octet
 (`degree + k <= 4`); `fc_bounds=False` lifts all three. Every charge is paid for (`_charge_cost`),
 except the negative units a multiple M–L bond explains under the ionic cut (oxo, imido,
-alkylidene). M–L bonds spend no valence here.
+alkylidene). M–L bonds do not compete with internal bonds for score; a donor only keeps room for
+its (fixed, Mayer) M–L order (`reserve`).
 
 A ring carbon of the sequential `Conj` set with three neighbours gets one more level, a
 carbenium (sextet, q = +1), so a Hückel cation can be written. `q_atom` reads that carbon as -1,
@@ -44,6 +45,11 @@ from ..config import (CAP, DATA, FULL, JOINT_MAX, JOINTCAT, JOINTDON, JOINTOSW, 
                       JOINTRAD, JOINTSYM, VAL, _GROUP, os_range)
 
 PERIOD2 = {"B", "C", "N", "O", "F"}
+# f-block centres: (valence electrons, shell size) — `OS = valence - f`
+_FSHELL = {"La": (3, 14), "Ce": (4, 14)}
+# Pauling electronegativity, for the radical-site tie-break only
+_EN = {"H": 2.20, "B": 2.04, "C": 2.55, "N": 3.04, "O": 3.44, "F": 3.98, "Si": 1.90, "P": 2.19,
+       "S": 2.58, "Cl": 3.16, "As": 2.18, "Se": 2.55, "Br": 2.96, "Te": 2.10, "I": 2.66}
 _SOLVED = ("optimal", "relaxed_fc")
 
 
@@ -225,6 +231,7 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
         ex = [(ycol[(e, o)], o - 1) for e in inc[x] for o in (2, 3) if (e, o) in ycol]
         mlo = coord.get(x)
         rad_ok = radical and el[x] != "H"
+        const_atom = not ex  # nothing about its bonds can change: its closed shell is never checked
         if not ex and not rad_ok:
             q_const += qfun(x, deg)
             continue
@@ -243,7 +250,7 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
                 if dq is not None:
                     opts.append((q0 + dq, True))
             for q, rad in opts:
-                if fc_bounds and not _charge_ok(q, mlo):
+                if fc_bounds and not (const_atom and not rad) and not _charge_ok(q, mlo):
                     continue
                 levels.append((k, q, False, rad))
         sign = hsign.get(x)
@@ -253,7 +260,11 @@ def _fragment(M, G, nodes, el, sc, coord, qfun, lam_q, fc_bounds, ring_c, reserv
             return None
         cols = []
         for k, q, cat, rad in levels:
-            cost = _charge_cost(q, mlo, lam_q) + (lam_q * JOINTRAD if rad else 0.0)
+            cost = _charge_cost(q, mlo, lam_q)
+            if rad:
+                # a small electronegativity term breaks ties the same way whatever the atom order:
+                #   between CH3(-) + Cl(.) and CH3(.) + Cl(-), the anion stays on chlorine
+                cost += lam_q * (JOINTRAD + 0.01 * _EN.get(el[x], 2.5))
             # the sign a Hückel ring does not ask for costs `JOINTCAT` more; a carbenium off such a
             #   ring always does. What the ring does ask for is refunded per ring, below.
             if cat and sign != "cat":
@@ -321,7 +332,8 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
     `seq_q` — `{fragment min index: charge}` of the sequential answer, used as a constant for
     every fragment the joint solve does not take.
     `n_unpaired` — unpaired electrons to place, on ligand atoms or on d-block metals (a metal
-    holds `u <= min(d, 10 - d)` with `d - u` even, `d = group - OS`). 0 places none and does
+    holds `u <= min(n, S - n)` with `n - u` even: d-block `n = group - OS`, `S = 10`; La · Ce
+    `n = valence - OS`, `S = 14`; other centres hold none). 0 places none and does
     **not** constrain the metals' d count: it is the default, and in practice means "not given".
     """
     try:
@@ -401,14 +413,15 @@ def solve_joint(G, el, sc, coord, lam_q=None, fc_bounds=True, *, qfun=None, ring
             link[os_col[m]] = 1
             M.row(link, 0, 0)
             onehot[m] = one
-            if n_unpaired and e in _GROUP:
-                # d = group - OS; u <= d, u <= 10 - d, d - u even
-                g = _GROUP[e]
-                u = M.var(cost=0.0, lb=0.0, ub=5.0)
-                h = M.var(cost=0.0, lb=-10.0, ub=10.0)
+            shell = (_GROUP[e], 10) if e in _GROUP else _FSHELL.get(e)
+            if n_unpaired and shell:
+                # n = g - OS open-shell electrons (d or f); u <= n, u <= S - n, n - u even
+                g, S = shell
+                u = M.var(cost=0.0, lb=0.0, ub=S / 2)
+                h = M.var(cost=0.0, lb=-S, ub=S)
                 M.row({os_col[m]: 1, u: 1, h: 2}, g, g)
                 M.row({u: 1, os_col[m]: 1}, -float("inf"), g)
-                M.row({u: 1, os_col[m]: -1}, -float("inf"), 10 - g)
+                M.row({u: 1, os_col[m]: -1}, -float("inf"), S - g)
                 u_col[m] = u
         ms = sorted(metals)
         for i, a in enumerate(ms):
