@@ -186,13 +186,3 @@ def _solve_fragment(G, el, sc, coord, lam_q=None, fc_bounds=True):
         orders[e] = 1 + int(y2) + 2 * int(y3)
     return JointResult("optimal", orders, float(-res.fun))
 
-
-def conj_annotation(G, sc, orders):
-    """Stop-gap `Conj` label for the 4-class output: a bond whose best ③ class is `Conj`, solved
-    to 1 or 2, and touching another such bond (the R5 rule — a lone `Conj` is not delocalised).
-    Phase 3 replaces this with the second-best-solution reading."""
-    cand = {e for e, o in orders.items()
-            if o in (1, 2) and sc.get(e) and max(sc[e], key=sc[e].get) == 3}
-    H = nx.Graph()
-    H.add_edges_from(cand)
-    return {e for e in cand if H.degree(e[0]) > 1 or H.degree(e[1]) > 1}

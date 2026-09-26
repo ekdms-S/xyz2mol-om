@@ -124,7 +124,7 @@ from .geometry import load_dint
 from .charge import eht_frag_charges
 from .rules import load_scores4
 from .rules import bml_budget, predict_T3_T5
-from .rules.joint import conj_annotation, solve_joint
+from .rules.joint import solve_joint
 from .rules.pipeline import bond_scores
 
 
@@ -287,10 +287,14 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         sc_j = bond_scores(el, xyz, G, sc4)
         joint = solve_joint(G, el, sc_j, {x for m, x in ml_pred if (m, x) not in hap})
         if joint.orders:
-            # a fragment the joint solve could not take (`partial`) keeps its sequential classes
-            conj_j = conj_annotation(G, sc_j, joint.orders)
+            # a fragment the joint solve could not take (`partial`) keeps its sequential classes.
+            # ★ The `Conj` **label** is the sequential ①② set (rule A · R2–R5, fitted to how the
+            #   reference writes delocalisation); it only labels a bond the joint solve left at 1
+            #   or 2 and never enters the solve itself, so it reserves no valence.
+            conj_seq = {e for e, v in cls.items() if v == 3}
             cls = dict(cls)
-            cls.update({e: (3 if e in conj_j else o - 1) for e, o in joint.orders.items()})
+            cls.update({e: (3 if e in conj_seq and o in (1, 2) else o - 1)
+                        for e, o in joint.orders.items()})
     joint_ok = bool(joint is not None and joint.orders)
 
     # ★ distance-fit test — «does the bond length fit the `new` order better than `cur`».
