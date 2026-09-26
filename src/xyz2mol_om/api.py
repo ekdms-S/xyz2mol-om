@@ -77,8 +77,9 @@ salt with its counter-ion — and everything below is solved inside one molecule
                         gave the electron to an electron-deficient acceptor that was priced
                         without it (`H₃N→BH₂•`, boron read as neutral). See `## Limits`.
     r["total_charge"] = the input total charge (unchanged)
-    r["joint"]        = {"status", "objective"} — only with `JOINT=1`: how the joint bond-order
-                        solve went (`rules.joint.JointResult`). Absent otherwise.
+    r["joint"]        = {"status", "objective", "q_status"} — only with `JOINT=1`: how the joint
+                        bond-order solve went, and whether the total charge could be applied
+                        (`rules.joint.JointResult`). Absent otherwise.
 
 Most fragments are ligands — `ml_bonds` says what they coordinate — but a molecule with no metal
 has one fragment that coordinates nothing, and that is how a free organic molecule appears.
@@ -116,9 +117,9 @@ import networkx as nx
 import numpy as np
 
 from .charge import (abs_charge_sum, b_3c_of, frag_charge_or_eht, kekulize, octet_fix_period2,
-                     pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel,
-                     three_c_unpaired_edges)
-from .config import FULL, JOINT, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
+                     is_cluster_frag, pi_suppressed, q_atom, shift_pi_to_cancel,
+                     sigma_ml_blocking_cancel, three_c_unpaired_edges)
+from .config import FULL, HUCKEL, JOINT, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
@@ -282,10 +283,49 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   🔴 Only **sigma** donors are exempt. The exemption is for the ionic cut (an oxo or an
     #   alkylidene carries -2 legitimately); a haptic atom donates its pi, and exempting it lets a
     #   Cp ring come out Cp(5-).
+    #   With `total_charge` the solve also picks one oxidation state per metal under
+    #   `Σ q_lig + Σ OS = Q` (Phase 2). Each atom's charge in the solve is `q_atom` with the same
+    #   M–L count and 3c2e legs the output uses, so the two cannot disagree. A cluster fragment
+    #   (EHT-priced) and any fragment the solve cannot take keep the sequential answer, and its
+    #   sequential charge enters the total as a constant.
     joint = None
     if JOINT:
         sc_j = bond_scores(el, xyz, G, sc4)
-        joint = solve_joint(G, el, sc_j, {x for m, x in ml_pred if (m, x) not in hap})
+        _coord = {x for _m, x in ml_pred}
+        _leg = three_c_unpaired_edges(el, G, btag)
+        _b3 = b_3c_of(G, {}, _leg)
+        _nb = {x: tuple(sorted(el[y] for y in G[x])) for x in G}
+
+        def _qfun(x, b):
+            return q_atom(el[x], float(b), G.degree(x), _nb[x],
+                          n_ml=(1 if x in _coord else 0), b_3c=_b3.get(x, 0.0))
+
+        _ord_s, _fq_s = kekulize(G, el, cls, dict(bml), w)
+        _skip, _seq_q = set(), {}
+        for _c in nx.connected_components(G):
+            _c = set(_c)
+            if is_cluster_frag(G, el, cls, _c, _ord_s):
+                _skip.add(min(_c))
+            _seq_q[min(_c)] = frag_charge_or_eht(G, el, cls, _c, q_eht, _ord_s, w, _fq_s,
+                                                 _coord & _c, _leg)
+        # carbenium candidates: three-neighbour ring carbons of the sequential `Conj` set. On an
+        #   odd ring wholly in that set, Hückel's rule picks the favoured sign (C3 · C7 cation,
+        #   C5 anion); elsewhere the anion is the default.
+        _conj = {e for e, v in cls.items() if v == 3}
+        _ring_c = {x: "an" for e in _conj for x in e if el[x] == "C" and G.degree(x) == 3}
+        for _r in nx.cycle_basis(G):
+            _n = len(_r)
+            if _n % 2 == 0 or not all(
+                    (min(a, b), max(a, b)) in _conj for a, b in zip(_r, _r[1:] + _r[:1])):
+                continue
+            _pref = "cat" if (_n - 1) in HUCKEL else ("an" if (_n + 1) in HUCKEL else None)
+            for x in _r:
+                if x in _ring_c and _pref:
+                    _ring_c[x] = _pref
+        joint = solve_joint(G, el, sc_j, {x for m, x in ml_pred if (m, x) not in hap},
+                            qfun=_qfun, ring_c=_ring_c, skip=_skip, seq_q=_seq_q,
+                            metals={m: el[m] for m in cen},
+                            q_total=total_charge if not n_unpaired else None)
         if joint.orders:
             # a fragment the joint solve could not take (`partial`) keeps its sequential classes.
             # ★ The `Conj` **label** is the sequential ①② set (rule A · R2–R5, fitted to how the
@@ -334,6 +374,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         kin = dict(cls)
         kin.update({e: o - 1 for e, o in joint.orders.items()})
         orders, frag_q = kekulize(G, el, kin, dict(bml), w)
+        frag_q.update(joint.residual)  # carbenium carbons: the part `q_atom` does not read
     else:
         orders, frag_q = kekulize(G, el, cls, dict(bml), w)
     if NOCTET:
@@ -726,6 +767,17 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             if num % len(allm) == 0:
                 os_metal = dict.fromkeys(allm, num // len(allm))
                 os_exact = False
+    # ★ `JOINT` with the total charge applied: the oxidation states are the ones the joint
+    #   solve chose, per metal (no even split), and every molecule's charge follows from them.
+    if joint is not None and joint.os:
+        # 🔴 with two or more metal-bearing molecules the split of Q between them is still not
+        #   fixed by anything in the input — the solve picked one, so it is not exact
+        os_metal, os_exact = dict(joint.os), len(with_metal) <= 1
+        for mol in molecules:
+            if mol["metals"]:
+                mol["charge"] = (sum(q_of_frag[i] for i in mol["fragments"])
+                                 + sum(os_metal[m] for m in mol["metals"]))
+                mol["charge_is_exact"] = os_exact
 
     # -- ⑧ per-molecule SMILES. Each molecule gets its own — M–L bonds as **dative arrows** (bond
     #   order is collapsed here; the real M–L order is in `ml_bonds[(m,x)]["order"]`), the metal's
@@ -806,5 +858,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         "total_charge": total_charge,
     }
     if JOINT:
-        out["joint"] = {"status": joint.status, "objective": joint.objective}
+        q_status = joint.q_status
+        if n_unpaired and total_charge is not None:
+            q_status = "radical"  # the closed-shell charge model cannot take an odd count yet
+        out["joint"] = {"status": joint.status, "objective": joint.objective,
+                        "q_status": q_status}
     return out

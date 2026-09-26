@@ -267,6 +267,36 @@ JOINT_MAX = int(os.environ.get("JOINT_MAX", "5000"))
 # `JOINTQ` — weight of the charged-atom penalty (sum of |FC| over non-coordinating C·N·O·F)
 #   against the distance score. Float, default 1.0; chosen on the train sample.
 JOINTQ = float(os.environ.get("JOINTQ", "1.0"))
+# `JOINTCAT` — extra penalty (in units of `JOINTQ`) on a carbenium carbon (sextet, +1) in the joint
+#   solve. Only ring carbons of the sequential `Conj` set get that level; it is what lets a Hückel
+#   cation (tropylium, cyclopropenium) be written at all. Float, default 1.0.
+JOINTCAT = float(os.environ.get("JOINTCAT", "1.0"))
+# `JOINTSYM` — penalty per unit of oxidation-state difference between two metals of the same
+#   element, so a tie goes to the even split (Re2Cl8 -> III/III). Float, default 0.01.
+JOINTSYM = float(os.environ.get("JOINTSYM", "0.01"))
+# `JOINTOSW` — weight of the oxidation-state prior in the joint solve: each candidate costs
+#   `JOINTOSW · -ln(p / p_max)`, with `p` the element's state frequency in the train-split CSD names
+#   (`data/os_prior.json`, add-one smoothed over the hard range). Float, default 1.0; 0 = off.
+JOINTOSW = float(os.environ.get("JOINTOSW", "1.0"))
+
+# Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
+_GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,
+          "W": 6, "Mn": 7, "Re": 7, "Fe": 8, "Ru": 8, "Os": 8, "Co": 9, "Rh": 9, "Ir": 9,
+          "Ni": 10, "Pd": 10, "Pt": 10, "Cu": 11, "Ag": 11, "Au": 11, "Zn": 12}  # fmt: skip
+_MAXOS = {"Mg": 2, "Al": 3, "Ga": 3, "In": 3, "Sn": 4, "Pb": 4, "La": 3, "Ce": 4}  # fmt: skip
+
+
+def os_range(el):
+    """Hard oxidation-state range of a centre, `(lo, hi)`.
+
+    d-block groups 3–10: `OS = group - d` with `d` in `[0, 10]`. Groups 11–12 take `[0, group]`
+    instead — Au(0) clusters and Zn(I) dimers are real, and `group - 10` would exclude them.
+    Other centres: `[0, highest common state]`.
+    """
+    if el in _GROUP:
+        g = _GROUP[el]
+        return (g - 10, g) if g <= 10 else (0, g)
+    return (0, _MAXOS.get(el, 4))
 
 
 # ═══ Post-⑥ repairs (`docs/PIPELINE.md` §T3) ══════════════════════════════════════════════════
