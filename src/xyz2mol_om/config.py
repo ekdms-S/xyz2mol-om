@@ -255,6 +255,20 @@ ETA2NEAR = float(os.environ.get("ETA2NEAR", "0"))
 #   a constraint. Float, default 1e5; 0 = off. Keep it below `ETAEXO`'s 1e6 so `ETAEXO` wins.
 ETAPI = float(os.environ.get("ETAPI", "100000"))
 
+# ═══ Joint solve (`rules.joint`) ══════════════════════════════════════════════════════════════
+
+# `JOINT` — solve every ligand-internal bond order in one MILP instead of ①② → ④ → ⑤ in sequence.
+#   The haptic set, M–L orders and T7 tags still come from the sequential path. Default off.
+#   Needs scipy (imported inside `rules.joint` only).
+JOINT = os.environ.get("JOINT", "0") == "1"
+# `JOINT_MAX` — above this many MILP variables the joint solve gives up and the sequential path
+#   is used. Integer, default 5000.
+JOINT_MAX = int(os.environ.get("JOINT_MAX", "5000"))
+# `JOINTQ` — weight of the charged-atom penalty (sum of |FC| over non-coordinating C·N·O·F)
+#   against the distance score. Float, default 1.0; chosen on the train sample.
+JOINTQ = float(os.environ.get("JOINTQ", "1.0"))
+
+
 # ═══ Post-⑥ repairs (`docs/PIPELINE.md` §T3) ══════════════════════════════════════════════════
 # Each repair is kept only if the summed |formal charge| falls.
 
