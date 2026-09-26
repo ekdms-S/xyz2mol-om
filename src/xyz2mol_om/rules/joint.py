@@ -40,7 +40,8 @@ from dataclasses import dataclass, field
 import networkx as nx
 
 from ..charge.formal import q_atom
-from ..config import CAP, DATA, JOINT_MAX, JOINTCAT, JOINTOSW, JOINTQ, JOINTSYM, os_range
+from ..config import (CAP, DATA, JOINT_MAX, JOINTCAT, JOINTDON, JOINTOSW, JOINTQ, JOINTSYM,
+                      os_range)
 
 PERIOD2 = {"B", "C", "N", "O", "F"}
 _SOLVED = ("optimal", "relaxed_fc")
@@ -161,7 +162,11 @@ def _charge_cost(q, ml_order, lam):
     -2 pays what a -1 would)."""
     if ml_order is None or q > 0:
         return lam * abs(q)
-    return lam * max(0.0, -q - (ml_order - 1)) if q < 0 else 0.0
+    if q == 0:
+        return 0.0
+    extra = max(0.0, -q - ml_order)          # beyond what the M–L order explains
+    first = min(1.0, max(0.0, -q - (ml_order - 1)))   # the donor's first unit
+    return lam * (JOINTDON * first + extra)
 
 
 def _default_qfun(G, el, coord):

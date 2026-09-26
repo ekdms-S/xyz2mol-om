@@ -265,8 +265,8 @@ JOINT = os.environ.get("JOINT", "0") == "1"
 #   is used. Integer, default 5000.
 JOINT_MAX = int(os.environ.get("JOINT_MAX", "5000"))
 # `JOINTQ` — weight of the charged-atom penalty (sum of |FC| over non-coordinating C·N·O·F)
-#   against the distance score. Float, default 1.0; chosen on the train sample.
-JOINTQ = float(os.environ.get("JOINTQ", "1.0"))
+#   against the distance score. Float, default 2.0; chosen on the train sample (1 · 2 compared).
+JOINTQ = float(os.environ.get("JOINTQ", "2.0"))
 # `JOINTCAT` — extra penalty (in units of `JOINTQ`) on a carbenium carbon (sextet, +1) in the joint
 #   solve. Only ring carbons of the sequential `Conj` set get that level; it is what lets a Hückel
 #   cation (tropylium, cyclopropenium) be written at all. Float, default 1.0.
@@ -281,6 +281,10 @@ JOINTSYM = float(os.environ.get("JOINTSYM", "0.5"))
 #   tie-breaker: at 1.0 it outweighed the distance evidence (a mu-CO bent to C=O to buy Fe(II)).
 #   0 = off.
 JOINTOSW = float(os.environ.get("JOINTOSW", "0.1"))
+# `JOINTDON` — the share of `JOINTQ` a sigma donor pays for its first unit of negative charge
+#   (an X-type donor: halide, alkoxide, thiolate, amide). 1.0 = the same as any atom. Float,
+#   default 0.25; chosen on the train sample (1 · 0.5 · 0.25): at 1.0 dithiolates went neutral.
+JOINTDON = float(os.environ.get("JOINTDON", "0.25"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,
