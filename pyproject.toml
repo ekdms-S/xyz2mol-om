@@ -14,6 +14,7 @@ dependencies = ["numpy>=1.23", "networkx>=3.0", "rdkit>=2023.3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.4"]
+joint = ["scipy>=1.9"]  # the opt-in joint bond-order solve (`JOINT=1`)
 
 [tool.setuptools.packages.find]
 where = ["src"]

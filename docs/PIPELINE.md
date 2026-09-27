@@ -10,18 +10,18 @@ Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q
 
 ## Performance
 
-| task | holdout 6,793 | train 27,294 |
+| task (holdout 6,793) | default | `JOINT=1` |
 |---|---|---|
-| T1 internal bond existence | **.9998** | .9998 |
-| T3 `Single`/`Double`/`Triple`/`Conj` | **.9901 / .7667 / .9775 / .9617** | .9895 / .7601 / .9792 / .9592 |
-| T4 M–L·M–M existence | **.9915** | .9927 |
-| T5 haptic | **.9800** | .9807 |
-| T6 η^k | **.9865** | .9832 |
-| T8 M–L `Single`/`Double`/`Triple` | **.9935 / .7556 / .7254** | .9937 / .7621 / .7735 |
-| T10 `Σq_L` · `OS` | **.8648 · .8967** | .8580 · .8910 |
-| valence-violating structures | **.0035** | .0037 |
+| T1 internal bond existence | **.9999** | **.9999** |
+| T3 `Single`/`Double`/`Triple`/`Conj` | .9901 / .7666 / .9777 / **.9617** | **.9906 / .7917 / .9820** / .9601 |
+| T4 M–L·M–M existence | .9917 | **.9922** |
+| T5 haptic | .9799 | **.9808** |
+| T6 η^k | .9866 | **.9899** |
+| T8 M–L `Single`/`Double`/`Triple` | .9935 / .7556 / .7254 | .9935 / **.7636 / .7273** |
+| T10 `Σq_L` · `OS` | .8657 · .8978 | **.8692 · .9010** |
+| valence-violating structures | 0 | 0 |
 
-Holdout: 6,793 structures. References, pools and baselines: README `## Performance`.
+References, pools and baselines: README `## Performance`.
 
 **Fitted:** `LPA` (§T3 ③), `θ` (DAG 5) and the tables in §Fitted parameter summary; every other
 constant is in the constants table.
@@ -89,9 +89,15 @@ The numbered list below the picture is a per-step reference, not the execution o
 0.  metal / non-metal split                             METALS list · `config.centers`
 
 ━━ metal-independent ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1.  [T1] internal bond exists ⟺ d(X,Y) < d_int(X,Y)     58 element pairs + fallback (data/d_int.csv)
+1.  [T1] internal bond exists ⟺ d(X,Y) < d_int(X,Y)     58 element pairs (data/d_int.csv)
+           a pair with no fitted value: d_int = 1.092 × (r_cov(X) + r_cov(Y))  (the fitted pairs'
+             median ratio of d_int to the radius sum)
            never for H–H, nor when d(X,Y) > 1.8 × (r_cov(X) + r_cov(Y))
+           an H bonded to two or more ligand atoms keeps only the nearest (a B–H–B bridge keeps both)
            a B–B is dropped when the two B share ≥ 2 H neighbours and neither has another B neighbour
+           a 4-ring diagonal is dropped: X and Y share ≥ 2 neighbours and every shared neighbour Z
+             sees them at ∠X–Z–Y ≥ 80° (bonded, X–Y–Z would be a 3-ring, and no 3-ring angle
+             reaches 80°)
 2.       rings = `nx.cycle_basis`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -102,6 +108,9 @@ The numbered list below the picture is a per-step reference, not the execution o
 
 4.  [T4] M–X bond **exists**  ⟺   d(M,X) < d_bond(M,X)  AND  w(M,X) > w_veto(M,X)
          existence only — no type and no order.       element pairs 316 (M–L) · 23 (M–M)
+         a pair with no fitted value: d_bond = (r_cov(M) + r_cov(X)) × the fitted pairs' median
+           ratio of d_bond to the radius sum — 1.15 for M–L, 1.10 for M–M — and no Mayer veto
+           (r_cov: Cordero 2008, low-spin for Mn · Fe · Co)
          X is any atom, metals included — (M,M) pairs are decided here too.
          the T4 contact set, before the exclusions below, is passed to both T3 passes as `coord`
            (no under-valence penalty in ①②, no `dq` in ④)
@@ -416,7 +425,7 @@ The CSD reference labels themselves violate on about 0.4% of structures.
 
 | File | What | Count |
 |---|---|---|
-| `data/d_int.csv` | T1 per-element-pair distance threshold | 58 + 1 fallback |
+| `data/d_int.csv` | T1 per-element-pair distance threshold | 58 |
 | `data/d_bond.csv` | T4 `d_bond` · `w_veto` | 316 (M–L) + 23 (M–M) + 1 fallback |
 | `data/b_ml_t8forms.csv` | T8 Mayer thresholds `t₁ ≤ t₂` | 57 pairs × 2 · 349 pairs one fixed class · 1 fallback |
 | `data/b_ml_dist.csv` | T8 distance thresholds, read only without `wbo` | 57 pairs × 2 · 349 pairs one fixed class · 1 fallback |
@@ -435,6 +444,131 @@ Global constants:
 | `KEKQ` | 8 | per-element-pair grid of the ⑥ matching weights |
 | `R7MIN` | 2 | other haptic ring atoms R7 needs |
 | T1 radius cap | 1.8 | no internal bond beyond 1.8 × (r_cov(X) + r_cov(Y)) |
+| T1 radius ratio | 1.092 | `d_int` of a pair with no fitted value, × (r_cov(X) + r_cov(Y)) |
+| 4-ring diagonal | 80° | shared-neighbour angle at or above which a T1 pair is not a bond |
 | EHT cutoff | −10 eV | occupied-orbital cut in the fragment charge |
 | `LPCOND_NMIN` | 300 | samples a degree cell needs before its own prior is used |
 | `BML3C_COST` | 1.0 | valence a 3c2e atom spends in total for its M–L bonds |
+
+## Opt-in: the joint solve (`JOINT=1`)
+
+Off by default. Needs `scipy >= 1.9` (`pip install -e ".[joint]"`). Instead of deciding in sequence
+(①② → ④ → ⑤ → ⑥ → post-⑥ repairs, two T3 passes, the T5 angle rule), it decides **every ligand-internal
+bond order, atom charge, haptic reading, metal oxidation state, boron-cluster charge and unpaired
+electron together in one mixed-integer linear program**, then compares a few distinct answers.
+None of ①②, ④, ⑤ (EHT), QSHIFT · QGEM · SIGCUT, the M–L valence budget or the angle rule is used.
+If scipy is missing, the program has more than `JOINT_MAX` variables, or it has no solution, the
+default path's answer is returned and `r["joint"]["status"]` says why.
+
+### Topology added under `JOINT`
+
+T1 and T4 as above, then:
+
+```
+M···B dropped          when a B–H of that boron bridges to the same metal (the contact is the bridge's)
+no-pair contact        dropped when X has no lone pair to give (lone pairs counted by §Charge (a) on
+                       its T1 bonds), unless d(M,X) ≤ r_cov(M) + r_cov(X); B and cage atoms are kept
+far contact            dropped when an internal neighbour Y of X touches the same metal and
+                       d(M,X) > JOINTFAR · d(M,Y)
+cluster                a boron-containing fragment with a non-H atom beyond CAP. Cage vertices: B
+                       and any non-H atom with ≥ 2 B neighbours (a carbon on one boron is exo).
+                       Only the cage is charged as a whole (Wade–Mingos); atoms outside it are
+                       solved as usual
+haptic unit            a connected chain of atoms touching one metal, each able to join a π bond
+                       (a bond to a chain neighbour has a Double or Triple likelihood). A chain
+                       end whose bond to the chain reads Single leaves as a σ donor. Units of two
+                       metals that share atoms through an atom with ≥ 3 neighbours are one unit
+```
+
+### The program
+
+```
+variables  per bond        order 1 · 2 · 3
+           per atom        one bond-order-sum level; charge = §Charge (a)·(a′) at that level
+                           (plus a carbenium level for carbons of a planar all-carbon ring, and
+                           an unpaired-electron level)
+           per haptic unit h ∈ {0, 1}
+           per metal       one oxidation state from os_range(element)
+           per cluster     one charge from its Wade candidates; the cage edge count prefers a
+                           type (closo 3n − 6 edges · nido · arachno), the others cost 2 λ, and a
+                           cage of ≤ 4 vertices prefers none. Skeletal electrons: B 2 · C 3 ·
+                           other vertex v − 2 + exo · bridging or extra H 1
+
+constraints
+  non-coordinating atom   |q| ≤ 1 · period-2 atoms within the octet
+  σ donor                 keeps ≥ 1 lone pair; period-2 donors b ≤ 3          (B is exempt)
+  haptic                  chain of ≥ 3 atoms: h = 1 · two atoms: h = 1 ⟺ the bond is multiple,
+                          and h = 1 whenever the likelihood's best class is not Single
+                          h = 1 ⇒ multiple bonds in the unit = its maximum matching; a 4n ring may
+                          have one fewer and two anions (C₄R₄²⁻ · COT²⁻)
+  charge                  Σ q_L + Σ OS + Σ cluster charges = total_charge
+  unpaired                Σ unpaired = n_unpaired; on a d-block metal u ≤ min(d, 10 − d), d − u even
+  CO                      a two-atom C–O fragment is C≡O
+
+objective (minimise)
+    − Σ distance score of the chosen orders      one width per element pair, no class prior;
+                                                 a Conj score supports order 1 and 2
+    + JOINTQ · Σ |q|                             non-coordinating atoms (coordinating atoms carry
+                                                 −2 · −3 freely: oxo, imido, nitrido, alkylidene)
+    + JOINTADJ · JOINTQ per adjacent same-sign pair   not for two atoms on the same metal, unless
+                                                      both are in a haptic chain of ≥ 3
+    + JOINTCHAINW · JOINTQ per charged atom off k − 2 × (multiple bonds) in a haptic unit
+    + JOINTOSW · OS prior + JOINTSYM · |OS difference| between same-element metals
+    + JOINTLIGSYM · |charge difference| between ligands with the same element graph whose bond
+      lengths agree within 0.03 Å
+    + JOINTCAT per carbenium · JOINTRAD per unpaired electron on a ligand atom
+    − the charges an aromatic carbocycle asks for (C5 one anion, C7 one cation, C8 two anions)
+```
+
+A donor with no level that keeps a lone pair is left unconstrained and listed in
+`r["joint"]["v1_skipped"]`. When the program has no solution, the charge range is dropped for one
+fragment at a time (`relaxed_fc`), then the total charge (`q_relaxed`).
+
+### Candidates, M–L orders, ranking
+
+```
+candidates   the best solution, then again with that signature forbidden, up to JOINTK — a
+             signature is (metal OS, ligand charges, σ-donor levels, h). Solutions that differ
+             only in a Kekulé placement are one candidate. Each is checked: every σ donor keeps
+             a lone pair
+M–L order    a σ donor bonded to n metals holds max(n, −q_donor) M–L order in total: one per
+             metal, the rest to the bond Mayer rates highest (X-type −1 → 1, oxo · imido → 2,
+             nitrido → 3, μ-O²⁻ → two singles). A haptic bond has no order
+ranking      candidates within JOINTLOWQ of the best score: the smaller Σ|q_L| wins
+             else within JOINTTIE · JOINTQ: the better Mayer consistency (Σ of the T8 Mayer
+             model's score at the assigned orders) wins · else the best score
+```
+
+### Reading the answer
+
+- **Conj** — a bond whose S/D alternation (a ring or path whose atoms keep their bond-order sums)
+  can be flipped for at most `JOINTCONJEPS` of ③ likelihood.
+- **3c2e tags** — DAG 5″ on the chosen orders.
+- **Charges** — a carbenium carbon is `+1`; cage atoms carry none and the cluster charge is on
+  the fragment.
+- `r["joint"]` = `{status, objective, q_status, alt_gap, alt_os, n_candidates, n_rejected, ranking,
+  v1_skipped, v1_failed, far_dropped}`. `alt_os` is the best candidate with other oxidation states
+  and `alt_gap` how much worse it scores — a small gap means a real alternative.
+
+| constant | default | what it is |
+|---|---|---|
+| `JOINTQ` | 2.0 | charged-atom penalty against the distance score |
+| `JOINTADJ` | 1.0 | adjacent same-sign pair, in units of `JOINTQ` |
+| `JOINTCHAINW` | 1.0 | charged atom off a haptic unit's count, in units of `JOINTQ` |
+| `JOINTOSW` | 0.1 | OS prior weight (a tie-breaker; prior from CSD names, `data/os_prior.json`) |
+| `JOINTSYM` | 0.5 | per-unit OS difference between same-element metals |
+| `JOINTLIGSYM` | 0.5 | per-unit charge difference between same ligands |
+| `JOINTCAT` | 1.0 | carbenium, in units of `JOINTQ` |
+| `JOINTRAD` | 0.5 | unpaired electron on a ligand atom, in units of `JOINTQ` |
+| `JOINTFAR` | 1.3 | far-contact ratio |
+| `JOINTK` | 5 | candidates |
+| `JOINTLOWQ` | 0.3 | score window where the smaller ligand charge wins |
+| `JOINTTIE` | 1.0 | score window (× `JOINTQ`) where Mayer consistency decides |
+| `JOINTCONJEPS` | 2.0 | flip tolerance for `Conj` |
+| `JOINT_MAX` | 5000 | program variables before falling back |
+| `JOINT_TIME` | 20 s | time limit of one solve (the best solution so far is kept); the candidate search stops after 4 × this |
+
+**Conventions that differ from the default path.** An even-ring dianion (COT²⁻) carries its
+charge on two carbanions, not as a residual. Metals of one molecule get their own oxidation states
+(mixed valence is penalised, not forbidden). A carborane's charge comes from its cage, not EHT.
+A metal carbonyl is always `C≡O`.

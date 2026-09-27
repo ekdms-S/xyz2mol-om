@@ -77,6 +77,14 @@ salt with its counter-ion — and everything below is solved inside one molecule
                         gave the electron to an electron-deficient acceptor that was priced
                         without it (`H₃N→BH₂•`, boron read as neutral). See `## Limits`.
     r["total_charge"] = the input total charge (unchanged)
+    r["joint"]        = {"status", "objective", "q_status", "alt_gap", "alt_os", "n_candidates",
+                        "n_rejected", "ranking", "v1_skipped", "v1_failed", "far_dropped"} — only
+                        with `JOINT=1`: how the joint solve went, whether the total charge could be
+                        applied, and the best answer with a **different** set of oxidation states
+                        (`alt_os`) and its score minus the chosen one's (`alt_gap`; small = a real
+                        alternative, negative = the ranking passed over a better score, `None` =
+                        the charge fixes the OS).
+                        See `rules.joint2.JointV2`. Absent otherwise.
 
 Most fragments are ligands — `ml_bonds` says what they coordinate — but a molecule with no metal
 has one fragment that coordinates nothing, and that is how a free organic molecule appears.
@@ -108,20 +116,30 @@ has one fragment that coordinates nothing, and that is how a free organic molecu
 from __future__ import annotations
 
 import collections
+import operator
 import warnings
 
 import networkx as nx
 import numpy as np
 
 from .charge import (abs_charge_sum, b_3c_of, frag_charge_or_eht, kekulize, octet_fix_period2,
-                     pi_suppressed, q_atom, shift_pi_to_cancel, sigma_ml_blocking_cancel,
-                     three_c_unpaired_edges)
-from .config import FULL, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
+                     pi_suppressed, q_atom, shift_pi_to_cancel,
+                     sigma_ml_blocking_cancel, three_c_unpaired_edges)
+from .config import FULL, HUCKEL, JOINT, METALS, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
 from .rules import load_scores4
-from .rules import bml_budget, predict_T3_T5
+from .rules import bml_budget, bridge_tags, predict_T3_T5
+from .rules import joint2
+from .rules.ml_order import ml_order_scores
+from .rules.pipeline import bond_scores
+
+
+def _dbond_fallback(ea, eb, c1g, both_metal):
+    """`d_bond` for a pair with no fitted value: the covalent-radius sum times the median
+    (fitted `d_bond` / radius sum) of the fitted pairs of the same kind — `c1g = (M–L, M–M)`."""
+    return c1g[1 if both_metal else 0] * (RCOV.get(ea, 1.6) + RCOV.get(eb, 1.6))
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
@@ -136,7 +154,7 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
     for m in mets:
         for x in idx:
             d = float(np.linalg.norm(xyz[x] - xyz[m]))
-            tb, wv = dbond.get((el[m], el[x]), (c1g * (RCOV.get(el[x], 1.6) + RCOV.get(el[m], 1.6)), 0.0))
+            tb, wv = dbond.get((el[m], el[x]), (_dbond_fallback(el[m], el[x], c1g, x in cen), 0.0))
             w_mx = (wbo or {}).get((m, x), 1.0)
             if d < tb and w_mx > wv and w_mx >= WMIN:
                 raw.append((m, x))
@@ -144,6 +162,116 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
 
 
 # `MLIKE_EXTRA` is defined in `config` — imported above, re-exported here for callers.
+_METAL_SET = frozenset(METALS)
+
+
+def build_topology(el, xyz, wbo=None, dint=None):
+    """T1 (ligand-internal bonds) and T4 (M–L candidates) — the topology `predict` starts from.
+    Returns `(G, ml_raw, dbond, c1g, cen)`."""
+    xyz = np.asarray(xyz, dtype=float)
+    d_int, d_fb = dint if dint is not None else load_dint()
+    # ① T1 — bonds inside a ligand (distance)
+    #   🔴 `B` is a ligand atom **always** (carborane, boryl, `BH₄⁻`, `B₂H₆`) — see
+    #      `config.centers`. `docs/PIPELINE.md`.
+    cen = centers(el)
+    idx = [i for i in range(len(el)) if i not in cen]
+    # a pair with no fitted cutoff (Te–Si, …): the covalent-radius sum times the median
+    #   (fitted cutoff / radius sum) of the pairs that have one — not the single global `d_fb`
+    _rat = [v / (RCOV[p] + RCOV[q]) for (p, q), v in d_int.items() if p in RCOV and q in RCOV]
+    _ratio = float(np.median(_rat)) if _rat else None
+
+    def _cut(ea, eb):
+        k = tuple(sorted((ea, eb)))
+        if k in d_int:
+            return d_int[k]
+        if _ratio and ea in RCOV and eb in RCOV:
+            return _ratio * (RCOV[ea] + RCOV[eb])
+        return d_fb
+    G = nx.Graph()
+    G.add_nodes_from(idx)
+    for ii in range(len(idx)):
+        for jj in range(ii + 1, len(idx)):
+            a, b = idx[ii], idx[jj]
+            # 🔴 Two guards apply **first** (same as the scorer):
+            #   ① `H–H` is never a candidate
+            #   ② `d > 1.8·(r_cov(a)+r_cov(b))` is not a candidate — an element pair with **no**
+            #      fitted cutoff uses the global fallback `d_int = 2.0542 Å`, which is so long
+            #      that it would **turn hydrogen-bond contacts into covalent bonds** (an `F···H`
+            #      contact at 1.99 Å against a covalent `F–H` of 0.92 Å).
+            if el[a] == "H" and el[b] == "H":
+                continue
+            d_ab = float(np.linalg.norm(xyz[a] - xyz[b]))
+            if d_ab > 1.8 * (RCOV.get(el[a], 1.0) + RCOV.get(el[b], 1.0)):
+                continue
+            if d_ab < _cut(el[a], el[b]):
+                G.add_edge(a, b)
+
+    # ★ an H T1 put between two ligand atoms (a short O–H···O hydrogen bond, B–H···C) keeps
+    #   only its nearest partner — an H has one bond. A B–H–B bridge (both neighbours B) is a
+    #   3c2e bond and keeps both. (M–H–X is not affected: the M–H is a T4 contact.)
+    for h in [i for i in idx if el[i] == "H" and G.degree(i) >= 2]:
+        nb = list(G[h])
+        if all(el[y] == "B" for y in nb):
+            continue
+        near = min(nb, key=lambda y: float(np.linalg.norm(xyz[h] - xyz[y])))
+        for y in nb:
+            if y != near:
+                G.remove_edge(h, y)
+
+    # ★ **diborane** — drop a `B–B` that two hydrogen bridges already account for.
+    #   `d_int(B,B) = 2.336 Å` cannot separate `B₂H₆`'s 1.774 Å non-bond from a carborane cage
+    #   bond at 1.75–1.80 Å, so T1 draws one and the fragment ends up 2 electrons short:
+    #   `R₂B(μ-H)₂BR₂` has `2·3 + 2·1 + 4·1 = 12` valence electrons and the 4 B–R bonds (8 e)
+    #   plus the 2 bridges (4 e) already spend all 12 — a B–B would need 14.
+    #   The condition is deliberately narrow: **two bridging H and no third boron.** A cage B
+    #   keeps every bond it has.
+    _bs = [i for i in idx if el[i] == "B"]
+    for _u in range(len(_bs)):
+        for _v in range(_u + 1, len(_bs)):
+            b1, b2 = _bs[_u], _bs[_v]
+            if not G.has_edge(b1, b2):
+                continue
+            if sum(1 for y in set(G[b1]) & set(G[b2]) if el[y] == "H") < 2:
+                continue
+            if any(el[y] == "B" for y in set(G[b1]) | set(G[b2]) if y not in (b1, b2)):
+                continue  # part of a polyhedron — the B–B is real
+            G.remove_edge(b1, b2)
+
+    # ★ a **4-ring diagonal** — two atoms across a ring share two neighbours (P₂N₂ · P₂O₂ · B₂N₂:
+    #   P···P 2.45–2.60 Å is inside the P–P cutoff 2.579 Å). Bonded, the pair would close a 3-ring
+    #   with each shared neighbour, and no 3-ring has an angle near 80°; across a 4-ring the shared
+    #   neighbour opens 83–97°. So the pair goes when every shared neighbour sees it at 80° or
+    #   more. All 34k CSD structures: 25 such T1 bonds, none a CSD bond; the widest CSD bond 79.6°.
+    def _ang(a, c, b):
+        u, v = xyz[a] - xyz[c], xyz[b] - xyz[c]
+        nu, nv = np.linalg.norm(u), np.linalg.norm(v)
+        if nu == 0 or nv == 0:
+            return 0.0   # coincident atoms: no angle to read, keep the pair
+        return float(np.degrees(np.arccos(np.clip(np.dot(u, v) / nu / nv, -1, 1))))
+    _diag = [(a, b) for a, b in G.edges if el[a] != "H" and el[b] != "H"
+             and len(set(G[a]) & set(G[b])) >= 2
+             and all(_ang(a, c, b) >= 80.0 for c in set(G[a]) & set(G[b]))]
+    G.remove_edges_from(_diag)
+
+    # ② T4 — M–L bonds (distance + Mayer veto)
+    import csv as _csv
+
+    from .config import DATA
+
+    dbond = {}
+    for r in _csv.DictReader(open(DATA / "d_bond.csv")):
+        if r["M"] != "*":
+            dbond[(r["M"], r["X"])] = (float(r["d_bond"]), float(r["w_veto"]))
+    # a pair with no fitted value: the radius sum times the median ratio of the fitted pairs of its
+    #   kind (M–L 1.15 · M–M 1.10), as T1 does. The table's global row (1.30) is the M–L 90th
+    #   percentile and, with real metal radii, turned a 4.3 Å Zr···Zr into an M–M bond.
+    _rat = ([], [])
+    for (a, b), (tb, _wv) in dbond.items():
+        if a in RCOV and b in RCOV:
+            _rat[b in _METAL_SET].append(tb / (RCOV[a] + RCOV[b]))
+    c1g = tuple(float(np.median(v)) for v in _rat)
+    ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo, cen)
+    return G, ml_raw, dbond, c1g, cen
 
 
 def all_metals(r):
@@ -176,8 +304,17 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             complex_atom_map=False, n_unpaired=0):
     """`xyz` → bonds · orders · charges · oxidation states. See the module docstring for the
     arguments and the return value."""
-    if n_unpaired not in (0, 1):
-        raise ValueError(f"n_unpaired={n_unpaired!r}: only 0 (closed shell) and 1 are supported")
+    _n = n_unpaired
+    if isinstance(_n, float) and _n.is_integer():
+        _n = int(_n)
+    try:
+        _n = operator.index(_n)
+    except TypeError:
+        _n = None
+    if _n is None or _n < 0 or (not JOINT and _n > 1):
+        raise ValueError(f"n_unpaired={n_unpaired!r}: only 0 (closed shell) and 1 are supported"
+                         " (any count with JOINT=1)")
+    n_unpaired = _n
     el = list(elements)
     xyz = np.asarray(coords, dtype=float)
     if not wbo and centers(el):
@@ -197,73 +334,45 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     sc4 = scores4 if scores4 is not None else load_scores4()
     d_int, d_fb = dint if dint is not None else load_dint()
 
-    # ① T1 — bonds inside a ligand (distance)
-    #   🔴 `B` is a ligand atom **always** (carborane, boryl, `BH₄⁻`, `B₂H₆`) — see
-    #      `config.centers`. `docs/PIPELINE.md`.
-    cen = centers(el)
-    idx = [i for i in range(len(el)) if i not in cen]
-    G = nx.Graph()
-    G.add_nodes_from(idx)
-    for ii in range(len(idx)):
-        for jj in range(ii + 1, len(idx)):
-            a, b = idx[ii], idx[jj]
-            # 🔴 Two guards apply **first** (same as the scorer):
-            #   ① `H–H` is never a candidate
-            #   ② `d > 1.8·(r_cov(a)+r_cov(b))` is not a candidate — an element pair with **no**
-            #      fitted cutoff uses the global fallback `d_int = 2.0542 Å`, which is so long
-            #      that it would **turn hydrogen-bond contacts into covalent bonds** (an `F···H`
-            #      contact at 1.99 Å against a covalent `F–H` of 0.92 Å).
-            if el[a] == "H" and el[b] == "H":
-                continue
-            d_ab = float(np.linalg.norm(xyz[a] - xyz[b]))
-            if d_ab > 1.8 * (RCOV.get(el[a], 1.0) + RCOV.get(el[b], 1.0)):
-                continue
-            if d_ab < d_int.get(tuple(sorted((el[a], el[b]))), d_fb):
-                G.add_edge(a, b)
-
-    # ★ **diborane** — drop a `B–B` that two hydrogen bridges already account for.
-    #   `d_int(B,B) = 2.336 Å` cannot separate `B₂H₆`'s 1.774 Å non-bond from a carborane cage
-    #   bond at 1.75–1.80 Å, so T1 draws one and the fragment ends up 2 electrons short:
-    #   `R₂B(μ-H)₂BR₂` has `2·3 + 2·1 + 4·1 = 12` valence electrons and the 4 B–R bonds (8 e)
-    #   plus the 2 bridges (4 e) already spend all 12 — a B–B would need 14.
-    #   The condition is deliberately narrow: **two bridging H and no third boron.** A cage B
-    #   keeps every bond it has.
-    _bs = [i for i in idx if el[i] == "B"]
-    for _u in range(len(_bs)):
-        for _v in range(_u + 1, len(_bs)):
-            b1, b2 = _bs[_u], _bs[_v]
-            if not G.has_edge(b1, b2):
-                continue
-            if sum(1 for y in set(G[b1]) & set(G[b2]) if el[y] == "H") < 2:
-                continue
-            if any(el[y] == "B" for y in set(G[b1]) | set(G[b2]) if y not in (b1, b2)):
-                continue  # part of a polyhedron — the B–B is real
-            G.remove_edge(b1, b2)
-
-    # ② T4 — M–L bonds (distance + Mayer veto)
-    import csv as _csv
-
-    from .config import DATA
-
-    dbond, c1g = {}, 1.3002
-    for r in _csv.DictReader(open(DATA / "d_bond.csv")):
-        if r["M"] == "*":
-            c1g = float(r["d_bond"])
-        else:
-            dbond[(r["M"], r["X"])] = (float(r["d_bond"]), float(r["w_veto"]))
-    ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo, cen)
+    G, ml_raw, dbond, c1g, cen = build_topology(el, xyz, wbo, (d_int, d_fb))
 
     # ③④⑤ T3 · M–L orders · T5 (haptic) · R7 — **one function** produces all of it.
     #   The caller does not assemble the pieces (whether haptic and agostic are removed from the
     #   budget, the M–L order candidates, T5's Y candidates), so they cannot diverge from the
     #   scorer; only the T4 candidates `ml_raw` and `wbo` are passed in.
-    q_eht = eht_frag_charges(el, xyz, G)
+    # ★ `JOINT` (v2, `rules.joint2`) — topology, then **one** MILP over the whole input: bond
+    #   orders, each atom's bond-order-sum state, haptic h per group, OS, Wade cluster charges. No
+    #   T3 pre-solve, no EHT, no M–L valence reserve. Candidates (K-best by signature) are checked
+    #   (V1: a sigma donor keeps a lone pair), M–L orders come from the donor charge, and close
+    #   candidates are ranked by the smaller ligand charge, then Mayer consistency. A solve that
+    #   does not come back (`too_large` · `failed` · `unavailable`) falls back to the default path.
+    joint = None
+    joint_ok = False
+    if JOINT:
+        sc_j = joint2.bond_scores_joint(el, xyz, G, sc4)
+        _sc_conj = bond_scores(el, xyz, G, sc4)
+
+        topo = joint2.topology(el, xyz, wbo, G=G, ml_raw=ml_raw, dbond=dbond, cen=cen)
+        _mls = ml_order_scores(el, topo.ml_pred, wbo) if wbo else None
+        joint = joint2.solve(topo, el, sc_j, q_total=total_charge, n_unpaired=n_unpaired,
+                             ml_scores=_mls, sc_conj=_sc_conj)
+        joint_ok = joint.best is not None
+    q_eht = None if joint_ok else eht_frag_charges(el, xyz, G)
     # `w_raw` is the ③ likelihood margin `score[Double] − score[Single]` **before** ④'s
     #   `CAPINESS` penalty is folded into `w`. Only the π-suppression report reads it.
     w_raw = {}
-    cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo, dbond=dbond,
-                                                     q_eht=q_eht,
-                                                      w_raw_out=w_raw)
+    if joint_ok:
+        ml_pred, hap = topo.ml_pred, set(joint.hap)
+        cls = {e: (3 if e in joint.conj else o - 1) for e, o in joint.orders.items()}
+        mlout = {k: o - 1 for k, o in joint.ml_orders.items()}
+        btag = bridge_tags(el, G, ml_pred, {e: o - 1 for e, o in joint.orders.items()}, hap)
+        w = {}
+        # the π-suppression report reads the same ③ margin as on the default path
+        w_raw.update({e: s[1] - s[0] for e, s in _sc_conj.items() if 0 in s and 1 in s})
+    else:
+        cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo,
+                                                          dbond=dbond, q_eht=q_eht,
+                                                          w_raw_out=w_raw)
     # the output converter and the charge use the **same budget** as ④ — haptic spends nothing,
     # and a 3c2e-participating atom spends `BML3C_COST` in total (`pipeline.bml_budget`).
     # 🔴 This must stay the same budget as ④'s, 3c2e term included, or ⑥ can undo what ④
@@ -297,17 +406,24 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             return False
         return abs(d - mn) < abs(d - mc)
 
-    # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge
-    orders, frag_q = kekulize(G, el, cls, dict(bml), w)
-    if NOCTET:
-        octet_fix_period2(el, G, orders)
+    # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge.
+    #   Under `JOINT` the integers come from the joint solve itself, so ⑥ and the post-⑥
+    #   repairs (QSHIFT · SIGCUT) are skipped — they exist to patch the sequential solve.
+    if joint_ok:
+        # the joint answer is already integer; a carbenium is an atom charge (+1), not a residual
+        orders, frag_q = dict(joint.orders), {}
+    else:
+        orders, frag_q = kekulize(G, el, cls, dict(bml), w)
+        if NOCTET:
+            octet_fix_period2(el, G, orders)
     # ★ `QSHIFT` — move a π when the same skeleton has a valid arrangement with a smaller |charge|
-    shift_pi_to_cancel(orders, el, G, bml, {x for _m, x in ml_pred}, fit=_fits)
+    if not joint_ok:
+        shift_pi_to_cancel(orders, el, G, bml, {x for _m, x in ml_pred}, fit=_fits)
     # 🔴 **Once more after the shift.** (a″) is the rule «N cannot have five bonds», and `QGEM`
     #   raising both `N–O` of a nitro group recreates `N(=O)=O` (b 5). The pipeline's charge on
     #   that N is 0, but RDKit reads `[N+](=O)[O-]`, so the **(element, charge) multiset** check
     #   of the SMILES would fail.
-    if NOCTET:
+    if NOCTET and not joint_ok:
         octet_fix_period2(el, G, orders)
 
     # ★ `SIGCUT` — when one σ M–L blocks the cancellation of an adjacent anion pair, drop that
@@ -316,9 +432,12 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   keep the answers consistent. The second solve runs only on structures that raise this
     #   signal.
     _eta: set = set() if SIGETA else None
-    _cut = sigma_ml_blocking_cancel(orders, el, G, bml, ml_pred, hap, wbo=wbo,
-                                    fit=lambda *t: _fits(*t, strict=True), eta_out=_eta)
-    if _cut or _eta:
+    # SIGCUT re-solves through the two-pass path, so it never runs under `JOINT` (it would mix
+    #   the two paths on a fallback).
+    _cut = set() if joint_ok else sigma_ml_blocking_cancel(
+        orders, el, G, bml, ml_pred, hap, wbo=wbo,
+        fit=lambda *t: _fits(*t, strict=True), eta_out=_eta)
+    if not joint_ok and (_cut or _eta):
         # ★ a `SIGETA` partner atom is **not** among the T4 candidates (which is why no η² pair
         #   formed on the first pass), so it is added as a candidate and `force_hap` makes both
         #   atoms haptic.
@@ -360,7 +479,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 (el[m1], el[m2]),
                 dbond.get(
                     (el[m2], el[m1]),
-                    (c1g * (RCOV.get(el[m1], 1.6) + RCOV.get(el[m2], 1.6)), 0.0),
+                    (_dbond_fallback(el[m1], el[m2], c1g, True), 0.0),
                 ),
             )
             if d < tb and (wbo or {}).get((m1, m2), (wbo or {}).get((m2, m1), 1.0)) > wv:
@@ -392,9 +511,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         # 🔴 For a cluster fragment (carborane and the like) the formal-charge sum cannot be
         #    trusted — use the EHT fragment charge. For the rule see `charge.is_cluster_frag`.
         coord = sorted({x for _m, x in ml_pred if x in cs})
-        qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord),
-                                      three_c_leg))
-        q_all[key] = qL
         coord_of[key] = coord
         coord_set = set(coord)
         # per-atom formal charge — stamped into the SMILES as-is
@@ -405,6 +521,17 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                                       tuple(sorted(el[w] for w in G[x])),
                                       n_ml=(1 if x in coord_set else 0),
                                       b_3c=b3_int.get(x, 0.0))))
+        if joint_ok:
+            # a carbenium carbon is +1 on the atom; a cluster carries its Wade charge as a
+            #   fragment charge only (no per-atom charges on the cage)
+            qat.update({x: 1 for x in joint.carbenium if x in cs})
+            # a cage atom carries no charge of its own; the cage's Wade charge joins the rest
+            qat.update({x: 0 for x in comp if x in joint.cage})
+            qL = sum(qat.values()) + int(joint.cluster_q.get(key, 0))
+        else:
+            qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord),
+                                          three_c_leg))
+        q_all[key] = qL
         qat_all.update(qat)
         smi, _map = ligand_smiles(el, comp, bk, qat, coord)
         ok, why = False, "SMILES generation failed"
@@ -503,7 +630,33 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   The result still comes back, with the closed-shell answer and `radical["note"]` saying why
     #   — a caller that wants the strict behaviour drops the structure on a non-empty note.
     radical = {"n_unpaired": n_unpaired, "atom": None, "site": None, "note": "", "sign": +1}
-    if n_unpaired:
+    # ★ `JOINT`: the joint solve placed the electrons itself — on ligand atoms (`radicals`,
+    #   `{atom: +1 | -1}`, the same pricing as the placement below) or on d-block metals — so its
+    #   answer is applied instead of the search. `atoms` lists every ligand site.
+    if n_unpaired and joint is not None and (joint.radicals or joint.metal_unpaired):
+        sites = sorted(joint.radicals)
+        radical["atoms"] = sites
+        radical["atom"] = sites[0] if len(sites) == 1 else None
+        radical["site"] = ("metal" if not sites else
+                           "organic" if not joint.metal_unpaired else "mixed")
+        for site in sites:
+            _d = int(round(joint.radicals[site]))
+            radical["sign"] = _d
+            qat_all[site] += _d
+        for fr in fragments:
+            here = [a for a in sites if a in fr["atoms"]]
+            if not here:
+                continue
+            fr["charge"] += sum(int(round(joint.radicals[a])) for a in here)
+            bk = {e: int(o) for e, o in orders.items() if e[0] in set(fr["atoms"])}
+            qat = {a: qat_all[a] for a in fr["atoms"]}
+            smi_f, _m = ligand_smiles(el, fr["atoms"], bk, qat, fr["coordinating"],
+                                      radicals=set(here))
+            ok_f, why_f = (False, "SMILES generation failed")
+            if smi_f:
+                ok_f, why_f = verify_roundtrip(smi_f, el, fr["atoms"], bk, qat)
+            fr["smiles"], fr["smiles_ok"], fr["smiles_note"] = smi_f, ok_f, why_f
+    elif n_unpaired:
         bsum = collections.Counter()
         for (i, j), o in orders.items():
             bsum[i] += o
@@ -602,6 +755,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                                "anion and a radical read as an anion are the same graph, so the "
                                "closed-shell answer is returned unchanged")
 
+    _rad_atoms = set(radical.get("atoms") or
+                     ([radical["atom"]] if radical["atom"] is not None else []))
+
     # ── charge balance — a self-check the caller can act on ───────────────────────────────
     # 🔴 With **no metal** in the structure there is no oxidation state to absorb a charge error,
     #   so the emitted formal charges have to add up to the `total_charge` the caller passed.
@@ -635,7 +791,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         # 🔴 This runs **after** the radical block, so an electron that was placed has already
         #   cancelled its own -1. What should be left is only the unpaired electrons that could
         #   **not** be placed.
-        _left = n_unpaired - (1 if radical["atom"] is not None else 0)
+        _left = n_unpaired - len(radical.get("atoms") or
+                                 ([radical["atom"]] if radical["atom"] is not None else []))
         if _sf != _left:
             charge_balance["ok"] = False
             charge_balance["note"] = (
@@ -687,6 +844,21 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             if num % len(allm) == 0:
                 os_metal = dict.fromkeys(allm, num // len(allm))
                 os_exact = False
+    # ★ `JOINT` with the total charge applied: the oxidation states are the ones the joint
+    #   solve chose, per metal (no even split), and every molecule's charge follows from them.
+    # 🔴 Only when the output **is** the joint answer (`joint_ok`), and only if the charges the
+    #   output actually carries plus those states add up to `total_charge` — a fragment left on
+    #   the fallback path can end with a different charge than the solve assumed for it.
+    if (joint_ok and joint.os and total_charge is not None
+            and sum(q_of_frag.values()) + sum(joint.os.values()) == total_charge):
+        # 🔴 with two or more metal-bearing molecules the split of Q between them is still not
+        #   fixed by anything in the input — the solve picked one, so it is not exact
+        os_metal, os_exact = dict(joint.os), len(with_metal) <= 1
+        for mol in molecules:
+            if mol["metals"]:
+                mol["charge"] = (sum(q_of_frag[i] for i in mol["fragments"])
+                                 + sum(os_metal[m] for m in mol["metals"]))
+                mol["charge_is_exact"] = os_exact
 
     # -- ⑧ per-molecule SMILES. Each molecule gets its own — M–L bonds as **dative arrows** (bond
     #   order is collapsed here; the real M–L order is in `ml_bonds[(m,x)]["order"]`), the metal's
@@ -708,7 +880,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             qcx = {a: q for a, q in qat_all.items() if a in aset}
             smi, order = complex_smiles(el, mol["atoms"], {e: v for e, v in orders.items() if e[0] in aset},
                                         qcx, [], {}, with_map=complex_atom_map,
-                                        radicals={radical["atom"]} & aset if radical["atom"] is not None else ())
+                                        radicals=_rad_atoms & aset)
             if smi is None:
                 note = "SMILES generation failed"
             else:
@@ -726,7 +898,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             sub_or = {e: v for e, v in orders.items() if e[0] in aset}
             smi, order = complex_smiles(el, mol["atoms"], sub_or, qcx, sub_ml, sub_mm,
                                         with_map=complex_atom_map,
-                                        radicals={radical["atom"]} & aset if radical["atom"] is not None else ())
+                                        radicals=_rad_atoms & aset)
             if smi is None:
                 note = "SMILES generation failed"
             else:
@@ -760,9 +932,20 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             "atom_order": order,
         })
 
-    return {
+    out = {
         "charge_balance": charge_balance,
         "radical": radical,
         "molecules": out_mols,
         "total_charge": total_charge,
     }
+    if JOINT:
+        q_status = joint.q_status
+        out["joint"] = {"status": joint.status,
+                        "objective": joint.best.objective if joint.best else None,
+                        "q_status": q_status, "alt_gap": joint.alt_gap,
+                        "alt_os": {m: v for m, v in joint.alt_os.items()},
+                        "n_candidates": len(joint.candidates), "n_rejected": joint.n_rejected,
+                        "ranking": joint.ranking, "v1_skipped": list(joint.v1_skipped),
+                        "far_dropped": [list(p) for p in topo.far_dropped] if joint_ok else [],
+                        "v1_failed": list(joint.best.failed) if joint.best else []}
+    return out
