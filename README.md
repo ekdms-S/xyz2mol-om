@@ -44,8 +44,8 @@ likelihood → valence budget → fragment electron count → Kekulé → repair
 variable **`JOINT=1`** (and `scipy`), every ligand bond order, atom charge, haptic reading, metal
 oxidation state and boron-cluster charge is decided together in one integer program under a charge
 balance `Σ q_L + Σ OS = total_charge`, then a few distinct answers are compared. On the holdout set it scores
-at least as high on every task in [Performance](#performance) except `Conj` (−0.002), and it cannot produce the suppressed π bonds or
-impossible oxidation states of the staged solver. Both are described rule by rule in
+at least as high on every task in [Performance](#performance) except `Conj` (−0.002). It is not better everywhere — on
+transition-state-like geometries with many short metal contacts it can do worse (see Limits). Both are described rule by rule in
 [docs/PIPELINE.md](docs/PIPELINE.md).
 
 ```bash
@@ -58,11 +58,11 @@ bond orders are essentially unchanged, but everything that touches the metal deg
 
 | | default, with `wbo` | without | `JOINT=1`, with `wbo` | without |
 |---|---|---|---|---|
-| T4 M–L bond existence | .9915 | .9850 | .9923 | .9887 |
+| T4 M–L bond existence | .9917 | .9877 | .9922 | .9897 |
 | T8 M–L `Double` | .7556 | .7060 | .7636 | .7780 |
-| T5 haptic | .9800 | .9602 | .9808 | .9593 |
-| T6 η^k | .9866 | .9726 | .9899 | .9778 |
-| T3 internal `Double` | .7666 | .7658 | .7915 | .7852 |
+| T5 haptic | .9799 | .9606 | .9808 | .9593 |
+| T6 η^k | .9866 | .9728 | .9899 | .9778 |
+| T3 internal `Double` | .7666 | .7658 | .7917 | .7854 |
 | **valence-violating structures** | **0%** | **0%** | **0%** | **0%** |
 
 ⚠️ When you do pass `wbo`, fill **every** `(metal, atom)` pair. A missing pair is read as
@@ -312,9 +312,9 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 |---|---|---|---|---|---|
 | T1 ligand internal bond existence | F1 | **0.9999** | **0.9999** | 380,315 bonds | all bonded .7306 |
 | T2 conjugation call | F1 | **0.9617** | 0.9601 | 87,602 bonds | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | .9901 / .7666 / .9777 / **.9617** | **.9905 / .7915 / .9820** / .9601 | 380,211 bonds | all `Single` .9097 / 0 / 0 |
-| T4 M–L·M–M bond existence | F1 | 0.9915 | **0.9923** | 54,498 bonds | all bonded .5276 |
-| T5 haptic call | F1 | 0.9800 | **0.9808** | 15,331 M–L bonds | all haptic .6766 |
+| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | .9901 / .7666 / .9777 / **.9617** | **.9906 / .7917 / .9820** / .9601 | 380,211 bonds | all `Single` .9097 / 0 / 0 |
+| T4 M–L·M–M bond existence | F1 | 0.9917 | **0.9922** | 54,498 bonds | all bonded .5276 |
+| T5 haptic call | F1 | 0.9799 | **0.9808** | 15,331 M–L bonds | all haptic .6766 |
 | T6 η^k (exact match per ligand) | accuracy | 0.9866 | **0.9899** | ≈4,240 ligands | all `k=0` .8704 |
 | T8 M–L order `Single`/`Double`/`Triple` | F1 | .9935 / .7556 / .7254 | .9935 / **.7636 / .7273** | 37,638 bonds | — |
 | T10 ligand charge `Σq_L` (exact match per structure) | accuracy | 0.8657 | **0.8692** | 1,154 structures | reference-order 0.8528 |
@@ -340,15 +340,15 @@ as a failure.
 |---|---|---|---|---|---|
 | **structures it produced an answer for** | **6,793** | **6,793** | 6,309 | 5,676 | **6,793** |
 | T1 internal bond existence | **.9999** | **.9999** | .9751 | .8896 | .9983 |
-| T4 M–L·M–M bond existence | .9915 | **.9923** | — | .9168 | .7754 |
-| T3 `Single` | .9901 | **.9905** | .9717 | .9812 | .9442 |
-| T3 `Double` | .7666 | **.7915** | .4219 | .5693 | .3505 |
+| T4 M–L·M–M bond existence | .9917 | **.9922** | — | .9168 | .7754 |
+| T3 `Single` | .9901 | **.9906** | .9717 | .9812 | .9442 |
+| T3 `Double` | .7666 | **.7917** | .4219 | .5693 | .3505 |
 | T3 `Triple` | .9777 | **.9820** | .9663 | .9770 | .1217 |
 | T3 `Conj` | **.9617** | .9601 | .9128 | .9323 | .7913 |
 | T8 M–L `Single` | **.9935** | **.9935** | — | — | .9767 |
 | T8 M–L `Double` | .7556 | **.7636** | — | — | .0468 |
 | T8 M–L `Triple` | .7254 | **.7273** | — | — | .0106 |
-| T5 haptic | .9800 | **.9808** | — | — | — |
+| T5 haptic | .9799 | **.9808** | — | — | — |
 | T10 `Σq_L` (1,154 structures) | .8657 | **.8692** | .3934 | .8120 | .1820 |
 | T10 `OS` | .8978 | **.9010** | — | — | — |
 
@@ -389,10 +389,11 @@ only); a tool that emits aromatic bonds is counted at its own 1.5.
 - **Metals in one molecule share its remainder evenly** (default path) — mixed valence is not
   resolved, and `oxidation` is `None` when the remainder does not divide. `JOINT=1` gives each metal
   its own state, preferring equal states for the same element.
-- **A suppressed π bond puts the oxidation state 2 too high** (default path). When a weak M–X
+- **A suppressed π bond puts the oxidation state 2 too high.** On the default path, when a weak M–X
   contact is taken as a σ bond and uses up an atom's valence, the neighbouring π bond is written
   `Single` and the fragment charge comes out 2 too negative. `JOINT=1` does not charge an M–L bond
-  to the atom's valence, so this cannot happen there. The clearest cases are repaired
+  to the valence, but a σ contact to **one** carbon of a π system must leave that carbon a lone
+  pair, which breaks the same π bond — frequent on geometries near a transition state. The clearest cases are repaired
   ([docs/PIPELINE.md](docs/PIPELINE.md) §T3 post-⑥); a `Single` left between two anionic atoms
   whose distance likelihood favours `Double` is flagged per fragment in `pi_suppressed`:
 

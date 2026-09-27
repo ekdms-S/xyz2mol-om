@@ -13,9 +13,9 @@ Notation. `d(X,Y)` distance (Å) · `w(M,X)` xtb GFN2 **Mayer** bond order · `q
 | task (holdout 6,793) | default | `JOINT=1` |
 |---|---|---|
 | T1 internal bond existence | **.9999** | **.9999** |
-| T3 `Single`/`Double`/`Triple`/`Conj` | .9901 / .7666 / .9777 / **.9617** | **.9905 / .7915 / .9820** / .9601 |
-| T4 M–L·M–M existence | .9915 | **.9923** |
-| T5 haptic | .9800 | **.9808** |
+| T3 `Single`/`Double`/`Triple`/`Conj` | .9901 / .7666 / .9777 / **.9617** | **.9906 / .7917 / .9820** / .9601 |
+| T4 M–L·M–M existence | .9917 | **.9922** |
+| T5 haptic | .9799 | **.9808** |
 | T6 η^k | .9866 | **.9899** |
 | T8 M–L `Single`/`Double`/`Triple` | .9935 / .7556 / .7254 | .9935 / **.7636 / .7273** |
 | T10 `Σq_L` · `OS` | .8657 · .8978 | **.8692 · .9010** |
@@ -108,7 +108,8 @@ The numbered list below the picture is a per-step reference, not the execution o
 
 4.  [T4] M–X bond **exists**  ⟺   d(M,X) < d_bond(M,X)  AND  w(M,X) > w_veto(M,X)
          existence only — no type and no order.       element pairs 316 (M–L) · 23 (M–M)
-         a pair with no fitted value: d_bond = 1.30 × (r_cov(M) + r_cov(X)), no Mayer veto
+         a pair with no fitted value: d_bond = (r_cov(M) + r_cov(X)) × the fitted pairs' median
+           ratio of d_bond to the radius sum — 1.15 for M–L, 1.10 for M–M — and no Mayer veto
            (r_cov: Cordero 2008, low-spin for Mn · Fe · Co)
          X is any atom, metals included — (M,M) pairs are decided here too.
          the T4 contact set, before the exclusions below, is passed to both T3 passes as `coord`
@@ -469,9 +470,10 @@ no-pair contact        dropped when X has no lone pair to give (lone pairs count
                        its T1 bonds), unless d(M,X) ≤ r_cov(M) + r_cov(X); B and cage atoms are kept
 far contact            dropped when an internal neighbour Y of X touches the same metal and
                        d(M,X) > JOINTFAR · d(M,Y)
-cluster                a boron-containing fragment with a non-H atom beyond CAP. Cage vertices: B,
-                       C bonded to B, any non-H atom with ≥ 2 B neighbours. Only the cage is
-                       charged as a whole (Wade–Mingos); atoms outside it are solved as usual
+cluster                a boron-containing fragment with a non-H atom beyond CAP. Cage vertices: B
+                       and any non-H atom with ≥ 2 B neighbours (a carbon on one boron is exo).
+                       Only the cage is charged as a whole (Wade–Mingos); atoms outside it are
+                       solved as usual
 haptic unit            a connected chain of atoms touching one metal, each able to join a π bond
                        (a bond to a chain neighbour has a Double or Triple likelihood). A chain
                        end whose bond to the chain reads Single leaves as a σ donor. Units of two
@@ -487,9 +489,10 @@ variables  per bond        order 1 · 2 · 3
                            an unpaired-electron level)
            per haptic unit h ∈ {0, 1}
            per metal       one oxidation state from os_range(element)
-           per cluster     one charge from its Wade candidates (closo · nido · arachno from the
-                           cage edge count; skeletal electrons B 2 · C 3 · other vertex v − 2 +
-                           exo · bridging H 1)
+           per cluster     one charge from its Wade candidates; the cage edge count prefers a
+                           type (closo 3n − 6 edges · nido · arachno), the others cost 2 λ, and a
+                           cage of ≤ 4 vertices prefers none. Skeletal electrons: B 2 · C 3 ·
+                           other vertex v − 2 + exo · bridging or extra H 1
 
 constraints
   non-coordinating atom   |q| ≤ 1 · period-2 atoms within the octet
@@ -563,6 +566,7 @@ ranking      candidates within JOINTLOWQ of the best score: the smaller Σ|q_L| 
 | `JOINTTIE` | 1.0 | score window (× `JOINTQ`) where Mayer consistency decides |
 | `JOINTCONJEPS` | 2.0 | flip tolerance for `Conj` |
 | `JOINT_MAX` | 5000 | program variables before falling back |
+| `JOINT_TIME` | 20 s | time limit of one solve (the best solution so far is kept); the candidate search stops after 4 × this |
 
 **Conventions that differ from the default path.** An even-ring dianion (COT²⁻) carries its
 charge on two carbanions, not as a residual. Metals of one molecule get their own oxidation states
