@@ -294,10 +294,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     joint_ok = False
     if JOINT:
         topo = joint2.topology(el, xyz, wbo, G=G, ml_raw=ml_raw, dbond=dbond, cen=cen)
-        sc_j = bond_scores(el, xyz, G, sc4)
+        sc_j = joint2.bond_scores_joint(el, xyz, G, sc4)
         _mls = ml_order_scores(el, topo.ml_pred, wbo) if wbo else None
         joint = joint2.solve(topo, el, sc_j, q_total=total_charge, n_unpaired=n_unpaired,
-                             ml_scores=_mls)
+                             ml_scores=_mls, sc_conj=bond_scores(el, xyz, G, sc4))
         joint_ok = joint.best is not None
     q_eht = None if joint_ok else eht_frag_charges(el, xyz, G)
     # `w_raw` is the ③ likelihood margin `score[Double] − score[Single]` **before** ④'s

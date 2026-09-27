@@ -136,6 +136,34 @@ def _cluster_charges(el, G, comp, contacted):
     return cand, pref
 
 
+def bond_scores_joint(el, xyz, G, scores4, mode=None):
+    """③ for the joint solve. `mode` (`JOINTSC`): `orig` — `pipeline.bond_scores` as is ·
+    `noprior` — the same without the class-frequency prior · `pooled` / `pooledmin` — no prior,
+    and one width per element pair (the widest / narrowest of Single · Double · Conj) for every
+    class, so a class scores by how close the bond is to its median, not by how narrow the class
+    is or how common it is."""
+    from ..config import JOINTSC
+    from .pipeline import bond_scores
+
+    mode = mode or JOINTSC
+    if mode == "orig":
+        return bond_scores(el, xyz, G, scores4)
+    sc = {}
+    for a, b in G.edges:
+        e = (min(a, b), max(a, b))
+        ent = scores4.get(tuple(sorted((el[a], el[b]))))
+        if not ent:
+            continue
+        med, scl = ent[0], ent[1]
+        d = float(np.linalg.norm(np.asarray(xyz[a]) - np.asarray(xyz[b])))
+        if mode == "noprior":
+            sc[e] = {c: -abs(d - med[c]) / scl[c] for c in med}
+        else:
+            w = (max if mode == "pooled" else min)(v for c, v in scl.items() if c != 2)
+            sc[e] = {c: -abs(d - med[c]) / w for c in med}
+    return sc
+
+
 def _raw_scores(sc_e):
     """`{1: s1, 2: s2, 3: s3}` from the Single · Double · Triple classes alone. A bond whose table
     has only `Conj` (no Single/Double entries) falls back to `order_scores`."""
@@ -717,7 +745,7 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
 
 
 def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None, mode=None,
-          K=None, lam=None):
+          K=None, lam=None, sc_conj=None):
     """The v2 joint solve. See the module docstring and `dev/docs/plans/2026-09-27-joint-v2.md`."""
     from ..config import JOINT_MAX, JOINTCONJEPS, JOINTK, JOINTMODE, JOINTQ, JOINTTIE
 
@@ -812,5 +840,5 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     res.radicals = {x: q - qfun(x, G.degree(x) + k)
                     for x, (k, q, _c, rad) in best.state.items() if rad}
     res.metal_unpaired = dict(best.metal_unpaired)
-    res.conj = _conj(el, topo, best, sc, qfun, lam, JOINTCONJEPS)
+    res.conj = _conj(el, topo, best, sc if sc_conj is None else sc_conj, qfun, lam, JOINTCONJEPS)
     return res

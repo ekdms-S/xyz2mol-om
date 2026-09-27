@@ -305,6 +305,11 @@ JOINTCONJEPS = float(os.environ.get("JOINTCONJEPS", "2.0"))
 #   as they are, instead of letting a `Conj` score support orders 1 and 2 alike (`order_scores`).
 #   `Conj` is still read after the solve. Default off.
 JOINTRAWSC = os.environ.get("JOINTRAWSC", "0") == "1"
+# `JOINTSC` — which ③ the joint MILP reads: `orig` (as the default path) · `noprior` (no
+#   class-frequency prior) · `pooled` / `pooledmin` (no prior, one width per element pair: the
+#   widest / narrowest of Single · Double · Conj). Default `pooledmin` (train1200). The Conj reading
+#   after the solve keeps the default path's ③.
+JOINTSC = os.environ.get("JOINTSC", "pooledmin")
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,
