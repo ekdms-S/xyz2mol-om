@@ -493,8 +493,12 @@ class _Build:
             #   (the acetylide C(-) of a mu-eta2,sigma1 bridge): it is not counted here
             sig_other = {x for m2, x in topo.ml_pred if m2 != _m and x in atoms
                          and not any(x in a2 for mm, a2, _b2 in topo.groups if mm == m2)}
+            # an atom whose charge pairs with a fixed charge outside the chain (N(+)–B(-) of an
+            #   N→BF3 adduct) carries that pair's charge, not the haptic bond's: not counted either
+            paired = {x for x in atoms
+                      if any(y not in atoms and abs(self.const_q.get(y, 0.0)) > 1e-9 for y in G[x])}
             for x in atoms:
-                if x in sig_other:
+                if x in sig_other or x in paired:
                     continue
                 if x in self.lvl:
                     for c, _k, q, _cat, rad in self.lvl[x]:
