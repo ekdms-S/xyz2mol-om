@@ -320,6 +320,9 @@ JOINTCHAINW = float(os.environ.get("JOINTCHAINW", "1.0"))
 # `JOINTADJDON` — two atoms bound to the same metal are exempt from the adjacent same-sign penalty
 #   (metallacyclopropane C(-)–C(-)). Default on; 0 penalises them like any pair.
 JOINTADJDON = os.environ.get("JOINTADJDON", "1") == "1"
+# `JOINTLIGSYM` — per unit charge difference between two ligands with the same element graph
+#   (the ligand counterpart of `JOINTSYM`). 0 turns it off.
+JOINTLIGSYM = float(os.environ.get("JOINTLIGSYM", "0.5"))
 # `JOINTFAR` — a contact M···X whose neighbour Y on the same metal is this many times nearer is a
 #   "far contact" and is dropped under JOINT (train1200: no CSD bond is that lopsided).
 JOINTFAR = float(os.environ.get("JOINTFAR", "1.3"))

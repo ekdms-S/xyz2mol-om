@@ -316,7 +316,7 @@ class _Build:
     def __init__(self, topo, el, sc, qfun, lam, relax, q_total, n_unpaired, metals, only=None):
         """`relax` — fragments (min atom index) solved without the FC range; `only` — build just
         these fragments (the per-fragment feasibility probe)."""
-        from ..config import (FULL, JOINTADJ, JOINTADJDON, JOINTCHAINQ, JOINTCHAINSOFT, JOINTCHAINW, JOINTRAWSC, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
+        from ..config import (FULL, JOINTADJ, JOINTADJDON, JOINTLIGSYM, JOINTCHAINQ, JOINTCHAINSOFT, JOINTCHAINW, JOINTRAWSC, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
                               _GROUP, os_range)
         from .joint import _EN, _FSHELL, PERIOD2, _Model, _radical_delta, order_scores, os_prior_cost
 
@@ -600,6 +600,29 @@ class _Build:
                 r[u] = 1
                 M.row(r, -float("inf"), S - g)
                 u_col[m] = u
+        # ★ the same ligand, the same charge: fragments with the same element graph pay
+        #   JOINTLIGSYM per unit of charge difference (the metals' JOINTSYM, for ligands) — the
+        #   total charge must not be balanced by flipping one of four identical dithiolenes
+        if JOINTLIGSYM:
+            by_hash = {}
+            for key, z in self.qcol.items():
+                comp = next(c for c in self.frags if c[0] == key)
+                if len(comp) < 2:
+                    continue
+                sub = G.subgraph(comp).copy()
+                nx.set_node_attributes(sub, {x: el[x] for x in comp}, "el")
+                by_hash.setdefault(nx.weisfeiler_lehman_graph_hash(sub, node_attr="el"),
+                                   []).append(key)
+            for keys in by_hash.values():
+                for ka, kb in zip(keys, keys[1:]):
+                    d = M.var(cost=JOINTLIGSYM, lb=0.0, ub=20.0, integer=False)
+                    for sgn in (1, -1):
+                        r = {d: 1}
+                        for v, c in self.qcol[ka].items():
+                            r[c] = r.get(c, 0) - sgn * v
+                        for v, c in self.qcol[kb].items():
+                            r[c] = r.get(c, 0) + sgn * v
+                        M.row(r, 0, float("inf"))
         ms = sorted(metals)
         for i, a in enumerate(ms):
             for b in ms[i + 1:]:
