@@ -477,14 +477,16 @@ class _Build:
                     for c in ra + rb:
                         row[c] = row.get(c, 0) - 1
                     M.row(row, -1.0 + ca + cb, float("inf"))
-        # haptic units: groups of different metals that share atoms are one pi chain (a mu-eta2,eta2
-        #   allyl is one allyl, not two eta2 pairs) and share one h
+        # haptic units: groups of different metals that overlap in part are one pi chain (a
+        #   mu-eta2,eta2 allyl is one allyl, not two eta2 pairs) and share one h
         link = nx.Graph()
         link.add_nodes_from(range(len(topo.groups)))
         for gi, (mi, ai, _bi) in enumerate(topo.groups):
             for gj in range(gi + 1, len(topo.groups)):
                 mj, aj, _bj = topo.groups[gj]
-                if mi != mj and set(ai) & set(aj):
+                # overlapping but not the same atoms: the same pair on two metals (a mu-alkyne) is
+                #   already one pi bond seen twice and keeps its own groups
+                if mi != mj and set(ai) & set(aj) and set(ai) != set(aj):
                     link.add_edge(gi, gj)
         units = []
         for comp in sorted(nx.connected_components(link), key=min):
