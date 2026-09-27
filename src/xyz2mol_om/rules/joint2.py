@@ -85,7 +85,8 @@ def _drop_no_pair(el, xyz, G, ml):
     xyz = np.asarray(xyz, dtype=float)
     keep = []
     for m, x in ml:
-        if el[x] in ("H", "B") or x not in G:
+        # boron and cage vertices (a carborane C) bond to the metal through the cage, not a pair
+        if el[x] in ("H", "B") or x not in G or any(el[y] == "B" for y in G[x]):
             keep.append((m, x))
             continue
         deg = G.degree(x)
@@ -947,7 +948,7 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
 def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None, K=None,
           lam=None, sc_conj=None):
     """The v2 joint solve. See the module docstring and `dev/docs/plans/2026-09-27-joint-v2.md`."""
-    from ..config import JOINT_MAX, JOINTCONJEPS, JOINTK, JOINTQ, JOINTTIE
+    from ..config import JOINT_MAX, JOINTCONJEPS, JOINTK, JOINTLOWQ, JOINTQ, JOINTTIE
 
     try:
         import scipy.optimize  # noqa: F401
@@ -1012,7 +1013,13 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
         c.ml_orders, c.mayer = _ml_orders(el, topo, c, qfun, ml_scores)
     best = min(pool, key=lambda c: c.objective)
     tie = [c for c in pool if c.objective <= best.objective + JOINTTIE * lam + 1e-9]
-    if any(c.mayer is not None for c in tie) and len(tie) > 1:
+    # candidates the geometry cannot tell apart (a Kekulé placement that moves charge onto the
+    #   donors scores within JOINTLOWQ of the best): the smaller total ligand charge first
+    near = [c for c in pool if c.objective <= best.objective + JOINTLOWQ + 1e-9]
+    if JOINTLOWQ and len(near) > 1:
+        best = min(near, key=lambda c: (sum(abs(v) for v in c.qlig.values()), c.objective))
+        res.ranking = "lowq"
+    elif any(c.mayer is not None for c in tie) and len(tie) > 1:
         best = max(tie, key=lambda c: (c.mayer if c.mayer is not None else -1e18, -c.objective))
         res.ranking = "mayer"
     res.best = best

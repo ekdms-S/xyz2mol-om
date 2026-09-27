@@ -311,6 +311,9 @@ JOINTLIGSYM = float(os.environ.get("JOINTLIGSYM", "0.5"))
 # `JOINTFAR` — a contact M···X whose neighbour Y on the same metal is this many times nearer is a
 #   "far contact" and is dropped under JOINT (train1200: no CSD bond is that lopsided).
 JOINTFAR = float(os.environ.get("JOINTFAR", "1.3"))
+# `JOINTLOWQ` — candidates within this much MILP score of the best are ones the geometry cannot
+#   tell apart; among them the smaller total |ligand charge| wins. 0 = off.
+JOINTLOWQ = float(os.environ.get("JOINTLOWQ", "0"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,
