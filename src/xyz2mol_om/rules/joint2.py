@@ -1,11 +1,12 @@
-"""JOINT v2 — the ligand-internal bond information of the whole input in one MILP, with no
-metal-free T3 pre-solve (`dev/docs/plans/2026-09-27-joint-v2.md`).
+"""The joint solve (`JOINT=1`) — the ligand-internal bond information of the whole input in one
+MILP (`docs/PIPELINE.md`, "Opt-in: the joint solve").
 
-    1. topology      T1 · T4 · clusters · haptic groups · Hückel carbocycles      (`topology`)
-    2. one MILP      bond orders · bond-order-sum state per atom · haptic h per group · OS ·
+    1. topology      T1 · T4 · clusters · haptic units · Hückel carbocycles      (`topology`)
+    2. one MILP      bond orders · bond-order-sum state per atom · haptic h per unit · OS ·
                      cluster charges (Wade) · unpaired electrons — no M–L information
-    3. candidates    K-best by signature (or a cut loop), validated (V1: a sigma donor can bond)
-    4. M–L orders    min(Mayer order, donor lone pairs); Mayer consistency ranks close candidates
+    3. candidates    K-best by signature, checked (V1: a sigma donor keeps a lone pair)
+    4. M–L orders    from the donor charge; the smaller ligand charge, then Mayer consistency,
+                     ranks close candidates
     5. reading       Conj (S/D flips that keep the score) · 3c2e tags · carbenium charges
 
 The MILP pieces (`_Model`, `order_scores`, `q_atom` levels, OS prior) are shared with `rules.joint`.
@@ -14,6 +15,7 @@ The MILP pieces (`_Model`, `order_scores`, `q_atom` levels, OS prior) are shared
 from __future__ import annotations
 
 import collections
+import time
 from dataclasses import dataclass, field
 
 import networkx as nx
@@ -171,10 +173,9 @@ def wade_charges(n_b, n_c, extra_h):
 
 
 def _vertices(el, G, comp):
-    """Cage vertices: B, C bonded to B, and any other non-H atom with two or more B neighbours (the
-    Te of a telluraborane)."""
+    """Cage vertices: B, and any other non-H atom with two or more B neighbours (the C of a
+    carborane, the Te of a telluraborane). A carbon on one boron (B–CH3, B–aryl) is exo."""
     return {x for x in comp if el[x] == "B"
-            or (el[x] == "C" and any(el[y] == "B" for y in G[x]))
             or (el[x] != "H" and sum(el[y] == "B" for y in G[x]) >= 2)}
 
 
@@ -185,7 +186,7 @@ def cage_atoms(el, G, comp):
     return cage | {h for h in comp if el[h] == "H" and any(y in cage for y in G[h])}
 
 
-def _cluster_charges(el, G, comp, contacted):
+def _cluster_charges(el, G, comp):
     """Wade charge candidates of a cluster fragment and the type its topology says: a closed
     deltahedron has 3n - 6 cage edges (closo); an open face takes a few away (nido, 3n - 9 ..
     3n - 7); fewer is arachno. The others stay as candidates at a cost (a missed B–B bond)."""
@@ -210,6 +211,8 @@ def _cluster_charges(el, G, comp, contacted):
     n = len(cage)
     edges = G.subgraph(cage).number_of_edges()
     pref = "closo" if edges >= 3 * n - 6 else "nido" if edges >= 3 * n - 9 else "arachno"
+    if n <= 4:
+        pref = None   # a triangle or tetrahedron can be any type (B3H8- is arachno): no preference
     return cand, pref
 
 
@@ -298,14 +301,14 @@ class Candidate:
 
 @dataclass
 class JointV2:
-    status: str = "optimal"            # optimal · relaxed_fc · q_relaxed · too_large · unavailable · failed
+    status: str = "optimal"            # optimal · relaxed_fc · no_valid · too_large · unavailable · failed
     q_status: str = "no_q"
     best: Candidate | None = None
     candidates: list = field(default_factory=list)
     ranking: str = "milp"              # milp · mayer
     n_rejected: int = 0
     alt_os: dict = field(default_factory=dict)
-    alt_gap: float | None = None
+    alt_gap: float | None = None       # alt score − chosen score; < 0 when the ranking passed over it
     conj: set = field(default_factory=set)
     carbenium: set = field(default_factory=set)
     radicals: dict = field(default_factory=dict)
@@ -373,10 +376,10 @@ class _Build:
             fixed = set()
             if key in topo.clusters:
                 # the cage takes its Wade charge; atoms outside it are solved as usual
-                cand, pref = _cluster_charges(el, G, set(comp), contacted)
+                cand, pref = _cluster_charges(el, G, set(comp))
                 one = {}
                 for kind, qv in cand.items():
-                    one[kind] = M.var(cost=0.0 if kind == pref else 2.0 * lam)
+                    one[kind] = M.var(cost=0.0 if pref in (None, kind) else 2.0 * lam)
                     q_row[one[kind]] = q_row.get(one[kind], 0.0) + qv
                 M.row(dict.fromkeys(one.values(), 1), 1, 1)
                 self.ccol[key] = (one, cand)
@@ -544,7 +547,10 @@ class _Build:
                           sorted({e for g in gis for e in topo.groups[g][2]})))
         # h = 1 -> as many multiple bonds as the chain can hold at once (its largest matching:
         #   floor(k/2) for a chain or ring, one for the star of a trimethylenemethane)
+        built = {x for comp in self.frags if only is None or comp[0] in only for x in comp}
         for gis, mset, atoms, bonds in units:
+            if not set(atoms) <= built:
+                continue   # a per-fragment probe has no columns for another fragment's unit
             h = self.hcol[gis[0]]
             k = len(atoms)
             need = len(nx.max_weight_matching(nx.Graph(bonds), maxcardinality=True)) if bonds else 0
@@ -723,7 +729,6 @@ class _Build:
             M.row(cnt, n_unpaired, n_unpaired)
         self.u_col = u_col
         self.infeasible = False
-        _ = (VAL, FULL)
 
     def _sign(self, x, sgn):
         """(level columns of x whose charge has sign `sgn`, constant 1/0 if x is constant)."""
@@ -898,10 +903,12 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
 
     G, orders = topo.G, cand.orders
     fixed = {x for x, (_k, _q, cat, rad) in cand.state.items() if cat or rad}
+    cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
+            for x in cage_atoms(el, G, c)}
 
     def sd(e):
         return orders.get(e) in (1, 2) and el[e[0]] != "H" and el[e[1]] != "H" \
-            and not (set(e) & fixed) and e[0] not in topo.clusters
+            and not (set(e) & fixed) and e[0] not in cage
 
     def score(e, o):
         s = order_scores(sc.get(e, {}))[o]
@@ -948,12 +955,12 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
 def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None, K=None,
           lam=None, sc_conj=None):
     """The v2 joint solve. See the module docstring and `dev/docs/plans/2026-09-27-joint-v2.md`."""
-    from ..config import JOINT_MAX, JOINTCONJEPS, JOINTK, JOINTLOWQ, JOINTQ, JOINTTIE
+    from ..config import JOINT_MAX, JOINT_TIME, JOINTCONJEPS, JOINTK, JOINTLOWQ, JOINTQ, JOINTTIE
 
     try:
         import scipy.optimize  # noqa: F401
     except ImportError:
-        return JointV2(status="unavailable")
+        return JointV2(status="unavailable", q_status="not_solved")
     K = JOINTK if K is None else K
     lam = JOINTQ if lam is None else lam
     qfun = qfun or _default_qfun(topo, el)
@@ -970,7 +977,7 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     relax = set()
     build, first = attempt(relax, q_total)
     if first == "too_large":
-        return JointV2(status="too_large")
+        return JointV2(status="too_large", q_status="not_solved")
     if first is None:
         for comp in nx.connected_components(topo.G):
             key = min(comp)
@@ -992,13 +999,14 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     res.cage = set(build.cage)
     cands, sol = [], first
     n_solves = 0
+    deadline = time.monotonic() + 4 * JOINT_TIME   # more candidates only while this lasts
     while sol is not None and n_solves < MAX_SOLVES:
         n_solves += 1
         c = build.decode(sol[0], sol[1])
         c.failed = _validate(el, topo, c, qfun)
         c.valid = not c.failed
         cands.append(c)
-        if len(cands) >= K and any(cc.valid for cc in cands):
+        if (len(cands) >= K and any(cc.valid for cc in cands)) or time.monotonic() > deadline:
             break
         build.forbid(c)
         sol = build.M.solve()

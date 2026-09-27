@@ -72,26 +72,37 @@ class _Model:
         self.hi.append(hi)
 
     def solve(self):
+        """`(x, objective)` or `None` when there is no solution. A solve stopped by the time limit
+        (`JOINT_TIME`) returns the best solution it found."""
         import numpy as np
-        from scipy.optimize import Bounds, LinearConstraint, milp
+        import scipy.optimize
+        from scipy.optimize import Bounds, LinearConstraint
+        from scipy.sparse import coo_array
+
+        from ..config import JOINT_TIME
 
         n = len(self.cost)
         if n == 0:
             return np.zeros(0), 0.0
-        A = np.zeros((max(len(self.rows), 1), n))
-        lo, hi = [-np.inf], [np.inf]
         if self.rows:
-            lo, hi = self.lo, self.hi
+            ri, ci, vv = [], [], []
             for i, r in enumerate(self.rows):
                 for c, v in r.items():
-                    A[i, c] += v
+                    ri.append(i)
+                    ci.append(c)
+                    vv.append(v)
+            A = coo_array((vv, (ri, ci)), shape=(len(self.rows), n)).tocsr()   # duplicates summed
+            lo, hi = self.lo, self.hi
+        else:
+            A, lo, hi = np.zeros((1, n)), [-np.inf], [np.inf]
         try:
-            res = milp(c=np.array(self.cost), constraints=LinearConstraint(A, lo, hi),
-                       integrality=np.array(self.integer),
-                       bounds=Bounds([b[0] for b in self.bnd], [b[1] for b in self.bnd]))
+            res = scipy.optimize.milp(c=np.array(self.cost), constraints=LinearConstraint(A, lo, hi),
+                                      integrality=np.array(self.integer),
+                                      bounds=Bounds([b[0] for b in self.bnd], [b[1] for b in self.bnd]),
+                                      options={"time_limit": JOINT_TIME})
         except Exception:
             return None
-        if not res.success or res.x is None:
+        if res.x is None or not (res.success or res.status == 1):
             return None
         return np.round(res.x).astype(float), float(res.fun)
 

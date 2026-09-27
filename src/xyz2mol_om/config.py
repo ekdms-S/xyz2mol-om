@@ -262,21 +262,24 @@ ETA2NEAR = float(os.environ.get("ETA2NEAR", "0"))
 #   a constraint. Float, default 1e5; 0 = off. Keep it below `ETAEXO`'s 1e6 so `ETAEXO` wins.
 ETAPI = float(os.environ.get("ETAPI", "100000"))
 
-# ═══ Joint solve (`rules.joint`) ══════════════════════════════════════════════════════════════
+# ═══ Joint solve (`rules.joint2`, `docs/PIPELINE.md` "Opt-in: the joint solve") ═══════════════
 
-# `JOINT` — solve every ligand-internal bond order in one MILP instead of ①② → ④ → ⑤ in sequence.
-#   The haptic set, M–L orders and T7 tags still come from the sequential path. Default off.
-#   Needs scipy (imported inside `rules.joint` only).
+# `JOINT` — decide every ligand-internal bond order, atom charge, haptic reading, oxidation state
+#   and cluster charge in one MILP instead of the staged path. Default off. Needs scipy (imported
+#   inside the solve only).
 JOINT = os.environ.get("JOINT", "0") == "1"
-# `JOINT_MAX` — above this many MILP variables the joint solve gives up and the sequential path
-#   is used. Integer, default 5000.
+# `JOINT_MAX` — above this many MILP variables the joint solve gives up and the default path's
+#   answer is used. Integer, default 5000.
 JOINT_MAX = int(os.environ.get("JOINT_MAX", "5000"))
-# `JOINTQ` — weight of the charged-atom penalty (sum of |FC| over non-coordinating C·N·O·F)
-#   against the distance score. Float, default 2.0; chosen on the train sample (1 · 2 compared).
+# `JOINT_TIME` — seconds one MILP solve may take; a solve stopped there keeps the best solution it
+#   found, and the search for more candidates stops once four times this has passed. Float, 20.
+JOINT_TIME = float(os.environ.get("JOINT_TIME", "20"))
+# `JOINTQ` — weight of the charged-atom penalty (|FC| of each non-coordinating atom) against the
+#   distance score. Float, default 2.0.
 JOINTQ = float(os.environ.get("JOINTQ", "2.0"))
-# `JOINTCAT` — extra penalty (in units of `JOINTQ`) on a carbenium carbon (sextet, +1) in the joint
-#   solve. Only ring carbons of the sequential `Conj` set get that level; it is what lets a Hückel
-#   cation (tropylium, cyclopropenium) be written at all. Float, default 1.0.
+# `JOINTCAT` — extra penalty (in units of `JOINTQ`) on a carbenium carbon (sextet, +1). Only
+#   carbons of a planar all-carbon ring get that level; it is what lets a Hückel cation (tropylium,
+#   cyclopropenium) be written at all. Float, default 1.0.
 JOINTCAT = float(os.environ.get("JOINTCAT", "1.0"))
 # `JOINTSYM` — penalty per unit of oxidation-state difference between two metals of the same
 #   element, so a tie goes to the even split (Re2Cl8 -> III/III, Co2(CO)8 -> 0/0). Float,
@@ -285,13 +288,11 @@ JOINTSYM = float(os.environ.get("JOINTSYM", "0.5"))
 # `JOINTOSW` — weight of the oxidation-state prior in the joint solve: each candidate costs
 #   `JOINTOSW · -ln(p / p_max)`, with `p` the element's state frequency in the train-split CSD names
 #   (`data/os_prior.json`, add-one smoothed over the hard range). Float, default 0.1 — a
-#   tie-breaker: at 1.0 it outweighed the distance evidence (a mu-CO bent to C=O to buy Fe(II)).
-#   0 = off.
+#   tie-breaker. 0 = off.
 JOINTOSW = float(os.environ.get("JOINTOSW", "0.1"))
 # `JOINTRAD` — cost (in units of `JOINTQ`) of putting an unpaired electron on a ligand atom rather
 #   than on a metal, when `n_unpaired > 0`. Float, default 0.5.
 JOINTRAD = float(os.environ.get("JOINTRAD", "0.5"))
-# ── JOINT v2 (`rules.joint2`, dev/docs/plans/2026-09-27-joint-v2.md) ──
 # `JOINTADJ` — penalty (in units of `JOINTQ`) per pair of adjacent same-sign charges. Float, 1.0.
 JOINTADJ = float(os.environ.get("JOINTADJ", "1.0"))
 # `JOINTK` — how many candidates (distinct signatures) the K-best search draws. Integer, 5.
@@ -300,7 +301,7 @@ JOINTK = int(os.environ.get("JOINTK", "5"))
 #   consistency. Float, 1.0.
 JOINTTIE = float(os.environ.get("JOINTTIE", "1.0"))
 # `JOINTCONJEPS` — a bond reads `Conj` when flipping its S/D alternation changes the score by at
-#   most this much. Float, 2.0 (train1200: 0.5 · 1 · 2 · 4).
+#   most this much. Float, 2.0.
 JOINTCONJEPS = float(os.environ.get("JOINTCONJEPS", "2.0"))
 # `JOINTCHAINW` — a haptic chain of k atoms should carry a fixed number of charged atoms (odd k one,
 #   even k none, a 4n ring none or two); each charged atom off that count costs JOINTCHAINW·JOINTQ.
@@ -309,12 +310,11 @@ JOINTCHAINW = float(os.environ.get("JOINTCHAINW", "1.0"))
 #   (the ligand counterpart of `JOINTSYM`). 0 turns it off.
 JOINTLIGSYM = float(os.environ.get("JOINTLIGSYM", "0.5"))
 # `JOINTFAR` — a contact M···X whose neighbour Y on the same metal is this many times nearer is a
-#   "far contact" and is dropped under JOINT (train1200: no CSD bond is that lopsided).
+#   "far contact" and is dropped under JOINT.
 JOINTFAR = float(os.environ.get("JOINTFAR", "1.3"))
 # `JOINTLOWQ` — candidates within this much MILP score of the best are ones the geometry cannot
 #   tell apart; among them the smaller total |ligand charge| wins (the less charged state is the
-#   more stable one: bpy over bpy²⁻). 0 = off. holdout: OS 9 structures better, 2 worse (both
-#   dithiolene-type, where the neutral and the dianion reading are both valid).
+#   more stable one: bpy over bpy²⁻). 0 = off.
 JOINTLOWQ = float(os.environ.get("JOINTLOWQ", "0.3"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.

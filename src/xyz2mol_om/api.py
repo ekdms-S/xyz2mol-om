@@ -77,11 +77,13 @@ salt with its counter-ion — and everything below is solved inside one molecule
                         gave the electron to an electron-deficient acceptor that was priced
                         without it (`H₃N→BH₂•`, boron read as neutral). See `## Limits`.
     r["total_charge"] = the input total charge (unchanged)
-    r["joint"]        = {"status", "objective", "q_status", "alt_gap", "alt_os"} — only with
-                        `JOINT=1`: how the joint bond-order solve went, whether the total charge
-                        could be applied, and the best answer with a **different** set of
-                        oxidation states (`alt_os`) and how much worse it scores (`alt_gap`; a
-                        small gap = a real alternative, `None` = the charge fixes the OS).
+    r["joint"]        = {"status", "objective", "q_status", "alt_gap", "alt_os", "n_candidates",
+                        "n_rejected", "ranking", "v1_skipped", "v1_failed", "far_dropped"} — only
+                        with `JOINT=1`: how the joint solve went, whether the total charge could be
+                        applied, and the best answer with a **different** set of oxidation states
+                        (`alt_os`) and its score minus the chosen one's (`alt_gap`; small = a real
+                        alternative, negative = the ranking passed over a better score, `None` =
+                        the charge fixes the OS).
                         See `rules.joint2.JointV2`. Absent otherwise.
 
 Most fragments are ligands — `ml_bonds` says what they coordinate — but a molecule with no metal
@@ -123,7 +125,7 @@ import numpy as np
 from .charge import (abs_charge_sum, b_3c_of, frag_charge_or_eht, kekulize, octet_fix_period2,
                      pi_suppressed, q_atom, shift_pi_to_cancel,
                      sigma_ml_blocking_cancel, three_c_unpaired_edges)
-from .config import FULL, HUCKEL, JOINT, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
+from .config import FULL, HUCKEL, JOINT, METALS, MLIKE_EXTRA, SIGETA, NOCTET, RCOV, VAL, WMIN, centers  # noqa: F401  (MLIKE_EXTRA re-exported)
 from .output import complex_smiles, ligand_smiles, verify_complex, verify_roundtrip
 from .geometry import load_dint
 from .charge import eht_frag_charges
@@ -132,6 +134,12 @@ from .rules import bml_budget, bridge_tags, predict_T3_T5
 from .rules import joint2
 from .rules.ml_order import ml_order_scores
 from .rules.pipeline import bond_scores
+
+
+def _dbond_fallback(ea, eb, c1g, both_metal):
+    """`d_bond` for a pair with no fitted value: the covalent-radius sum times the median
+    (fitted `d_bond` / radius sum) of the fitted pairs of the same kind — `c1g = (M–L, M–M)`."""
+    return c1g[1 if both_metal else 0] * (RCOV.get(ea, 1.6) + RCOV.get(eb, 1.6))
 
 
 def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
@@ -146,7 +154,7 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
     for m in mets:
         for x in idx:
             d = float(np.linalg.norm(xyz[x] - xyz[m]))
-            tb, wv = dbond.get((el[m], el[x]), (c1g * (RCOV.get(el[x], 1.6) + RCOV.get(el[m], 1.6)), 0.0))
+            tb, wv = dbond.get((el[m], el[x]), (_dbond_fallback(el[m], el[x], c1g, x in cen), 0.0))
             w_mx = (wbo or {}).get((m, x), 1.0)
             if d < tb and w_mx > wv and w_mx >= WMIN:
                 raw.append((m, x))
@@ -154,11 +162,13 @@ def _ml_candidates(el, xyz, dbond, c1g, wbo, cen):
 
 
 # `MLIKE_EXTRA` is defined in `config` — imported above, re-exported here for callers.
+_METAL_SET = frozenset(METALS)
 
 
 def build_topology(el, xyz, wbo=None, dint=None):
     """T1 (ligand-internal bonds) and T4 (M–L candidates) — the topology `predict` starts from.
     Returns `(G, ml_raw, dbond, c1g, cen)`."""
+    xyz = np.asarray(xyz, dtype=float)
     d_int, d_fb = dint if dint is not None else load_dint()
     # ① T1 — bonds inside a ligand (distance)
     #   🔴 `B` is a ligand atom **always** (carborane, boryl, `BH₄⁻`, `B₂H₆`) — see
@@ -234,7 +244,10 @@ def build_topology(el, xyz, wbo=None, dint=None):
     #   more. All 34k CSD structures: 25 such T1 bonds, none a CSD bond; the widest CSD bond 79.6°.
     def _ang(a, c, b):
         u, v = xyz[a] - xyz[c], xyz[b] - xyz[c]
-        return float(np.degrees(np.arccos(np.clip(np.dot(u, v) / np.linalg.norm(u) / np.linalg.norm(v), -1, 1))))
+        nu, nv = np.linalg.norm(u), np.linalg.norm(v)
+        if nu == 0 or nv == 0:
+            return 0.0   # coincident atoms: no angle to read, keep the pair
+        return float(np.degrees(np.arccos(np.clip(np.dot(u, v) / nu / nv, -1, 1))))
     _diag = [(a, b) for a, b in G.edges if el[a] != "H" and el[b] != "H"
              and len(set(G[a]) & set(G[b])) >= 2
              and all(_ang(a, c, b) >= 80.0 for c in set(G[a]) & set(G[b]))]
@@ -245,12 +258,18 @@ def build_topology(el, xyz, wbo=None, dint=None):
 
     from .config import DATA
 
-    dbond, c1g = {}, 1.3002
+    dbond = {}
     for r in _csv.DictReader(open(DATA / "d_bond.csv")):
-        if r["M"] == "*":
-            c1g = float(r["d_bond"])
-        else:
+        if r["M"] != "*":
             dbond[(r["M"], r["X"])] = (float(r["d_bond"]), float(r["w_veto"]))
+    # a pair with no fitted value: the radius sum times the median ratio of the fitted pairs of its
+    #   kind (M–L 1.15 · M–M 1.10), as T1 does. The table's global row (1.30) is the M–L 90th
+    #   percentile and, with real metal radii, turned a 4.3 Å Zr···Zr into an M–M bond.
+    _rat = ([], [])
+    for (a, b), (tb, _wv) in dbond.items():
+        if a in RCOV and b in RCOV:
+            _rat[b in _METAL_SET].append(tb / (RCOV[a] + RCOV[b]))
+    c1g = tuple(float(np.median(v)) for v in _rat)
     ml_raw = _ml_candidates(el, xyz, dbond, c1g, wbo, cen)
     return G, ml_raw, dbond, c1g, cen
 
@@ -324,9 +343,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # ★ `JOINT` (v2, `rules.joint2`) — topology, then **one** MILP over the whole input: bond
     #   orders, each atom's bond-order-sum state, haptic h per group, OS, Wade cluster charges. No
     #   T3 pre-solve, no EHT, no M–L valence reserve. Candidates (K-best by signature) are checked
-    #   (V1: a sigma donor can still bond), M–L orders are min(Mayer, lone pairs), and Mayer ranks
-    #   candidates within `JOINTTIE`. A solve that does not come back (`too_large` · `failed` ·
-    #   `unavailable`) falls back to the default path below.
+    #   (V1: a sigma donor keeps a lone pair), M–L orders come from the donor charge, and close
+    #   candidates are ranked by the smaller ligand charge, then Mayer consistency. A solve that
+    #   does not come back (`too_large` · `failed` · `unavailable`) falls back to the default path.
     joint = None
     joint_ok = False
     if JOINT:
@@ -388,8 +407,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     # ⑥ output converter — 4 classes → integer S/D/T + residual fragment charge.
     #   Under `JOINT` the integers come from the joint solve itself, so ⑥ and the post-⑥
     #   repairs (QSHIFT · SIGCUT) are skipped — they exist to patch the sequential solve.
-    #   ⚠️ The skip is for the whole input: under a `partial` solve the fragments left on the
-    #   sequential path lose QSHIFT · SIGCUT as well.
     if joint_ok:
         # the joint answer is already integer; a carbenium is an atom charge (+1), not a residual
         orders, frag_q = dict(joint.orders), {}
@@ -460,7 +477,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                 (el[m1], el[m2]),
                 dbond.get(
                     (el[m2], el[m1]),
-                    (c1g * (RCOV.get(el[m1], 1.6) + RCOV.get(el[m2], 1.6)), 0.0),
+                    (_dbond_fallback(el[m1], el[m2], c1g, True), 0.0),
                 ),
             )
             if d < tb and (wbo or {}).get((m1, m2), (wbo or {}).get((m2, m1), 1.0)) > wv:
@@ -927,6 +944,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                         "alt_os": {m: v for m, v in joint.alt_os.items()},
                         "n_candidates": len(joint.candidates), "n_rejected": joint.n_rejected,
                         "ranking": joint.ranking, "v1_skipped": list(joint.v1_skipped),
-                        "far_dropped": [list(p) for p in topo.far_dropped],
+                        "far_dropped": [list(p) for p in topo.far_dropped] if joint_ok else [],
                         "v1_failed": list(joint.best.failed) if joint.best else []}
     return out

@@ -609,7 +609,7 @@ def _eta2_pair(el, xyz, G, ml_pred, cls_now, dbond=None):
 def final_haptic(el, xyz, G, ml_pred, cls, btag):
     """T5 — the haptic set from the internal classes `cls`: angle + π-fragment test, the η²
     pair rule, η¹ = σ, R7 and `SIGCAP` (`docs/PIPELINE.md` 5 · 5* · 5† · 5′ · 5‡). Shared by the
-    sequential path (on its pass-2 classes) and the joint path (on its single metal-free solve).
+    sequential path on its pass-2 classes.
     `btag` = the T7 tags on the same classes."""
     # T5 — the final haptic set. The Y candidates are **neighbors in the same π fragment**.
     pi = nx.Graph()
