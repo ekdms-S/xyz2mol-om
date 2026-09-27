@@ -38,6 +38,13 @@ RCOV = {  # covalent radii (Å, Cordero) — fallback distance threshold for a p
     # Li, Na, Ge are neither centres nor in the fitted ligand tables; listed so they do not
     #   take the default radius of an unlisted element.
     "Li": 1.28, "Na": 1.66, "Ge": 1.20,
+    # centres (Cordero 2008; Mn · Fe · Co low-spin). Without them every metal took the 1.6 Å
+    #   default, so an unfitted M–M pair was cut at 1.30 × 3.2 = 4.16 Å.
+    "Mg": 1.41, "Al": 1.21, "Sc": 1.70, "Ti": 1.60, "V": 1.53, "Cr": 1.39, "Mn": 1.39,
+    "Fe": 1.32, "Co": 1.26, "Ni": 1.24, "Cu": 1.32, "Zn": 1.22, "Ga": 1.22, "Y": 1.90,
+    "Zr": 1.75, "Nb": 1.64, "Mo": 1.54, "Ru": 1.46, "Rh": 1.42, "Pd": 1.39, "Ag": 1.45,
+    "In": 1.42, "Sn": 1.39, "La": 2.07, "Ce": 2.04, "Hf": 1.75, "Ta": 1.70, "W": 1.62,
+    "Re": 1.51, "Os": 1.44, "Ir": 1.41, "Pt": 1.36, "Au": 1.36, "Pb": 1.46,
 }  # fmt: skip
 
 CAP = {  # valence ceiling used by ④ — `b_int + b_ML <= CAP`
