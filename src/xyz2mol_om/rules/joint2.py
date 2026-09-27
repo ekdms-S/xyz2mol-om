@@ -304,7 +304,7 @@ class _Build:
     def __init__(self, topo, el, sc, qfun, lam, relax, q_total, n_unpaired, metals, only=None):
         """`relax` — fragments (min atom index) solved without the FC range; `only` — build just
         these fragments (the per-fragment feasibility probe)."""
-        from ..config import (FULL, JOINTADJ, JOINTCHAINQ, JOINTRAWSC, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
+        from ..config import (FULL, JOINTADJ, JOINTADJDON, JOINTCHAINQ, JOINTCHAINSOFT, JOINTCHAINW, JOINTRAWSC, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
                               _GROUP, os_range)
         from .joint import _EN, _FSHELL, PERIOD2, _Model, _radical_delta, order_scores, os_prior_cost
 
@@ -454,7 +454,8 @@ class _Build:
                     M.row(row, -float("inf"), 0)
             # ★ adjacent same-sign charges: a penalty per pair
             for a, b in edges:
-                if el[a] == "H" or el[b] == "H" or metal_of.get(a, set()) & metal_of.get(b, set()):
+                if el[a] == "H" or el[b] == "H" or (
+                        JOINTADJDON and metal_of.get(a, set()) & metal_of.get(b, set())):
                     continue   # C(-)–C(-) of a metallacyclopropane, O(-)–O(-) of a peroxide
                 for sgn in (-1, 1):
                     ra, ca = self._sign(a, sgn)
@@ -538,9 +539,14 @@ class _Build:
             bigc = k + 2
             r1 = dict(r)
             r1[h] = r1.get(h, 0) + bigc
-            M.row(r1, -float("inf"), bigc - const)     # chg - want <= big(1-h)
             r2 = dict(r)
             r2[h] = r2.get(h, 0) - bigc
+            if JOINTCHAINSOFT:   # a penalty per charged atom off the count, not a hard row
+                sp = M.var(cost=JOINTCHAINW * lam, lb=0.0, ub=float(k), integer=False)
+                sn = M.var(cost=JOINTCHAINW * lam, lb=0.0, ub=float(k), integer=False)
+                r1[sp] = -1
+                r2[sn] = 1
+            M.row(r1, -float("inf"), bigc - const)     # chg - want <= big(1-h)
             M.row(r2, -bigc - const, float("inf"))     # chg - want >= -big(1-h)
         # metals: OS one-hot with prior, symmetry, open-shell electrons
         self.os_one, u_col = {}, {}
