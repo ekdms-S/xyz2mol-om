@@ -312,8 +312,10 @@ JOINTLIGSYM = float(os.environ.get("JOINTLIGSYM", "0.5"))
 #   "far contact" and is dropped under JOINT (train1200: no CSD bond is that lopsided).
 JOINTFAR = float(os.environ.get("JOINTFAR", "1.3"))
 # `JOINTLOWQ` — candidates within this much MILP score of the best are ones the geometry cannot
-#   tell apart; among them the smaller total |ligand charge| wins. 0 = off.
-JOINTLOWQ = float(os.environ.get("JOINTLOWQ", "0"))
+#   tell apart; among them the smaller total |ligand charge| wins (the less charged state is the
+#   more stable one: bpy over bpy²⁻). 0 = off. holdout: OS 9 structures better, 2 worse (both
+#   dithiolene-type, where the neutral and the dianion reading are both valid).
+JOINTLOWQ = float(os.environ.get("JOINTLOWQ", "0.3"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,

@@ -227,6 +227,19 @@ def build_topology(el, xyz, wbo=None, dint=None):
                 continue  # part of a polyhedron — the B–B is real
             G.remove_edge(b1, b2)
 
+    # ★ a **4-ring diagonal** — two atoms across a ring share two neighbours (P₂N₂ · P₂O₂ · B₂N₂:
+    #   P···P 2.45–2.60 Å is inside the P–P cutoff 2.579 Å). Bonded, the pair would close a 3-ring
+    #   with each shared neighbour, and no 3-ring has an angle near 80°; across a 4-ring the shared
+    #   neighbour opens 83–97°. So the pair goes when every shared neighbour sees it at 80° or
+    #   more. All 34k CSD structures: 25 such T1 bonds, none a CSD bond; the widest CSD bond 79.6°.
+    def _ang(a, c, b):
+        u, v = xyz[a] - xyz[c], xyz[b] - xyz[c]
+        return float(np.degrees(np.arccos(np.clip(np.dot(u, v) / np.linalg.norm(u) / np.linalg.norm(v), -1, 1))))
+    _diag = [(a, b) for a, b in G.edges if el[a] != "H" and el[b] != "H"
+             and len(set(G[a]) & set(G[b])) >= 2
+             and all(_ang(a, c, b) >= 80.0 for c in set(G[a]) & set(G[b]))]
+    G.remove_edges_from(_diag)
+
     # ② T4 — M–L bonds (distance + Mayer veto)
     import csv as _csv
 
