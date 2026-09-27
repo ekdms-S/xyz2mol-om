@@ -301,6 +301,10 @@ JOINTMODE = os.environ.get("JOINTMODE", "kbest")
 # `JOINTCONJEPS` — a bond reads `Conj` when flipping its S/D alternation changes the score by at
 #   most this much. Float, 0.5.
 JOINTCONJEPS = float(os.environ.get("JOINTCONJEPS", "2.0"))
+# `JOINTRAWSC` — experimental: the joint MILP reads each bond's Single · Double · Triple scores
+#   as they are, instead of letting a `Conj` score support orders 1 and 2 alike (`order_scores`).
+#   `Conj` is still read after the solve. Default off.
+JOINTRAWSC = os.environ.get("JOINTRAWSC", "0") == "1"
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,

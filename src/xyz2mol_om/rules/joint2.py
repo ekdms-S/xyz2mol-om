@@ -116,6 +116,16 @@ def _cluster_charges(el, G, comp, contacted):
     return cand, pref
 
 
+def _raw_scores(sc_e):
+    """`{1: s1, 2: s2, 3: s3}` from the Single · Double · Triple classes alone. A bond whose table
+    has only `Conj` (no Single/Double entries) falls back to `order_scores`."""
+    from .joint import order_scores
+
+    if 0 not in sc_e and 1 not in sc_e:
+        return order_scores(sc_e)
+    return {1: sc_e.get(0, 0.0), 2: sc_e.get(1), 3: sc_e.get(2)}
+
+
 def _free_ok(q):
     return abs(q) <= 1 + 1e-9
 
@@ -209,7 +219,7 @@ class _Build:
     def __init__(self, topo, el, sc, qfun, lam, relax, q_total, n_unpaired, metals, only=None):
         """`relax` — fragments (min atom index) solved without the FC range; `only` — build just
         these fragments (the per-fragment feasibility probe)."""
-        from ..config import (FULL, JOINTADJ, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
+        from ..config import (FULL, JOINTADJ, JOINTRAWSC, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
                               _GROUP, os_range)
         from .joint import _EN, _FSHELL, PERIOD2, _Model, _radical_delta, order_scores, os_prior_cost
 
@@ -251,7 +261,7 @@ class _Build:
             for e in edges:
                 if el[e[0]] == "H" or el[e[1]] == "H":
                     continue
-                s = order_scores(sc.get(e, {}))
+                s = (_raw_scores if JOINTRAWSC else order_scores)(sc.get(e, {}))
                 for o in (2, 3):
                     if s[o] is not None:
                         self.ycol[(e, o)] = M.var(cost=-(s[o] - s[1]))
@@ -386,6 +396,33 @@ class _Build:
                 r = dict(mult)
                 r[h] = r.get(h, 0) - 1
                 M.row(r, 0, 0)
+            # h = 1 -> the charged (or unpaired) atoms of the chain are fixed by k alone: odd k one
+            #   (allyl, Cp, pyrrolyl, C7H7+), even k none (alkene, arene, eta2-nitrile N#C) or two
+            #   anions with one multiple bond fewer (COT2-). A chain with boron is left out: an sp2
+            #   boron is neutral without a multiple bond (boratabenzene breaks the count).
+            if any(el[x] == "B" for x in atoms):
+                continue
+            chg, const = {}, 0
+            for x in atoms:
+                if x in self.lvl:
+                    for c, _k, q, _cat, rad in self.lvl[x]:
+                        if abs(q) > 1e-9 or rad:
+                            chg[c] = chg.get(c, 0) + 1
+                elif abs(self.const_q.get(x, 0.0)) > 1e-9:
+                    const += 1
+            want = {h: -(k % 2)}
+            if a is not None:
+                want[a] = -2
+            r = dict(chg)
+            for c, v in want.items():
+                r[c] = r.get(c, 0) + v
+            bigc = k + 2
+            r1 = dict(r)
+            r1[h] = r1.get(h, 0) + bigc
+            M.row(r1, -float("inf"), bigc - const)     # chg - want <= big(1-h)
+            r2 = dict(r)
+            r2[h] = r2.get(h, 0) - bigc
+            M.row(r2, -bigc - const, float("inf"))     # chg - want >= -big(1-h)
         # metals: OS one-hot with prior, symmetry, open-shell electrons
         self.os_one, u_col = {}, {}
         for m, e in sorted(metals.items()):
