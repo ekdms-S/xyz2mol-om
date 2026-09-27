@@ -411,7 +411,8 @@ class _Build:
                 #   its M–L bond. A group atom is held to it only when its group is sigma (h = 0).
                 #   A bridging H is a 3c2e leg, not a lone-pair donor. If no level passes, the atom
                 #   is left to the check after the solve.
-                if x in contacted and el[x] != "H":
+                # boron has no lone pair to give: its M–B bond (boryl, borane) is not a donation
+                if x in contacted and el[x] not in ("H", "B"):
                     def _bad(k, q, cat, rad, _d=deg, _e=el[x]):
                         lp = (VAL.get(_e, 4) - q - (_d + k) - (1 if rad else 0)) // 2
                         return cat or lp < 1 or (_e in PERIOD2 and _d + k > 3)
@@ -750,6 +751,8 @@ def _validate(el, topo, cand, qfun):
     cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
             for x in cage_atoms(el, G, c)}
     for x in sorted({x for _m, x in topo.ml_pred} - hap - three_c - cage):
+        if el[x] == "B":   # no lone pair to give (boryl, borane): V1 does not apply
+            continue
         deg = G.degree(x)
         st = _state(cand, x, deg, qfun)
         if _lone_pairs(el, x, deg, st) < 1 or (el[x] in PERIOD2 and deg + st[0] > 3):
