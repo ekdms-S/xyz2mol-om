@@ -73,9 +73,8 @@ def far_contacts(xyz, G, ml_pred, ratio=None):
     return out
 
 
-def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None, drop=()):
-    """Step 1 of JOINT v2 — topology only (see the module docstring). `drop` — M–L contacts to
-    leave out (the far-contact variant)."""
+def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None):
+    """Step 1 of JOINT v2 — topology only (see the module docstring)."""
     from ..api import build_topology
     from .pipeline import drop_agostic, drop_agostic_carbon, drop_bound_halide, drop_saturated
 
@@ -88,7 +87,7 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
     ml_pred = _drop_bridged_boron(el, xyz, G, ml_pred)
     # a far contact (M···X with a neighbour Y on M much nearer, `far_contacts`) is dropped:
     #   holdout 67 of them, 63 not bonds in the CSD, and keeping them never helped
-    far = far_contacts(xyz, G, ml_pred) | set(drop)
+    far = far_contacts(xyz, G, ml_pred)
     ml_pred = [p for p in ml_pred if p not in far]
     topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond)
     topo.far_dropped = sorted(far)
@@ -170,18 +169,11 @@ def _cluster_charges(el, G, comp, contacted):
     return cand, pref
 
 
-def bond_scores_joint(el, xyz, G, scores4, mode=None):
-    """③ for the joint solve. `mode` (`JOINTSC`): `orig` — `pipeline.bond_scores` as is ·
-    `noprior` — the same without the class-frequency prior · `pooled` / `pooledmin` — no prior,
-    and one width per element pair (the widest / narrowest of Single · Double · Conj) for every
-    class, so a class scores by how close the bond is to its median, not by how narrow the class
-    is or how common it is."""
-    from ..config import JOINTSC
-    from .pipeline import bond_scores
-
-    mode = mode or JOINTSC
-    if mode == "orig":
-        return bond_scores(el, xyz, G, scores4)
+def bond_scores_joint(el, xyz, G, scores4):
+    """③ for the joint MILP: no class-frequency prior, and one width per element pair (the narrowest
+    of Single · Double · Conj) for every class, so a class scores by how close the bond is to its
+    median — not by how narrow or how common the class is. (The Conj reading after the solve keeps
+    `pipeline.bond_scores`.)"""
     sc = {}
     for a, b in G.edges:
         e = (min(a, b), max(a, b))
@@ -190,22 +182,9 @@ def bond_scores_joint(el, xyz, G, scores4, mode=None):
             continue
         med, scl = ent[0], ent[1]
         d = float(np.linalg.norm(np.asarray(xyz[a]) - np.asarray(xyz[b])))
-        if mode == "noprior":
-            sc[e] = {c: -abs(d - med[c]) / scl[c] for c in med}
-        else:
-            w = (max if mode == "pooled" else min)(v for c, v in scl.items() if c != 2)
-            sc[e] = {c: -abs(d - med[c]) / w for c in med}
+        w = min(v for c, v in scl.items() if c != 2)
+        sc[e] = {c: -abs(d - med[c]) / w for c in med}
     return sc
-
-
-def _raw_scores(sc_e):
-    """`{1: s1, 2: s2, 3: s3}` from the Single · Double · Triple classes alone. A bond whose table
-    has only `Conj` (no Single/Double entries) falls back to `order_scores`."""
-    from .joint import order_scores
-
-    if 0 not in sc_e and 1 not in sc_e:
-        return order_scores(sc_e)
-    return {1: sc_e.get(0, 0.0), 2: sc_e.get(1), 3: sc_e.get(2)}
 
 
 def _free_ok(q):
@@ -316,7 +295,7 @@ class _Build:
     def __init__(self, topo, el, sc, qfun, lam, relax, q_total, n_unpaired, metals, only=None):
         """`relax` — fragments (min atom index) solved without the FC range; `only` — build just
         these fragments (the per-fragment feasibility probe)."""
-        from ..config import (FULL, JOINTADJ, JOINTADJDON, JOINTLIGSYM, JOINTCHAINQ, JOINTCHAINSOFT, JOINTCHAINW, JOINTRAWSC, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
+        from ..config import (FULL, JOINTADJ, JOINTLIGSYM, JOINTCHAINW, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
                               _GROUP, os_range)
         from .joint import _EN, _FSHELL, PERIOD2, _Model, _radical_delta, order_scores, os_prior_cost
 
@@ -364,7 +343,7 @@ class _Build:
             for e in edges:
                 if el[e[0]] == "H" or el[e[1]] == "H":
                     continue
-                s = (_raw_scores if JOINTRAWSC else order_scores)(sc.get(e, {}))
+                s = order_scores(sc.get(e, {}))
                 for o in (2, 3):
                     if s[o] is not None:
                         self.ycol[(e, o)] = M.var(cost=-(s[o] - s[1]))
@@ -481,8 +460,7 @@ class _Build:
                     M.row(row, -float("inf"), 0)
             # ★ adjacent same-sign charges: a penalty per pair
             for a, b in edges:
-                if el[a] == "H" or el[b] == "H" or (
-                        JOINTADJDON and metal_of.get(a, set()) & metal_of.get(b, set())):
+                if el[a] == "H" or el[b] == "H" or metal_of.get(a, set()) & metal_of.get(b, set()):
                     continue   # C(-)–C(-) of a metallacyclopropane, O(-)–O(-) of a peroxide
                 for sgn in (-1, 1):
                     ra, ca = self._sign(a, sgn)
@@ -537,7 +515,7 @@ class _Build:
             #   (allyl, Cp, pyrrolyl, C7H7+), even k none (alkene, arene, eta2-nitrile N#C) or two
             #   anions with one multiple bond fewer (COT2-). A chain with boron is left out: an sp2
             #   boron is neutral without a multiple bond (boratabenzene breaks the count).
-            if not JOINTCHAINQ or any(el[x] == "B" for x in atoms):
+            if any(el[x] == "B" for x in atoms):
                 continue
             chg, const = {}, 0
             # an atom that also has a sigma bond to another metal carries that bond's charge
@@ -568,11 +546,11 @@ class _Build:
             r1[h] = r1.get(h, 0) + bigc
             r2 = dict(r)
             r2[h] = r2.get(h, 0) - bigc
-            if JOINTCHAINSOFT:   # a penalty per charged atom off the count, not a hard row
-                sp = M.var(cost=JOINTCHAINW * lam, lb=0.0, ub=float(k), integer=False)
-                sn = M.var(cost=JOINTCHAINW * lam, lb=0.0, ub=float(k), integer=False)
-                r1[sp] = -1
-                r2[sn] = 1
+            # a penalty per charged atom off the count (a hard row left some inputs with no answer)
+            sp = M.var(cost=JOINTCHAINW * lam, lb=0.0, ub=float(k), integer=False)
+            sn = M.var(cost=JOINTCHAINW * lam, lb=0.0, ub=float(k), integer=False)
+            r1[sp] = -1
+            r2[sn] = 1
             M.row(r1, -float("inf"), bigc - const)     # chg - want <= big(1-h)
             M.row(r2, -bigc - const, float("inf"))     # chg - want >= -big(1-h)
         # metals: OS one-hot with prior, symmetry, open-shell electrons
@@ -868,16 +846,15 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
     return conj
 
 
-def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None, mode=None,
-          K=None, lam=None, sc_conj=None):
+def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None, K=None,
+          lam=None, sc_conj=None):
     """The v2 joint solve. See the module docstring and `dev/docs/plans/2026-09-27-joint-v2.md`."""
-    from ..config import JOINT_MAX, JOINTCONJEPS, JOINTK, JOINTMODE, JOINTQ, JOINTTIE
+    from ..config import JOINT_MAX, JOINTCONJEPS, JOINTK, JOINTQ, JOINTTIE
 
     try:
         import scipy.optimize  # noqa: F401
     except ImportError:
         return JointV2(status="unavailable")
-    mode = mode or JOINTMODE
     K = JOINTK if K is None else K
     lam = JOINTQ if lam is None else lam
     qfun = qfun or _default_qfun(topo, el)
@@ -922,22 +899,9 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
         c.failed = _validate(el, topo, c, qfun)
         c.valid = not c.failed
         cands.append(c)
-        if mode == "cut":
-            if c.valid:
-                break
-            for x in c.failed:   # forbid the failing donor state only
-                for col, k, q, cat, rad in build.lvl.get(x, ()):
-                    if sol[0][col] > 0.5:
-                        gi = next((g for g, (_m, a, _b) in enumerate(topo.groups) if x in a), None)
-                        if gi is None:
-                            build.M.row({col: 1}, -float("inf"), 0)
-                        else:
-                            build.M.row({col: 1, build.hcol[gi]: -1}, -float("inf"), 0)
-        else:
-            n_valid = sum(cc.valid for cc in cands)
-            if len(cands) >= K and n_valid:
-                break
-            build.forbid(c)
+        if len(cands) >= K and any(cc.valid for cc in cands):
+            break
+        build.forbid(c)
         sol = build.M.solve()
 
     valid = [c for c in cands if c.valid]
@@ -950,7 +914,7 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
         c.ml_orders, c.mayer = _ml_orders(el, topo, c, qfun, ml_scores)
     best = min(pool, key=lambda c: c.objective)
     tie = [c for c in pool if c.objective <= best.objective + JOINTTIE * lam + 1e-9]
-    if mode != "cut" and any(c.mayer is not None for c in tie) and len(tie) > 1:
+    if any(c.mayer is not None for c in tie) and len(tie) > 1:
         best = max(tie, key=lambda c: (c.mayer if c.mayer is not None else -1e18, -c.objective))
         res.ranking = "mayer"
     res.best = best

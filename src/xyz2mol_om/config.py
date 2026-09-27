@@ -281,10 +281,6 @@ JOINTSYM = float(os.environ.get("JOINTSYM", "0.5"))
 #   tie-breaker: at 1.0 it outweighed the distance evidence (a mu-CO bent to C=O to buy Fe(II)).
 #   0 = off.
 JOINTOSW = float(os.environ.get("JOINTOSW", "0.1"))
-# `JOINTDON` — the share of `JOINTQ` a sigma donor pays for its first unit of negative charge
-#   (an X-type donor: halide, alkoxide, thiolate, amide). 1.0 = the same as any atom. Float,
-#   default 0.25; chosen on the train sample (1 · 0.5 · 0.25): at 1.0 dithiolates went neutral.
-JOINTDON = float(os.environ.get("JOINTDON", "0.25"))
 # `JOINTRAD` — cost (in units of `JOINTQ`) of putting an unpaired electron on a ligand atom rather
 #   than on a metal, when `n_unpaired > 0`. Float, default 0.5.
 JOINTRAD = float(os.environ.get("JOINTRAD", "0.5"))
@@ -296,30 +292,12 @@ JOINTK = int(os.environ.get("JOINTK", "5"))
 # `JOINTTIE` — candidates within this many `JOINTQ` of the best MILP score are ranked by Mayer
 #   consistency. Float, 1.0.
 JOINTTIE = float(os.environ.get("JOINTTIE", "1.0"))
-# `JOINTMODE` — `kbest` (candidates, validated, ranked) or `cut` (add a cut per failed check).
-JOINTMODE = os.environ.get("JOINTMODE", "kbest")
 # `JOINTCONJEPS` — a bond reads `Conj` when flipping its S/D alternation changes the score by at
-#   most this much. Float, 0.5.
+#   most this much. Float, 2.0 (train1200: 0.5 · 1 · 2 · 4).
 JOINTCONJEPS = float(os.environ.get("JOINTCONJEPS", "2.0"))
-# `JOINTRAWSC` — experimental: the joint MILP reads each bond's Single · Double · Triple scores
-#   as they are, instead of letting a `Conj` score support orders 1 and 2 alike (`order_scores`).
-#   `Conj` is still read after the solve. Default off.
-JOINTRAWSC = os.environ.get("JOINTRAWSC", "0") == "1"
-# `JOINTSC` — which ③ the joint MILP reads: `orig` (as the default path) · `noprior` (no
-#   class-frequency prior) · `pooled` / `pooledmin` (no prior, one width per element pair: the
-#   widest / narrowest of Single · Double · Conj). Default `pooledmin` (train1200). The Conj reading
-#   after the solve keeps the default path's ③.
-JOINTSC = os.environ.get("JOINTSC", "pooledmin")
-# `JOINTCHAINQ` — a haptic chain of k atoms carries a fixed number of charged atoms (odd k one,
-#   even k none, a 4n ring none or two). Default on; 0 turns it off (analysis).
-JOINTCHAINQ = os.environ.get("JOINTCHAINQ", "1") == "1"
-# `JOINTCHAINSOFT` — the chain-charge count as a penalty (`JOINTCHAINW`·JOINTQ per charged atom off
-#   the count) instead of a hard row. Default on (holdout: failed 26 -> 4, scores within 0.1 point).
-JOINTCHAINSOFT = os.environ.get("JOINTCHAINSOFT", "1") == "1"
+# `JOINTCHAINW` — a haptic chain of k atoms should carry a fixed number of charged atoms (odd k one,
+#   even k none, a 4n ring none or two); each charged atom off that count costs JOINTCHAINW·JOINTQ.
 JOINTCHAINW = float(os.environ.get("JOINTCHAINW", "1.0"))
-# `JOINTADJDON` — two atoms bound to the same metal are exempt from the adjacent same-sign penalty
-#   (metallacyclopropane C(-)–C(-)). Default on; 0 penalises them like any pair.
-JOINTADJDON = os.environ.get("JOINTADJDON", "1") == "1"
 # `JOINTLIGSYM` — per unit charge difference between two ligands with the same element graph
 #   (the ligand counterpart of `JOINTSYM`). 0 turns it off.
 JOINTLIGSYM = float(os.environ.get("JOINTLIGSYM", "0.5"))
