@@ -75,6 +75,28 @@ def far_contacts(xyz, G, ml_pred, ratio=None):
     return out
 
 
+def _drop_no_pair(el, xyz, G, ml):
+    """An atom whose valence its own sigma bonds already use (no lone pair even with every bond
+    single: a PR4 or SiR4, an ammonium N) cannot give the metal a pair: drop M···X — unless the
+    two are within their covalent radii (a real, if unusual, M–X bond: a phosphoranide)."""
+    from ..charge.formal import q_atom
+    from ..config import RCOV, VAL
+
+    xyz = np.asarray(xyz, dtype=float)
+    keep = []
+    for m, x in ml:
+        if el[x] in ("H", "B") or x not in G:
+            keep.append((m, x))
+            continue
+        deg = G.degree(x)
+        q = q_atom(el[x], float(deg), deg, tuple(sorted(el[y] for y in G[x])))
+        pairs = (VAL.get(el[x], 4) - q - deg) // 2
+        near = float(np.linalg.norm(xyz[m] - xyz[x])) <= RCOV.get(el[m], 1.6) + RCOV.get(el[x], 1.6)
+        if pairs >= 1 or near:
+            keep.append((m, x))
+    return keep
+
+
 def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None):
     """Step 1 of JOINT v2 — topology only (see the module docstring)."""
     from ..api import build_topology
@@ -87,6 +109,7 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
         el, G, drop_saturated(el, G, drop_agostic_carbon(
             el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
     ml_pred = _drop_bridged_boron(el, xyz, G, ml_pred)
+    ml_pred = _drop_no_pair(el, xyz, G, ml_pred)
     # a far contact (M···X with a neighbour Y on M much nearer, `far_contacts`) is dropped:
     #   holdout 67 of them, 63 not bonds in the CSD, and keeping them never helped
     far = far_contacts(xyz, G, ml_pred)
@@ -146,11 +169,18 @@ def wade_charges(n_b, n_c, extra_h):
     return {"closo": e - (2 * n + 2), "nido": e - (2 * n + 4), "arachno": e - (2 * n + 6)}
 
 
+def _vertices(el, G, comp):
+    """Cage vertices: B, C bonded to B, and any other non-H atom with two or more B neighbours (the
+    Te of a telluraborane)."""
+    return {x for x in comp if el[x] == "B"
+            or (el[x] == "C" and any(el[y] == "B" for y in G[x]))
+            or (el[x] != "H" and sum(el[y] == "B" for y in G[x]) >= 2)}
+
+
 def cage_atoms(el, G, comp):
-    """The cage of a cluster fragment: its vertices (B, and C bonded to B) and the H on them
-    (terminal or bridging). Everything else in the fragment (a thiolate S, a phosphine) is an
-    ordinary ligand atom."""
-    cage = {x for x in comp if el[x] == "B" or (el[x] == "C" and any(el[y] == "B" for y in G[x]))}
+    """The cage of a cluster fragment: its vertices and the H on them (terminal or bridging).
+    Everything else in the fragment (a thiolate S, a phosphine) is an ordinary ligand atom."""
+    cage = _vertices(el, G, comp)
     return cage | {h for h in comp if el[h] == "H" and any(y in cage for y in G[h])}
 
 
@@ -158,7 +188,9 @@ def _cluster_charges(el, G, comp, contacted):
     """Wade charge candidates of a cluster fragment and the type its topology says: a closed
     deltahedron has 3n - 6 cage edges (closo); an open face takes a few away (nido, 3n - 9 ..
     3n - 7); fewer is arachno. The others stay as candidates at a cost (a missed B–B bond)."""
-    cage = {x for x in comp if el[x] == "B" or (el[x] == "C" and any(el[y] == "B" for y in G[x]))}
+    from ..config import VAL
+
+    cage = _vertices(el, G, comp)
     extra_h = 0
     for x in comp:
         if el[x] == "H" and sum(1 for y in G[x] if y in cage) >= 2:
@@ -166,6 +198,13 @@ def _cluster_charges(el, G, comp, contacted):
     for x in cage:
         hs = sum(1 for y in G[x] if el[y] == "H" and G.degree(y) == 1)
         extra_h += max(0, hs - 1)
+    # a hetero vertex (Te, S, P …) gives its valence electrons less the two of its exo pair or
+    #   bond: v - 2 + its exo substituents (bare Te 4) — BH 2 and CH 3 are the same rule
+    for x in cage:
+        if el[x] not in ("B", "C"):
+            exo = sum(1 for y in G[x] if y not in cage and not (
+                el[y] == "H" and sum(1 for z in G[y] if z in cage) >= 2))
+            extra_h += VAL.get(el[x], 4) - 2 + exo
     cand = wade_charges(sum(el[x] == "B" for x in cage), sum(el[x] == "C" for x in cage), extra_h)
     n = len(cage)
     edges = G.subgraph(cage).number_of_edges()
@@ -465,8 +504,11 @@ class _Build:
                     M.row(row, -float("inf"), 0)
             # ★ adjacent same-sign charges: a penalty per pair
             for a, b in edges:
-                if el[a] == "H" or el[b] == "H" or metal_of.get(a, set()) & metal_of.get(b, set()):
-                    continue   # C(-)–C(-) of a metallacyclopropane, O(-)–O(-) of a peroxide
+                in_chain = any(a in ga and b in ga for _mg, ga, _bg in topo.groups if len(ga) >= 3)
+                if el[a] == "H" or el[b] == "H" or (
+                        metal_of.get(a, set()) & metal_of.get(b, set()) and not in_chain):
+                    continue   # C(-)–C(-) of a metallacyclopropane, O(-)–O(-) of a peroxide —
+                    #   but not two neighbours inside one haptic pi chain (a COT(2-) keeps them apart)
                 for sgn in (-1, 1):
                     ra, ca = self._sign(a, sgn)
                     rb, cb = self._sign(b, sgn)
