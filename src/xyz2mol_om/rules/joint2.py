@@ -614,17 +614,20 @@ class _Build:
                 return la.keys() == lb.keys() and all(
                     abs(x - y) <= LIGSYM_TOL for k in la for x, y in zip(la[k], lb[k]))
             for keys in by_hash.values():
-                for ka, kb in zip(keys, keys[1:]):
-                    if not same_geometry(ka, kb):
-                        continue
-                    d = M.var(cost=JOINTLIGSYM, lb=0.0, ub=20.0, integer=False)
-                    for sgn in (1, -1):
-                        r = {d: 1}
-                        for v, c in self.qcol[ka].items():
-                            r[c] = r.get(c, 0) - sgn * v
-                        for v, c in self.qcol[kb].items():
-                            r[c] = r.get(c, 0) + sgn * v
-                        M.row(r, 0, float("inf"))
+                # every pair, not neighbours in index order: a bridging ligand is held to the
+                #   other bridging one, a chelating one to the other chelating one
+                for i, ka in enumerate(keys):
+                    for kb in keys[i + 1:]:
+                        if not same_geometry(ka, kb):
+                            continue
+                        d = M.var(cost=JOINTLIGSYM, lb=0.0, ub=20.0, integer=False)
+                        for sgn in (1, -1):
+                            r = {d: 1}
+                            for v, c in self.qcol[ka].items():
+                                r[c] = r.get(c, 0) - sgn * v
+                            for v, c in self.qcol[kb].items():
+                                r[c] = r.get(c, 0) + sgn * v
+                            M.row(r, 0, float("inf"))
         ms = sorted(metals)
         for i, a in enumerate(ms):
             for b in ms[i + 1:]:
