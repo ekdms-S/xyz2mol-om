@@ -56,8 +56,25 @@ def _drop_bridged_boron(el, xyz, G, ml):
     return [p for p in ml if p not in drop]
 
 
-def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None):
-    """Step 1 of JOINT v2 — topology only (see the module docstring)."""
+def far_contacts(xyz, G, ml_pred, ratio=None):
+    """Contacts M···X whose neighbour Y is also on M and much nearer: d(M,X) / d(M,Y) > `JOINTFAR`
+    (train1200: every CSD-labelled contact of such a pair is <= 1.30; a W···P behind W–N is 1.66)."""
+    from ..config import JOINTFAR
+
+    ratio = JOINTFAR if ratio is None else ratio
+    xyz = np.asarray(xyz, dtype=float)
+    ml = set(ml_pred)
+    out = set()
+    for m, x in ml:
+        dx = float(np.linalg.norm(xyz[m] - xyz[x]))
+        if any((m, y) in ml and dx > ratio * float(np.linalg.norm(xyz[m] - xyz[y])) for y in G[x]):
+            out.add((m, x))
+    return out
+
+
+def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None, drop=()):
+    """Step 1 of JOINT v2 — topology only (see the module docstring). `drop` — M–L contacts to
+    leave out (the far-contact variant)."""
     from ..api import build_topology
     from .pipeline import drop_agostic, drop_agostic_carbon, drop_bound_halide, drop_saturated
 
@@ -68,6 +85,7 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
         el, G, drop_saturated(el, G, drop_agostic_carbon(
             el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
     ml_pred = _drop_bridged_boron(el, xyz, G, ml_pred)
+    ml_pred = [p for p in ml_pred if p not in set(drop)]
     topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond)
     cage = set()
     for comp in nx.connected_components(G):
