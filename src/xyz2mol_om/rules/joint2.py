@@ -253,6 +253,7 @@ class JointV2:
     carbenium: set = field(default_factory=set)
     radicals: dict = field(default_factory=dict)
     metal_unpaired: dict = field(default_factory=dict)
+    v1_skipped: list = field(default_factory=list)   # contacted atoms no state could keep a pair on
 
     # the chosen candidate's pieces, for callers
     @property
@@ -285,6 +286,7 @@ class _Build:
         from .joint import _EN, _FSHELL, PERIOD2, _Model, _radical_delta, order_scores, os_prior_cost
 
         self.topo, self.el = topo, el
+        self.v1_skipped = []
         G = topo.G
         M = self.M = _Model()
         contacted = {x for _m, x in topo.ml_pred}
@@ -385,6 +387,8 @@ class _Build:
                         lp = (VAL.get(_e, 4) - q - (_d + k) - (1 if rad else 0)) // 2
                         return cat or lp < 1 or (_e in PERIOD2 and _d + k > 3)
                     bad = [c for c, k, q, cat, rad in cols if _bad(k, q, cat, rad)]
+                    if bad and len(bad) == len(cols):
+                        self.v1_skipped.append(x)   # no state passes: left to the check after
                     if bad and len(bad) < len(cols):
                         for c in bad:
                             if x in grp_of:
@@ -818,6 +822,7 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     status = "relaxed_fc" if relax else "optimal"
 
     res = JointV2(status=status, q_status=q_status)
+    res.v1_skipped = list(build.v1_skipped)
     cands, sol = [], first
     n_solves = 0
     while sol is not None and n_solves < MAX_SOLVES:

@@ -901,5 +901,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                         "q_status": q_status, "alt_gap": joint.alt_gap,
                         "alt_os": {m: v for m, v in joint.alt_os.items()},
                         "n_candidates": len(joint.candidates), "n_rejected": joint.n_rejected,
-                        "ranking": joint.ranking}
+                        "ranking": joint.ranking, "v1_skipped": list(joint.v1_skipped),
+                        "v1_failed": list(joint.best.failed) if joint.best else []}
     return out
