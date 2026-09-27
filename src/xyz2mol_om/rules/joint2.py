@@ -32,7 +32,8 @@ class Topology:
     dbond: dict                 # per-pair M–L distance cutoffs (T4)
     clusters: set = field(default_factory=set)    # fragments (min atom index) with a cage atom
     groups: list = field(default_factory=list)    # [(metal, atoms, internal bonds)] haptic candidates
-    rings: list = field(default_factory=list)     # [(atoms, "cat" | "an", count)] Hückel carbocycles
+    rings: list = field(default_factory=list)           # [(atoms, "cat" | "an", count)] Hückel carbocycles
+    far_dropped: list = field(default_factory=list)     # far M···X contacts left out (`far_contacts`)
 
 
 def _pi_capable(el, G, x):
@@ -85,8 +86,12 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
         el, G, drop_saturated(el, G, drop_agostic_carbon(
             el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
     ml_pred = _drop_bridged_boron(el, xyz, G, ml_pred)
-    ml_pred = [p for p in ml_pred if p not in set(drop)]
+    # a far contact (M···X with a neighbour Y on M much nearer, `far_contacts`) is dropped:
+    #   holdout 67 of them, 63 not bonds in the CSD, and keeping them never helped
+    far = far_contacts(xyz, G, ml_pred) | set(drop)
+    ml_pred = [p for p in ml_pred if p not in far]
     topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond)
+    topo.far_dropped = sorted(far)
     cage = set()
     for comp in nx.connected_components(G):
         # a boron cage: a fragment with boron and a non-H atom past its CAP (a B–H–B bridge's H

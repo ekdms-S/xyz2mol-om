@@ -314,7 +314,7 @@ JOINTSC = os.environ.get("JOINTSC", "pooledmin")
 #   even k none, a 4n ring none or two). Default on; 0 turns it off (analysis).
 JOINTCHAINQ = os.environ.get("JOINTCHAINQ", "1") == "1"
 # `JOINTFAR` — a contact M···X whose neighbour Y on the same metal is this many times nearer is a
-#   "far contact": JOINT solves with and without all of them and keeps the better (train1200).
+#   "far contact" and is dropped under JOINT (train1200: no CSD bond is that lopsided).
 JOINTFAR = float(os.environ.get("JOINTFAR", "1.3"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.

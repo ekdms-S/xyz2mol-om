@@ -320,29 +320,10 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         sc_j = joint2.bond_scores_joint(el, xyz, G, sc4)
         _sc_conj = bond_scores(el, xyz, G, sc4)
 
-        def _solve_on(drop):
-            tp = joint2.topology(el, xyz, wbo, G=G, ml_raw=ml_raw, dbond=dbond, cen=cen,
-                                 drop=drop)
-            mls = ml_order_scores(el, tp.ml_pred, wbo) if wbo else None
-            return tp, joint2.solve(tp, el, sc_j, q_total=total_charge,
-                                    n_unpaired=n_unpaired, ml_scores=mls, sc_conj=_sc_conj)
-
-        # ★ far contacts (d(M,X) > JOINTFAR·d(M,Y), Y a neighbour of X on the same metal): solve
-        #   with all of them and with none of them, no subsets. The "none" answer wins when the
-        #   "all" answer reads a far atom as haptic (no CSD haptic pair is that lopsided) or
-        #   solves worse (valid > no_valid > failed); a tie keeps T4 as it is.
-        topo, joint = _solve_on(())
-        _far = joint2.far_contacts(xyz, G, topo.ml_pred)
-        _dropped = []
-        if _far:
-            topo_x, joint_x = _solve_on(tuple(_far))
-            _rank = {"optimal": 2, "relaxed_fc": 2, "no_valid": 1}
-
-            def _r(j):
-                return _rank.get(j.status, 0) if j.best is not None else 0
-            if (joint_x.best is not None
-                    and (any(p in _far for p in joint.hap) or _r(joint_x) > _r(joint))):
-                topo, joint, _dropped = topo_x, joint_x, sorted(_far)
+        topo = joint2.topology(el, xyz, wbo, G=G, ml_raw=ml_raw, dbond=dbond, cen=cen)
+        _mls = ml_order_scores(el, topo.ml_pred, wbo) if wbo else None
+        joint = joint2.solve(topo, el, sc_j, q_total=total_charge, n_unpaired=n_unpaired,
+                             ml_scores=_mls, sc_conj=_sc_conj)
         joint_ok = joint.best is not None
     q_eht = None if joint_ok else eht_frag_charges(el, xyz, G)
     # `w_raw` is the ③ likelihood margin `score[Double] − score[Single]` **before** ④'s
@@ -935,6 +916,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                         "alt_os": {m: v for m, v in joint.alt_os.items()},
                         "n_candidates": len(joint.candidates), "n_rejected": joint.n_rejected,
                         "ranking": joint.ranking, "v1_skipped": list(joint.v1_skipped),
-                        "far_dropped": [list(p) for p in _dropped],
+                        "far_dropped": [list(p) for p in topo.far_dropped],
                         "v1_failed": list(joint.best.failed) if joint.best else []}
     return out
