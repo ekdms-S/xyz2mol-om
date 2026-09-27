@@ -367,6 +367,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         mlout = {k: o - 1 for k, o in joint.ml_orders.items()}
         btag = bridge_tags(el, G, ml_pred, {e: o - 1 for e, o in joint.orders.items()}, hap)
         w = {}
+        # the π-suppression report reads the same ③ margin as on the default path
+        w_raw.update({e: s[1] - s[0] for e, s in _sc_conj.items() if 0 in s and 1 in s})
     else:
         cls, mlout, hap, ml_pred, btag, w = predict_T3_T5(el, xyz, G, sc4, ml_raw, wbo,
                                                           dbond=dbond, q_eht=q_eht,
