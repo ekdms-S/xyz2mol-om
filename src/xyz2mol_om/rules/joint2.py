@@ -87,7 +87,6 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
 # ═══ the MILP ═════════════════════════════════════════════════════════════════════════════════
 
 QLIG = range(-8, 5)          # ligand charges a fragment may take
-DONOR_MIN = -3               # most negative charge a sigma donor may carry (nitrido)
 
 
 def wade_charges(n_b, n_c, extra_h):
@@ -121,20 +120,35 @@ def _free_ok(q):
     return abs(q) <= 1 + 1e-9
 
 
-def _donor_ok(q):
-    return DONOR_MIN - 1e-9 <= q <= 1 + 1e-9
-
-
 def _free_cost(q, lam):
+    """Charged-atom penalty of a non-coordinating atom. A coordinating atom (sigma donor or haptic
+    group atom) is exempt from both the range and the penalty (orbit-integration-ideas §2.5): under
+    the ionic cut its charge is the notation, not a defect."""
     return lam * abs(q)
 
 
-def _donor_cost(q, lam):
-    """A sigma donor pays its first negative unit at `JOINTDON`, the rest in full (plan §2)."""
-    from ..config import JOINTDON
-    if q >= 0:
-        return lam * q
-    return lam * (JOINTDON + (-q - 1))
+def _pi_chains(topo, el, sc):
+    """(c) — a haptic group keeps only atoms that can take part in a pi bond inside the group
+    (some bond to another group atom has a Double or Triple score), split into connected chains.
+    A dropped atom stays an ordinary sigma contact (an ansa Me2Si bridge T4 picked up)."""
+    from dataclasses import replace
+
+    from .joint import order_scores
+
+    def pi_ok(e):
+        s = order_scores(sc.get(e, {}))
+        return s[2] is not None or s[3] is not None
+
+    groups = []
+    for m, atoms, bonds in topo.groups:
+        pb = [e for e in bonds if pi_ok(e)]
+        keep = {x for e in pb for x in e}
+        sub = nx.Graph(pb)
+        for comp in sorted(nx.connected_components(sub), key=min):
+            if len(comp) >= 2 and comp <= keep:
+                groups.append((m, tuple(sorted(comp)),
+                               sorted(e for e in bonds if e[0] in comp and e[1] in comp)))
+    return replace(topo, groups=groups)
 
 
 @dataclass
@@ -203,6 +217,9 @@ class _Build:
         G = topo.G
         M = self.M = _Model()
         contacted = {x for _m, x in topo.ml_pred}
+        metal_of = {}
+        for m_, x_ in topo.ml_pred:
+            metal_of.setdefault(x_, set()).add(m_)
         grp_of = {}
         for gi, (_m, atoms, _b) in enumerate(topo.groups):
             for x in atoms:
@@ -215,14 +232,6 @@ class _Build:
         q_row = {}
         q_rhs = float(q_total) if q_total is not None else 0.0
         rad_cols = []
-
-        def product(s, h):
-            """t = s·(1 − h) for binaries s, h."""
-            t = M.var(cost=0.0, lb=0.0, ub=1.0, integer=False)
-            M.row({t: 1, s: -1, h: 1}, -1.0, float("inf"))       # t >= s - h
-            M.row({t: 1, s: -1}, -float("inf"), 0.0)             # t <= s
-            M.row({t: 1, h: 1}, -float("inf"), 1.0)              # t <= 1 - h
-            return t
 
         for comp in self.frags:
             key = comp[0]
@@ -257,7 +266,7 @@ class _Build:
                 deg = G.degree(x)
                 ex = [(self.ycol[(e, o)], o - 1) for e in inc.get(x, ()) for o in (2, 3)
                       if (e, o) in self.ycol]
-                role = "group" if x in grp_of else ("donor" if x in contacted else "free")
+                role = "coord" if (x in grp_of or x in contacted) else "free"
                 rad_ok = bool(n_unpaired) and el[x] != "H"
                 if not ex and not rad_ok:
                     self.const_q[x] = qfun(x, deg)
@@ -276,20 +285,14 @@ class _Build:
                             opts.append((q0 + dq, True))
                     for q, rad in opts:
                         levels.append((k, q, False, rad))
-                if x in ring_c and el[x] == "C" and role != "donor":
+                if x in ring_c and el[x] == "C" and (x in grp_of or x not in contacted):
                     levels.append((0, 1.0, True, False))
                 cols = []
                 for k, q, cat, rad in levels:
-                    ok_free, ok_don = _free_ok(q), _donor_ok(q)
-                    if not ex and not rad:
-                        ok_free = ok_don = True        # a constant state is never range-checked
-                    if not fc_bounds:
-                        ok_free = ok_don = True
-                    if role == "free" and not ok_free or role == "donor" and not ok_don:
+                    ok = role == "coord" or not fc_bounds or (not ex and not rad) or _free_ok(q)
+                    if not ok:
                         continue
-                    if role == "group" and not (ok_free or ok_don):
-                        continue
-                    base = {"free": _free_cost, "donor": _donor_cost, "group": _free_cost}[role](q, lam)
+                    base = _free_cost(q, lam) if role == "free" else 0.0
                     if rad:
                         base += lam * (JOINTRAD + 0.01 * _EN.get(el[x], 2.5))
                     sign = hsign.get(x)
@@ -298,16 +301,6 @@ class _Build:
                     elif not cat and not rad and q < 0 and k == 0 and sign == "cat":
                         base += lam * JOINTCAT
                     c = M.var(cost=base)
-                    if role == "group":
-                        h = self.hcol[grp_of[x]]
-                        if not ok_free:
-                            M.row({c: 1, h: 1}, -float("inf"), 1)   # only as a donor (h = 0)
-                        if not ok_don:
-                            M.row({c: 1, h: -1}, -float("inf"), 0)  # only as haptic (h = 1)
-                        diff = _donor_cost(q, lam) - _free_cost(q, lam)
-                        if abs(diff) > 1e-12:
-                            t = product(c, h)
-                            M.cost[t] = diff
                     cols.append((c, k, q, cat, rad))
                 if not cols:
                     self.infeasible = True
@@ -348,8 +341,8 @@ class _Build:
                     M.row(row, -float("inf"), 0)
             # ★ adjacent same-sign charges: a penalty per pair
             for a, b in edges:
-                if el[a] == "H" or el[b] == "H":
-                    continue
+                if el[a] == "H" or el[b] == "H" or metal_of.get(a, set()) & metal_of.get(b, set()):
+                    continue   # C(-)–C(-) of a metallacyclopropane, O(-)–O(-) of a peroxide
                 for sgn in (-1, 1):
                     ra, ca = self._sign(a, sgn)
                     rb, cb = self._sign(b, sgn)
@@ -385,6 +378,14 @@ class _Build:
                 M.row(neg, -float("inf"), 0)
             M.row(r1, need - big, float("inf"))    # M + a >= need - big(1-h)
             M.row(r2, -float("inf"), need + big)   # M + a <= need + big(1-h)
+            # §2.6: three or more in a row are haptic by topology; eta2 alone has two readings,
+            #   and the bond decides it — multiple bond <=> haptic, single <=> two sigma bonds
+            if k >= 3:
+                M.row({h: 1}, 1, 1)
+            else:
+                r = dict(mult)
+                r[h] = r.get(h, 0) - 1
+                M.row(r, 0, 0)
         # metals: OS one-hot with prior, symmetry, open-shell electrons
         self.os_one, u_col = {}, {}
         for m, e in sorted(metals.items()):
@@ -565,24 +566,36 @@ def _validate(el, topo, cand, qfun):
 
 
 def _ml_orders(el, topo, cand, qfun, ml_scores):
-    """sigma M–L order = min(Mayer's order, donor lone pairs); Single with no Mayer value.
-    Also returns the Mayer consistency (sum of Mayer's score at the chosen orders) or None."""
+    """sigma M–L orders **from the candidate's donor charge** (ionic cut: a donor at q holds
+    `max(n_metals, -q)` M–L order in total — neutral / X-type 1 per metal, oxo · alkylidene 2,
+    nitrido 3; mu-O(2-) two singles), the extra order going to the bond Mayer rates highest for it.
+    Mayer consistency = the sum of Mayer's own score (all classes, `ml_scores`) at those orders;
+    a charge Mayer disagrees with scores low. `None` when no bond has a Mayer value."""
     G = topo.G
     hap = _hap_set(topo, cand.h)
-    out, cons = {}, None
+    by_x = {}
     for m, x in topo.ml_pred:
-        if (m, x) in hap:
-            continue
-        deg = G.degree(x)
-        lp = _lone_pairs(el, x, deg, _state(cand, x, deg, qfun)) if x in G else 1
-        s = (ml_scores or {}).get((m, x))
-        want = (max(s, key=s.get) + 1) if s else 1
-        o = max(1, min(want, lp or 1))
-        out[(m, x)] = o
-        if s and (o - 1) in s:
-            cons = (cons or 0.0) + s[o - 1]
+        if (m, x) not in hap:
+            by_x.setdefault(x, []).append(m)
+    ml_scores = ml_scores or {}
+    out, cons = {}, None
+    for x, ms in by_x.items():
+        q = _state(cand, x, G.degree(x), qfun)[1] if x in G else 0
+        total = max(len(ms), int(round(-q)))
+        o = dict.fromkeys(ms, 1)
+        for _ in range(total - len(ms)):
+            def gain(m):
+                s = ml_scores.get((m, x))
+                if not s:
+                    return (-1e9, -m)
+                return (s.get(o[m], -1e9) - s.get(o[m] - 1, -1e9), -m)
+            o[max(ms, key=gain)] += 1
+        for m in ms:
+            out[(m, x)] = o[m]
+            s = ml_scores.get((m, x))
+            if s:
+                cons = (cons or 0.0) + s.get(o[m] - 1, min(s.values()) - 10.0)
     return out, cons
-
 
 def _conj(el, topo, cand, sc, qfun, lam, eps):
     """Bonds that flip S<->D along an alternating cycle, or an alternating path whose ends trade
@@ -591,7 +604,6 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
 
     G, orders = topo.G, cand.orders
     fixed = {x for x, (_k, _q, cat, rad) in cand.state.items() if cat or rad}
-    donors = {x for _m, x in topo.ml_pred} - {x for _m, x in _hap_set(topo, cand.h)}
 
     def sd(e):
         return orders.get(e) in (1, 2) and el[e[0]] != "H" and el[e[1]] != "H" \
@@ -601,11 +613,10 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
         s = order_scores(sc.get(e, {}))[o]
         return -1e9 if s is None else s
 
+    coord = {x for _m, x in topo.ml_pred}
+
     def qcost(x, b):
-        q = qfun(x, b)
-        if x in donors:
-            return _donor_cost(q, lam)
-        return _free_cost(q, lam)
+        return 0.0 if x in coord else _free_cost(qfun(x, b), lam)
 
     conj = set()
     for x0 in G:
@@ -629,9 +640,9 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
                         b1 = G.degree(y) + sum(orders[f] - 1 for f in G.edges(y)
                                                for f in [(min(f), max(f))])
                         d -= (qcost(x0, b0 - 1) + qcost(y, b1 + 1)) - (qcost(x0, b0) + qcost(y, b1))
-                        if abs(qfun(x0, b0 - 1)) > 1 + 1e-9 and x0 not in donors:
+                        if abs(qfun(x0, b0 - 1)) > 1 + 1e-9 and x0 not in coord:
                             d = -1e9
-                        if abs(qfun(y, b1 + 1)) > 1 + 1e-9 and y not in donors:
+                        if abs(qfun(y, b1 + 1)) > 1 + 1e-9 and y not in coord:
                             d = -1e9
                     if d >= -eps:
                         conj.update(p2)
@@ -653,6 +664,7 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     K = JOINTK if K is None else K
     lam = JOINTQ if lam is None else lam
     qfun = qfun or _default_qfun(topo, el)
+    topo = _pi_chains(topo, el, sc)
     metals = {m: el[m] for m in sorted(topo.cen | {m for m, _x in topo.ml_pred})}
 
     def attempt(relax, qt):
