@@ -477,11 +477,29 @@ class _Build:
                     for c in ra + rb:
                         row[c] = row.get(c, 0) - 1
                     M.row(row, -1.0 + ca + cb, float("inf"))
-        # haptic groups: h = 1 -> floor(k/2) multiple bonds (even k: or one fewer + two anions)
-        for gi, (_m, atoms, bonds) in enumerate(topo.groups):
-            h = self.hcol[gi]
+        # haptic units: groups of different metals that share atoms are one pi chain (a mu-eta2,eta2
+        #   allyl is one allyl, not two eta2 pairs) and share one h
+        link = nx.Graph()
+        link.add_nodes_from(range(len(topo.groups)))
+        for gi, (mi, ai, _bi) in enumerate(topo.groups):
+            for gj in range(gi + 1, len(topo.groups)):
+                mj, aj, _bj = topo.groups[gj]
+                if mi != mj and set(ai) & set(aj):
+                    link.add_edge(gi, gj)
+        units = []
+        for comp in sorted(nx.connected_components(link), key=min):
+            gis = sorted(comp)
+            for g in gis[1:]:
+                M.row({self.hcol[gis[0]]: 1, self.hcol[g]: -1}, 0, 0)
+            units.append((gis, {topo.groups[g][0] for g in gis},
+                          tuple(sorted({x for g in gis for x in topo.groups[g][1]})),
+                          sorted({e for g in gis for e in topo.groups[g][2]})))
+        # h = 1 -> as many multiple bonds as the chain can hold at once (its largest matching:
+        #   floor(k/2) for a chain or ring, one for the star of a trimethylenemethane)
+        for gis, mset, atoms, bonds in units:
+            h = self.hcol[gis[0]]
             k = len(atoms)
-            need = k // 2
+            need = len(nx.max_weight_matching(nx.Graph(bonds), maxcardinality=True)) if bonds else 0
             mult = {}
             for e in bonds:
                 for o in (2, 3):
@@ -509,23 +527,24 @@ class _Build:
             # an eta2 pair whose bond ③ does not read as Single (Conj or Double best) still holds a pi
             #   bond: it is haptic; only a Single-best pair is left to the solve (alkene vs
             #   metallacyclopropane)
-            pi_left = k == 2 and bool(sc.get(bonds[0])) and max(sc[bonds[0]], key=sc[bonds[0]].get) != 0
+            pi_left = (k == 2 and bool(bonds) and bool(sc.get(bonds[0]))
+                       and max(sc[bonds[0]], key=sc[bonds[0]].get) != 0)
             if k >= 3 or pi_left:
                 M.row({h: 1}, 1, 1)
             if k < 3:
                 r = dict(mult)
                 r[h] = r.get(h, 0) - 1
                 M.row(r, 0, 0)
-            # h = 1 -> the charged (or unpaired) atoms of the chain are fixed by k alone: odd k one
-            #   (allyl, Cp, pyrrolyl, C7H7+), even k none (alkene, arene, eta2-nitrile N#C) or two
-            #   anions with one multiple bond fewer (COT2-). A chain with boron is left out: an sp2
+            # h = 1 -> the charged (or unpaired) atoms of the chain are the ones no multiple bond
+            #   reaches: odd k one (allyl, Cp, pyrrolyl, C7H7+), even k none (alkene, arene,
+            #   eta2-nitrile N#C) or two with one multiple bond fewer (COT2-), a TMM star two. A chain with boron is left out: an sp2
             #   boron is neutral without a multiple bond (boratabenzene breaks the count).
             if any(el[x] == "B" for x in atoms):
                 continue
             chg, const = {}, 0
             # an atom that also has a sigma bond to another metal carries that bond's charge
             #   (the acetylide C(-) of a mu-eta2,sigma1 bridge): it is not counted here
-            sig_other = {x for m2, x in topo.ml_pred if m2 != _m and x in atoms
+            sig_other = {x for m2, x in topo.ml_pred if m2 not in mset and x in atoms
                          and not any(x in a2 for mm, a2, _b2 in topo.groups if mm == m2)}
             # an atom whose charge pairs with a fixed charge outside the chain (N(+)–B(-) of an
             #   N→BF3 adduct) carries that pair's charge, not the haptic bond's: not counted either
@@ -540,7 +559,7 @@ class _Build:
                             chg[c] = chg.get(c, 0) + 1
                 elif abs(self.const_q.get(x, 0.0)) > 1e-9:
                     const += 1
-            want = {h: -(k % 2)}
+            want = {h: -(k - 2 * need)}   # the atoms no multiple bond reaches carry the charge
             if a is not None:
                 want[a] = -2
             r = dict(chg)
