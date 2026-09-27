@@ -40,6 +40,22 @@ def _pi_capable(el, G, x):
     return el[x] != "H" and G.degree(x) < CAP.get(el[x], 4)
 
 
+def _drop_bridged_boron(el, xyz, G, ml):
+    """The boron of a B–H–M bridge (kappa2-BH4, H3B·L) is not a donor: the metal takes the B–H
+    pair, as in an agostic C–H···M (`drop_agostic_carbon`). Drop M···B when an H on that boron is
+    itself a contact of the same metal and sits closer to it than the boron does."""
+    pairs = set(ml)
+    drop = set()
+    for m, x in ml:
+        if el[x] != "B":
+            continue
+        dmb = float(np.linalg.norm(xyz[m] - xyz[x]))
+        if any(el[h] == "H" and (m, h) in pairs and float(np.linalg.norm(xyz[m] - xyz[h])) < dmb
+               for h in G[x]):
+            drop.add((m, x))
+    return [p for p in ml if p not in drop]
+
+
 def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None):
     """Step 1 of JOINT v2 — topology only (see the module docstring)."""
     from ..api import build_topology
@@ -51,6 +67,7 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
     ml_pred = drop_bound_halide(
         el, G, drop_saturated(el, G, drop_agostic_carbon(
             el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
+    ml_pred = _drop_bridged_boron(el, xyz, G, ml_pred)
     topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond)
     cage = set()
     for comp in nx.connected_components(G):
@@ -390,9 +407,13 @@ class _Build:
             M.row(r2, -float("inf"), need + big)   # M + a <= need + big(1-h)
             # §2.6: three or more in a row are haptic by topology; eta2 alone has two readings,
             #   and the bond decides it — multiple bond <=> haptic, single <=> two sigma bonds
-            if k >= 3:
+            # an eta2 pair whose bond ③ does not read as Single (Conj or Double best) still holds a pi
+            #   bond: it is haptic; only a Single-best pair is left to the solve (alkene vs
+            #   metallacyclopropane)
+            pi_left = k == 2 and bool(sc.get(bonds[0])) and max(sc[bonds[0]], key=sc[bonds[0]].get) != 0
+            if k >= 3 or pi_left:
                 M.row({h: 1}, 1, 1)
-            else:
+            if k < 3:
                 r = dict(mult)
                 r[h] = r.get(h, 0) - 1
                 M.row(r, 0, 0)
