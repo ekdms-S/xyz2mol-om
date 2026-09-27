@@ -196,6 +196,18 @@ def build_topology(el, xyz, wbo=None, dint=None):
             if d_ab < _cut(el[a], el[b]):
                 G.add_edge(a, b)
 
+    # ★ an H T1 put between two ligand atoms (a short O–H···O hydrogen bond, B–H···C) keeps
+    #   only its nearest partner — an H has one bond. A B–H–B bridge (both neighbours B) is a
+    #   3c2e bond and keeps both. (M–H–X is not affected: the M–H is a T4 contact.)
+    for h in [i for i in idx if el[i] == "H" and G.degree(i) >= 2]:
+        nb = list(G[h])
+        if all(el[y] == "B" for y in nb):
+            continue
+        near = min(nb, key=lambda y: float(np.linalg.norm(xyz[h] - xyz[y])))
+        for y in nb:
+            if y != near:
+                G.remove_edge(h, y)
+
     # ★ **diborane** — drop a `B–B` that two hydrogen bridges already account for.
     #   `d_int(B,B) = 2.336 Å` cannot separate `B₂H₆`'s 1.774 Å non-bond from a carborane cage
     #   bond at 1.75–1.80 Å, so T1 draws one and the fragment ends up 2 electrons short:
