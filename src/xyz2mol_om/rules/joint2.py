@@ -394,7 +394,9 @@ class _Build:
                     if (e, o) in self.ycol:
                         mult[self.ycol[(e, o)]] = 1
             big = len(bonds) + 2
-            a = M.var(cost=0.0) if k % 2 == 0 and k >= 4 else None
+            # one multiple bond fewer + two anions only where Hückel asks for the dianion: 4n atoms
+            #   (C4R4(2-), COT(2-)); never an eta6 arene
+            a = M.var(cost=0.0) if k % 4 == 0 else None
             r1 = dict(mult)
             r1[h] = r1.get(h, 0) - big
             r2 = dict(mult)
