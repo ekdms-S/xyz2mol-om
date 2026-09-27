@@ -485,8 +485,11 @@ class _Build:
             for gj in range(gi + 1, len(topo.groups)):
                 mj, aj, _bj = topo.groups[gj]
                 # overlapping but not the same atoms: the same pair on two metals (a mu-alkyne) is
-                #   already one pi bond seen twice and keeps its own groups
-                if mi != mj and set(ai) & set(aj) and set(ai) != set(aj):
+                #   already one pi bond seen twice and keeps its own groups. Joined only through an
+                #   atom with three or more neighbours (one p orbital: the allyl CH); an sp atom (the
+                #   allene / allenyl middle C, two neighbours) gives each metal its own pi bond
+                shared = set(ai) & set(aj)
+                if mi != mj and shared and set(ai) != set(aj) and any(G.degree(x) >= 3 for x in shared):
                     link.add_edge(gi, gj)
         units = []
         for comp in sorted(nx.connected_components(link), key=min):
@@ -529,9 +532,12 @@ class _Build:
             # an eta2 pair whose bond ③ does not read as Single (Conj or Double best) still holds a pi
             #   bond: it is haptic; only a Single-best pair is left to the solve (alkene vs
             #   metallacyclopropane)
-            pi_left = (k == 2 and bool(bonds) and bool(sc.get(bonds[0]))
-                       and max(sc[bonds[0]], key=sc[bonds[0]].get) != 0)
-            if k >= 3 or pi_left:
+            # pi left in the unit: some bond whose length does not read Single
+            pi_left = any(sc.get(e) and max(sc[e], key=sc[e].get) != 0 for e in bonds)
+            merged = len(gis) > 1
+            # a single group of three or more is haptic by topology; eta2 pairs — alone or joined
+            #   over two metals — are haptic only while a pi bond is left (all-single: sigma)
+            if (k >= 3 and not merged) or ((k == 2 or merged) and pi_left):
                 M.row({h: 1}, 1, 1)
             if k < 3:
                 r = dict(mult)
