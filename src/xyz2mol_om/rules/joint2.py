@@ -636,9 +636,11 @@ def _ml_orders(el, topo, cand, qfun, ml_scores):
         if (m, x) not in hap:
             by_x.setdefault(x, []).append(m)
     ml_scores = ml_scores or {}
+    cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters for x in c}
     out, cons = {}, None
     for x, ms in by_x.items():
-        q = _state(cand, x, G.degree(x), qfun)[1] if x in G else 0
+        # a cage atom carries no charge of its own (Wade charge is per fragment)
+        q = _state(cand, x, G.degree(x), qfun)[1] if x in G and x not in cage else 0
         total = max(len(ms), int(round(-q)))
         o = dict.fromkeys(ms, 1)
         for _ in range(total - len(ms)):
