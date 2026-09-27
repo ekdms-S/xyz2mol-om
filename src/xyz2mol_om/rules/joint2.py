@@ -71,7 +71,10 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
     topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond)
     cage = set()
     for comp in nx.connected_components(G):
-        if any(G.degree(x) > CAP.get(el[x], 4) for x in comp):
+        # a boron cage: a fragment with boron and a non-H atom past its CAP (a B–H–B bridge's H
+        #   has two neighbours but is a 3c2e bridge, not a cage — diborane, UTOZUZ)
+        if any(el[x] == "B" for x in comp) and any(
+                el[x] != "H" and G.degree(x) > CAP.get(el[x], 4) for x in comp):
             topo.clusters.add(min(comp))
             cage |= set(comp)
     # haptic groups: the atoms one metal touches that can be unsaturated, split into connected runs
