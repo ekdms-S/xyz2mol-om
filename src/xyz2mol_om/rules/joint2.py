@@ -281,7 +281,7 @@ class _Build:
     def __init__(self, topo, el, sc, qfun, lam, relax, q_total, n_unpaired, metals, only=None):
         """`relax` — fragments (min atom index) solved without the FC range; `only` — build just
         these fragments (the per-fragment feasibility probe)."""
-        from ..config import (FULL, JOINTADJ, JOINTRAWSC, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
+        from ..config import (FULL, JOINTADJ, JOINTCHAINQ, JOINTRAWSC, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
                               _GROUP, os_range)
         from .joint import _EN, _FSHELL, PERIOD2, _Model, _radical_delta, order_scores, os_prior_cost
 
@@ -486,7 +486,7 @@ class _Build:
             #   (allyl, Cp, pyrrolyl, C7H7+), even k none (alkene, arene, eta2-nitrile N#C) or two
             #   anions with one multiple bond fewer (COT2-). A chain with boron is left out: an sp2
             #   boron is neutral without a multiple bond (boratabenzene breaks the count).
-            if any(el[x] == "B" for x in atoms):
+            if not JOINTCHAINQ or any(el[x] == "B" for x in atoms):
                 continue
             chg, const = {}, 0
             for x in atoms:

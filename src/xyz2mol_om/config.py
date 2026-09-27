@@ -310,6 +310,9 @@ JOINTRAWSC = os.environ.get("JOINTRAWSC", "0") == "1"
 #   widest / narrowest of Single · Double · Conj). Default `pooledmin` (train1200). The Conj reading
 #   after the solve keeps the default path's ③.
 JOINTSC = os.environ.get("JOINTSC", "pooledmin")
+# `JOINTCHAINQ` — a haptic chain of k atoms carries a fixed number of charged atoms (odd k one,
+#   even k none, a 4n ring none or two). Default on; 0 turns it off (analysis).
+JOINTCHAINQ = os.environ.get("JOINTCHAINQ", "1") == "1"
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,
