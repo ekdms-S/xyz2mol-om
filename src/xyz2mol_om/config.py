@@ -288,6 +288,19 @@ JOINTDON = float(os.environ.get("JOINTDON", "0.25"))
 # `JOINTRAD` — cost (in units of `JOINTQ`) of putting an unpaired electron on a ligand atom rather
 #   than on a metal, when `n_unpaired > 0`. Float, default 0.5.
 JOINTRAD = float(os.environ.get("JOINTRAD", "0.5"))
+# ── JOINT v2 (`rules.joint2`, dev/docs/plans/2026-09-27-joint-v2.md) ──
+# `JOINTADJ` — penalty (in units of `JOINTQ`) per pair of adjacent same-sign charges. Float, 1.0.
+JOINTADJ = float(os.environ.get("JOINTADJ", "1.0"))
+# `JOINTK` — how many candidates (distinct signatures) the K-best search draws. Integer, 5.
+JOINTK = int(os.environ.get("JOINTK", "5"))
+# `JOINTTIE` — candidates within this many `JOINTQ` of the best MILP score are ranked by Mayer
+#   consistency. Float, 1.0.
+JOINTTIE = float(os.environ.get("JOINTTIE", "1.0"))
+# `JOINTMODE` — `kbest` (candidates, validated, ranked) or `cut` (add a cut per failed check).
+JOINTMODE = os.environ.get("JOINTMODE", "kbest")
+# `JOINTCONJEPS` — a bond reads `Conj` when flipping its S/D alternation changes the score by at
+#   most this much. Float, 0.5.
+JOINTCONJEPS = float(os.environ.get("JOINTCONJEPS", "0.5"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,

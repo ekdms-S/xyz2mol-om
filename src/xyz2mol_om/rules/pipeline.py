@@ -684,45 +684,6 @@ def final_haptic(el, xyz, G, ml_pred, cls, btag):
     return hap
 
 
-def predict_joint_prep(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
-                       q_eht=None, rop=None, w_raw_out=None, dbond=None):
-    """The joint path's counterpart of `predict_T3_T5` — same return value
-    `(cls, mlout, hap, ml_pred, btag, w)`, without the second pass.
-
-    One metal-free T3 solve (`b_ML = 0`, no M–L scores) gives the internal classes. The haptic
-    set is decided on **those** classes (`final_haptic`), the M–L orders are Mayer's own best
-    class per bond (they enter the joint solve as fixed valence it must leave room for, not as
-    scores competing with the internal bonds), and the T7 tags follow. The internal integers
-    themselves are the joint solve's; `cls` here only supplies the `Conj` label, the Hückel ring
-    set and the sequential answer for fragments the joint solve does not take.
-    """
-    if bml_model is None:
-        bml_model, bml_fb = load_b_ml_mayer()
-    coord = {x for _m, x in ml_raw}
-    ml_pred = drop_bound_halide(
-        el, G, drop_saturated(el, G, drop_agostic_carbon(
-            el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
-    w = {}
-    cls, _ = predict_T3_EHT(el, xyz, G, scores4, {}, None, q_eht, coord, rop, w_out=w,
-                            w_raw_out=w_raw_out)
-    for _p in sorted(_eta2_pair(el, xyz, G, ml_pred, cls, dbond) - set(ml_pred)):
-        ml_pred.append(_p)  # an `ETA2NEAR` partner becomes a real M–L bond, as in pass 1
-    hap = final_haptic(el, xyz, G, ml_pred, cls, bridge_tags(el, G, ml_pred, cls))
-    mlout = ml_orders_mayer(el, xyz, [p for p in ml_pred if p not in hap], wbo, bml_model, bml_fb)
-    btag = bridge_tags(el, G, ml_pred, cls, hap)
-    return cls, mlout, hap, ml_pred, btag, w
-
-
-def ml_orders_mayer(el, xyz, keep, wbo, bml_model=None, bml_fb=None):
-    """Each M–L bond's own best order class from the Mayer model (the distance model without
-    `wbo`) — `{(m, x): 0 Single · 1 Double · 2 Triple}`, no competition with internal bonds."""
-    if bml_model is None:
-        bml_model, bml_fb = load_b_ml_mayer()
-    ml_sc = (ml_order_scores(el, keep, wbo, bml_model, bml_fb) if wbo
-             else ml_order_scores_dist(el, keep, xyz))
-    return {k: max(v, key=v.get) for k, v in ml_sc.items()}
-
-
 def predict_T3_T5(el, xyz, G, scores4, ml_raw, wbo, bml_model=None, bml_fb=None,
                   q_eht=None, rop=None, w_raw_out=None, dbond=None, force_hap=()):
     """Takes only the T4 candidates and Mayer, and produces **the T3 4 classes, the M–L orders and
