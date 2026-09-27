@@ -363,6 +363,21 @@ class _Build:
                 if not cols:
                     self.infeasible = True
                     return
+                # ★ V1 inside the solve: a sigma donor keeps a lone pair and (period 2) room for
+                #   its M–L bond. A group atom is held to it only when its group is sigma (h = 0).
+                #   A bridging H is a 3c2e leg, not a lone-pair donor. If no level passes, the atom
+                #   is left to the check after the solve.
+                if x in contacted and el[x] != "H":
+                    def _bad(k, q, cat, rad, _d=deg, _e=el[x]):
+                        lp = (VAL.get(_e, 4) - q - (_d + k) - (1 if rad else 0)) // 2
+                        return cat or lp < 1 or (_e in PERIOD2 and _d + k > 3)
+                    bad = [c for c, k, q, cat, rad in cols if _bad(k, q, cat, rad)]
+                    if bad and len(bad) < len(cols):
+                        for c in bad:
+                            if x in grp_of:
+                                M.row({c: 1, self.hcol[grp_of[x]]: -1}, -float("inf"), 0)
+                            else:
+                                M.row({c: 1}, -float("inf"), 0)
                 M.row({c: 1 for c, *_ in cols}, 1, 1)
                 r = {}
                 for c, k, *_ in cols:
@@ -422,9 +437,9 @@ class _Build:
                     if (e, o) in self.ycol:
                         mult[self.ycol[(e, o)]] = 1
             big = len(bonds) + 2
-            # one multiple bond fewer + two anions only where Hückel asks for the dianion: 4n atoms
-            #   (C4R4(2-), COT(2-)); never an eta6 arene
-            a = M.var(cost=0.0) if k % 4 == 0 else None
+            # one multiple bond fewer + two anions only where Hückel asks for the dianion: a ring of
+            #   4n atoms (C4R4(2-), COT(2-)); never an eta6 arene, never an open eta4 diene
+            a = M.var(cost=0.0) if k % 4 == 0 and len(bonds) >= k else None   # rings only
             r1 = dict(mult)
             r1[h] = r1.get(h, 0) - big
             r2 = dict(mult)
