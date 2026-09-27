@@ -143,9 +143,18 @@ def wade_charges(n_b, n_c, extra_h):
     return {"closo": e - (2 * n + 2), "nido": e - (2 * n + 4), "arachno": e - (2 * n + 6)}
 
 
+def cage_atoms(el, G, comp):
+    """The cage of a cluster fragment: its vertices (B, and C bonded to B) and the H on them
+    (terminal or bridging). Everything else in the fragment (a thiolate S, a phosphine) is an
+    ordinary ligand atom."""
+    cage = {x for x in comp if el[x] == "B" or (el[x] == "C" and any(el[y] == "B" for y in G[x]))}
+    return cage | {h for h in comp if el[h] == "H" and any(y in cage for y in G[h])}
+
+
 def _cluster_charges(el, G, comp, contacted):
-    """Wade charge candidates of a cluster fragment and the preferred type: a cage that touches a
-    metal is nido (the metal closes the polyhedron), a free cage closo."""
+    """Wade charge candidates of a cluster fragment and the type its topology says: a closed
+    deltahedron has 3n - 6 cage edges (closo); an open face takes a few away (nido, 3n - 9 ..
+    3n - 7); fewer is arachno. The others stay as candidates at a cost (a missed B–B bond)."""
     cage = {x for x in comp if el[x] == "B" or (el[x] == "C" and any(el[y] == "B" for y in G[x]))}
     extra_h = 0
     for x in comp:
@@ -155,7 +164,9 @@ def _cluster_charges(el, G, comp, contacted):
         hs = sum(1 for y in G[x] if el[y] == "H" and G.degree(y) == 1)
         extra_h += max(0, hs - 1)
     cand = wade_charges(sum(el[x] == "B" for x in cage), sum(el[x] == "C" for x in cage), extra_h)
-    pref = "nido" if cage & contacted else "closo"
+    n = len(cage)
+    edges = G.subgraph(cage).number_of_edges()
+    pref = "closo" if edges >= 3 * n - 6 else "nido" if edges >= 3 * n - 9 else "arachno"
     return cand, pref
 
 
@@ -277,6 +288,7 @@ class JointV2:
     radicals: dict = field(default_factory=dict)
     metal_unpaired: dict = field(default_factory=dict)
     v1_skipped: list = field(default_factory=list)   # contacted atoms no state could keep a pair on
+    cage: set = field(default_factory=set)            # cluster cage atoms (Wade charge, none per atom)
 
     # the chosen candidate's pieces, for callers
     @property
@@ -310,6 +322,7 @@ class _Build:
 
         self.topo, self.el = topo, el
         self.v1_skipped = []
+        self.cage = set()
         G = topo.G
         M = self.M = _Model()
         contacted = {x for _m, x in topo.ml_pred}
@@ -334,7 +347,9 @@ class _Build:
             if only is not None and key not in only:
                 continue
             fc_bounds = key not in relax
+            fixed = set()
             if key in topo.clusters:
+                # the cage takes its Wade charge; atoms outside it are solved as usual
                 cand, pref = _cluster_charges(el, G, set(comp), contacted)
                 one = {}
                 for kind, qv in cand.items():
@@ -342,8 +357,10 @@ class _Build:
                     q_row[one[kind]] = q_row.get(one[kind], 0.0) + qv
                 M.row(dict.fromkeys(one.values(), 1), 1, 1)
                 self.ccol[key] = (one, cand)
-                continue
-            edges = sorted((min(a, b), max(a, b)) for a, b in G.subgraph(comp).edges)
+                fixed = cage_atoms(el, G, comp)
+                self.cage |= fixed
+            edges = sorted((min(a, b), max(a, b)) for a, b in G.subgraph(comp).edges
+                           if a not in fixed and b not in fixed)
             for e in edges:
                 if el[e[0]] == "H" or el[e[1]] == "H":
                     continue
@@ -353,12 +370,22 @@ class _Build:
                         self.ycol[(e, o)] = M.var(cost=-(s[o] - s[1]))
                 if (e, 2) in self.ycol and (e, 3) in self.ycol:
                     M.row({self.ycol[(e, 2)]: 1, self.ycol[(e, 3)]: 1}, -float("inf"), 1)
+            # carbon monoxide is C#O by its composition alone — [C-]#[O+], terminal or bridging
+            if len(comp) == 2 and sorted(el[x] for x in comp) == ["C", "O"]:
+                e = (comp[0], comp[1])
+                if (e, 3) not in self.ycol:
+                    self.ycol[(e, 3)] = M.var(cost=0.0)
+                M.row({self.ycol[(e, 3)]: 1}, 1, 1)
+                if (e, 2) in self.ycol:
+                    M.row({self.ycol[(e, 2)]: 1}, 0, 0)
             inc = {}
             for e in edges:
                 inc.setdefault(e[0], []).append(e)
                 inc.setdefault(e[1], []).append(e)
             fq, fconst = {}, 0.0
             for x in comp:
+                if x in fixed:
+                    continue
                 deg = G.degree(x)
                 ex = [(self.ycol[(e, o)], o - 1) for e in inc.get(x, ()) for o in (2, 3)
                       if (e, o) in self.ycol]
@@ -643,7 +670,7 @@ class _Build:
             for kind, c in one.items():
                 if x[c] > 0.5:
                     cq[key] = cand[kind]
-                    qlig[key] = cand[kind]
+                    qlig[key] = qlig.get(key, 0) + cand[kind]
                     sig.append(c)
         signature = (tuple(sorted(sig)), tuple(sorted(h.items())))
         mu = {m: int(round(x[c])) for m, c in self.u_col.items() if round(x[c])}
@@ -719,7 +746,9 @@ def _validate(el, topo, cand, qfun):
     hap = {x for _m, x in _hap_set(topo, cand.h)}
     three_c = {x for x, t in _btag(el, topo, cand).items() if t == "3c2e"}
     bad = []
-    for x in sorted({x for _m, x in topo.ml_pred} - hap - three_c):
+    cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
+            for x in cage_atoms(el, G, c)}
+    for x in sorted({x for _m, x in topo.ml_pred} - hap - three_c - cage):
         deg = G.degree(x)
         st = _state(cand, x, deg, qfun)
         if _lone_pairs(el, x, deg, st) < 1 or (el[x] in PERIOD2 and deg + st[0] > 3):
@@ -740,7 +769,8 @@ def _ml_orders(el, topo, cand, qfun, ml_scores):
         if (m, x) not in hap:
             by_x.setdefault(x, []).append(m)
     ml_scores = ml_scores or {}
-    cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters for x in c}
+    cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
+            for x in cage_atoms(el, G, c)}
     out, cons = {}, None
     for x, ms in by_x.items():
         # a cage atom carries no charge of its own (Wade charge is per fragment)
@@ -845,8 +875,6 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     if first is None:
         for comp in nx.connected_components(topo.G):
             key = min(comp)
-            if key in topo.clusters:
-                continue
             probe = _Build(topo, el, sc, qfun, lam, set(), None, 0, {}, only={key})
             if probe.infeasible or probe.M.solve() is None:
                 relax.add(key)
@@ -862,6 +890,7 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
 
     res = JointV2(status=status, q_status=q_status)
     res.v1_skipped = list(build.v1_skipped)
+    res.cage = set(build.cage)
     cands, sol = [], first
     n_solves = 0
     while sol is not None and n_solves < MAX_SOLVES:

@@ -493,11 +493,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
             # a carbenium carbon is +1 on the atom; a cluster carries its Wade charge as a
             #   fragment charge only (no per-atom charges on the cage)
             qat.update({x: 1 for x in joint.carbenium if x in cs})
-            if key in joint.cluster_q:
-                qat = dict.fromkeys(comp, 0)
-                qL = int(joint.cluster_q[key])
-            else:
-                qL = sum(qat.values())
+            # a cage atom carries no charge of its own; the cage's Wade charge joins the rest
+            qat.update({x: 0 for x in comp if x in joint.cage})
+            qL = sum(qat.values()) + int(joint.cluster_q.get(key, 0))
         else:
             qL = round(frag_charge_or_eht(G, el, cls, cs, q_eht, orders, w, frag_q, set(coord),
                                           three_c_leg))
