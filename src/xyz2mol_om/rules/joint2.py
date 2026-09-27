@@ -489,7 +489,13 @@ class _Build:
             if not JOINTCHAINQ or any(el[x] == "B" for x in atoms):
                 continue
             chg, const = {}, 0
+            # an atom that also has a sigma bond to another metal carries that bond's charge
+            #   (the acetylide C(-) of a mu-eta2,sigma1 bridge): it is not counted here
+            sig_other = {x for m2, x in topo.ml_pred if m2 != _m and x in atoms
+                         and not any(x in a2 for mm, a2, _b2 in topo.groups if mm == m2)}
             for x in atoms:
+                if x in sig_other:
+                    continue
                 if x in self.lvl:
                     for c, _k, q, _cat, rad in self.lvl[x]:
                         if abs(q) > 1e-9 or rad:
