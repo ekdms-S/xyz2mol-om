@@ -13,6 +13,7 @@ The MILP pieces (`_Model`, `order_scores`, `q_atom` levels, OS prior) are shared
 
 from __future__ import annotations
 
+import collections
 from dataclasses import dataclass, field
 
 import networkx as nx
@@ -34,6 +35,7 @@ class Topology:
     groups: list = field(default_factory=list)    # [(metal, atoms, internal bonds)] haptic candidates
     rings: list = field(default_factory=list)           # [(atoms, "cat" | "an", count)] Hückel carbocycles
     far_dropped: list = field(default_factory=list)     # far M···X contacts left out (`far_contacts`)
+    xyz: object = None                                  # coordinates (geometry-gated rules)
 
 
 def _pi_capable(el, G, x):
@@ -91,6 +93,7 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
     ml_pred = [p for p in ml_pred if p not in far]
     topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond)
     topo.far_dropped = sorted(far)
+    topo.xyz = xyz
     cage = set()
     for comp in nx.connected_components(G):
         # a boron cage: a fragment with boron and a non-H atom past its CAP (a B–H–B bridge's H
@@ -129,6 +132,7 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
 # ═══ the MILP ═════════════════════════════════════════════════════════════════════════════════
 
 QLIG = range(-8, 5)          # ligand charges a fragment may take
+LIGSYM_TOL = 0.03            # Å — two same-graph ligands count as the same when every bond agrees
 
 
 def wade_charges(n_b, n_c, extra_h):
@@ -592,8 +596,27 @@ class _Build:
                 nx.set_node_attributes(sub, {x: el[x] for x in comp}, "el")
                 by_hash.setdefault(nx.weisfeiler_lehman_graph_hash(sub, node_attr="el"),
                                    []).append(key)
+            def lengths(key):   # internal bond lengths, sorted within each element pair
+                comp = next(c for c in self.frags if c[0] == key)
+                out = collections.defaultdict(list)
+                for a, b in G.subgraph(comp).edges:
+                    if el[a] != "H" and el[b] != "H":
+                        out[tuple(sorted((el[a], el[b])))].append(
+                            float(np.linalg.norm(topo.xyz[a] - topo.xyz[b])))
+                return {k: sorted(v) for k, v in out.items()}
+
+            def same_geometry(ka, kb):
+                # only ligands the xyz also shows as the same (every bond within LIGSYM_TOL) are
+                #   held to the same charge — a ligand whose bonds really differ keeps its own
+                if topo.xyz is None:
+                    return True
+                la, lb = lengths(ka), lengths(kb)
+                return la.keys() == lb.keys() and all(
+                    abs(x - y) <= LIGSYM_TOL for k in la for x, y in zip(la[k], lb[k]))
             for keys in by_hash.values():
                 for ka, kb in zip(keys, keys[1:]):
+                    if not same_geometry(ka, kb):
+                        continue
                     d = M.var(cost=JOINTLIGSYM, lb=0.0, ub=20.0, integer=False)
                     for sgn in (1, -1):
                         r = {d: 1}
