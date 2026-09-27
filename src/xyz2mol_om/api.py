@@ -165,6 +165,18 @@ def build_topology(el, xyz, wbo=None, dint=None):
     #      `config.centers`. `docs/PIPELINE.md`.
     cen = centers(el)
     idx = [i for i in range(len(el)) if i not in cen]
+    # a pair with no fitted cutoff (Te–Si, …): the covalent-radius sum times the median
+    #   (fitted cutoff / radius sum) of the pairs that have one — not the single global `d_fb`
+    _rat = [v / (RCOV[p] + RCOV[q]) for (p, q), v in d_int.items() if p in RCOV and q in RCOV]
+    _ratio = float(np.median(_rat)) if _rat else None
+
+    def _cut(ea, eb):
+        k = tuple(sorted((ea, eb)))
+        if k in d_int:
+            return d_int[k]
+        if _ratio and ea in RCOV and eb in RCOV:
+            return _ratio * (RCOV[ea] + RCOV[eb])
+        return d_fb
     G = nx.Graph()
     G.add_nodes_from(idx)
     for ii in range(len(idx)):
@@ -181,7 +193,7 @@ def build_topology(el, xyz, wbo=None, dint=None):
             d_ab = float(np.linalg.norm(xyz[a] - xyz[b]))
             if d_ab > 1.8 * (RCOV.get(el[a], 1.0) + RCOV.get(el[b], 1.0)):
                 continue
-            if d_ab < d_int.get(tuple(sorted((el[a], el[b]))), d_fb):
+            if d_ab < _cut(el[a], el[b]):
                 G.add_edge(a, b)
 
     # ★ **diborane** — drop a `B–B` that two hydrogen bridges already account for.

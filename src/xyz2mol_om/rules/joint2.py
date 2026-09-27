@@ -203,6 +203,19 @@ def _pi_chains(topo, el, sc):
         keep = {x for e in pb for x in e}
         sub = nx.Graph(pb)
         for comp in sorted(nx.connected_components(sub), key=min):
+            # an end atom whose bond into a 3+ chain reads Single (no pi between them — the S of a
+            #   dithiolene) is a sigma donor, not part of the haptic chain
+            comp = set(comp)
+            trimmed = True
+            while trimmed and len(comp) >= 3:
+                trimmed = False
+                for x in sorted(comp):
+                    nb = [y for y in sub[x] if y in comp]
+                    e = (min(x, nb[0]), max(x, nb[0])) if len(nb) == 1 else None
+                    if e and sc.get(e) and max(sc[e], key=sc[e].get) == 0:
+                        comp.discard(x)
+                        trimmed = True
+                        break
             if len(comp) >= 2 and comp <= keep:
                 groups.append((m, tuple(sorted(comp)),
                                sorted(e for e in bonds if e[0] in comp and e[1] in comp)))
