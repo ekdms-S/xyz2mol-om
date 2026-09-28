@@ -164,8 +164,10 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
 QLIG = range(-8, 5)          # ligand charges a fragment may take
 LIGSYM_TOL = 0.03            # Å — two same-graph ligands count as the same when every bond agrees
 SP_LINEAR = 150.0            # degrees — an atom with two pi bonds (C=C=C, a triple) is sp and straight;
-#                              a two-neighbour atom bent below this takes at most one (atoms of a
-#                              haptic unit are exempt: back-bonding bends a coordinated alkyne)
+#                              a two-neighbour atom bent below this is not the middle of C=C=C, and holds
+#                              a triple bond only to a terminal atom (the C of a bent M–C≡N–R, whose one
+#                              neighbour leaves it no other way). Atoms of a haptic unit are exempt
+#                              (back-bonding bends a coordinated alkyne)
 ETA2_PARTNER = 90.0          # degrees — M–X–Y below this puts the metal over the X–Y pi bond
 #                              (the gate for a weak contact; a firm one is offered its partner at any angle)
 PARTNER_REACH = 1.25         # × the T4 cutoff — how far that partner may sit (ORBIT's optional band)
@@ -472,8 +474,7 @@ class _Build:
                     kmax = min(kmax, max(4 - deg, 0))
                 # a bent atom holds one pi bond, not C=C=C or a triple — unless it is pi-bound to a
                 #   metal (an eta2 alkyne or allene bends back by back-bonding)
-                if deg == 2 and x not in grp_of and topo.xyz is not None and _bent(topo.xyz, G, x):
-                    kmax = min(kmax, 1)
+                bent = deg == 2 and x not in grp_of and topo.xyz is not None and _bent(topo.xyz, G, x)
                 levels = []
                 for k in range(kmax + 1):
                     q0 = qfun(x, deg + k)
@@ -545,6 +546,16 @@ class _Build:
                                 M.row({c: 1, self.hcol[grp_of[x]]: -1}, -float("inf"), 0)
                             else:
                                 M.row({c: 1}, -float("inf"), 0)
+                if bent:
+                    # at most one multiple bond (no C=C=C at a bent atom), and a triple bond only to a
+                    #   terminal atom (one whose only neighbour is x: the C of M–C≡N–R)
+                    mult = [self.ycol[(e, o)] for e in inc.get(x, ()) for o in (2, 3) if (e, o) in self.ycol]
+                    if len(mult) > 1:
+                        M.row(dict.fromkeys(mult, 1), -float("inf"), 1)
+                    for e in inc.get(x, ()):
+                        y = e[0] if e[1] == x else e[1]
+                        if (e, 3) in self.ycol and G.degree(y) != 1:
+                            M.row({self.ycol[(e, 3)]: 1}, 0, 0)
                 M.row({c: 1 for c, *_ in cols}, 1, 1)
                 r = {}
                 for c, k, *_ in cols:
