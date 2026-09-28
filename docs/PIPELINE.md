@@ -133,7 +133,7 @@ detector   solve the program once without the lone-pair rule, every atom read as
 flagged    contacted atoms left with no lone pair there, except those that have one once a
            double bond to or at P · As · S · Se · Te is read charge-separated (ylide, phosphinito)
 firm       Mayer w(M,X) ≥ JOINTCUTW = 0.30   OR   d(M,X) ≤ JOINTCUTD = 0.90 × d_bond(M,X)
-cuttable   flagged and not firm
+cuttable   flagged and not firm   (every flagged atom with `predict(firm_contacts=False)`)
 ```
 
 **η² partner.** A flagged atom X outside every haptic unit takes a neighbour Y as an η² unit with the
@@ -314,6 +314,7 @@ The CSD reference labels themselves violate on about 0.4% of structures.
 | `JOINTCHAINW` | 1.0 | charged atom off a haptic unit's count, × λ |
 | `JOINTCUT` | 0.05 | reading a contact as no bond, × λ |
 | `JOINTCUTW` · `JOINTCUTD` | 0.30 · 0.90 | a contact is firm (never cut) at this Mayer, or within this × `d_bond` |
+| `JOINTFIRM` | on | whether firm contacts are kept out of the cut (the default of `predict(firm_contacts=...)`) |
 | `PARTNER_REACH` · η² angle | 1.25 · 90° | η² partner reach (× `d_bond`) · angle for a cuttable contact |
 | `SP_LINEAR` | 150° | below this a two-neighbour atom is bent |
 | `JOINTOSW` | 0.1 | OS prior weight |

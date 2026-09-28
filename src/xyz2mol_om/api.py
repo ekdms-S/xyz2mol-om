@@ -298,7 +298,7 @@ def _molecule_of(el, cls, ml_pred, mm):
 
 
 def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=None,
-            complex_atom_map=False, n_unpaired=0):
+            complex_atom_map=False, n_unpaired=0, firm_contacts=None):
     """`xyz` → bonds · orders · charges · oxidation states. See the module docstring for the
     arguments and the return value."""
     _n = n_unpaired
@@ -341,7 +341,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     topo = joint2.topology(el, xyz, wbo, G=G, ml_raw=ml_raw, dbond=dbond, cen=cen, c1g=c1g)
     _mls = ml_order_scores(el, topo.ml_pred, wbo) if wbo else None
     joint = joint2.solve(topo, el, sc_j, q_total=total_charge, n_unpaired=n_unpaired,
-                         ml_scores=_mls, sc_conj=_sc_conj)
+                         ml_scores=_mls, sc_conj=_sc_conj, firm_contacts=firm_contacts)
     if joint.best is None:
         raise RuntimeError(f"joint solve returned no answer: status={joint.status!r}, "
                            f"q_status={joint.q_status!r}")

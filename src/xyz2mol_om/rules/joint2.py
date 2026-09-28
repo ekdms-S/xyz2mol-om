@@ -1123,9 +1123,11 @@ def _eta2_partners(topo, el, sc, flagged, cuttable=frozenset()):
 
 
 def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None, K=None,
-          lam=None, sc_conj=None):
-    """The v2 joint solve. See the module docstring and `dev/docs/plans/2026-09-27-joint-v2.md`."""
-    from ..config import JOINT_MAX, JOINT_TIME, JOINTCONJEPS, JOINTK, JOINTLOWQ, JOINTQ, JOINTTIE
+          lam=None, sc_conj=None, firm_contacts=None):
+    """The v2 joint solve. See the module docstring and `dev/docs/plans/2026-09-27-joint-v2.md`.
+    `firm_contacts` — keep contacts firm by T4's own evidence out of the cut (`config.JOINTFIRM`
+    when None)."""
+    from ..config import JOINT_MAX, JOINT_TIME, JOINTCONJEPS, JOINTFIRM, JOINTK, JOINTLOWQ, JOINTQ, JOINTTIE
 
     try:
         import scipy.optimize  # noqa: F401
@@ -1151,7 +1153,8 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
             flagged = frozenset(x for x in _validate(el, topo, c0, qfun)
                                 if not _pair_by_charge_separation(el, topo.G, c0, x, qfun))
             # a contact firm by T4's own evidence (distance, Mayer) keeps T4's call: not cut
-            cuttable = frozenset(x for x in flagged if not _firm(topo, el, x))
+            guard = JOINTFIRM if firm_contacts is None else firm_contacts
+            cuttable = frozenset(x for x in flagged if not (guard and _firm(topo, el, x)))
     # ★ a contact with no pair to give whose pi neighbour sits near the metal: that neighbour joins
     #   as an eta2 partner. Beside a weak contact (over the metal) it is a unit like any T4 pair;
     #   beside a firm one it is only offered (the solve weighs eta2 against a sigma bond). It is

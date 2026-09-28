@@ -13,7 +13,9 @@ It is built to handle organometallics as well, hence the `-om` in the name.
 | `scipy` | ≥ 1.9 | the integer program (HiGHS, `scipy.optimize.milp`) |
 | (optional) `matplotlib` | ≥ 3.5 | `draw()` — the 2D figure. Not needed for `predict` |
 
-Python ≥ 3.10. Validated on Python 3.13.5 · rdkit 2025.09.6 · numpy 2.1.3 · networkx 3.4.2 · scipy 1.15.3.
+Python ≥ 3.10. The performance numbers below were measured on Python 3.11.15 · rdkit 2025.09.5 ·
+numpy 2.4.6 · networkx 3.6.1 · scipy 1.17.1. With scipy 1.15.3 the program finds no solution for 3
+of the 6,396 holdout structures (`predict` raises).
 
 ```bash
 conda install -c conda-forge rdkit numpy networkx scipy    # or pip install rdkit numpy networkx scipy
@@ -38,6 +40,7 @@ r = predict(elements, coords, total_charge=-1, wbo=wbo)
 | `total_charge` | total charge of the complex. Without it, oxidation states and the complex SMILES are not produced |
 | `wbo` | `{(metal idx, atom idx): Mayer bond order}` — output of xtb GFN2 `--sp --wbo` |
 | `n_unpaired` | number of unpaired electrons (default `0`). Pass `multiplicity − 1` |
+| `firm_contacts` | `True` (default, or the `JOINTFIRM` environment variable): a metal contact that is firm by its own evidence — Mayer ≥ 0.30, or within 0.9 × the contact cutoff — is never read as no bond (it stays σ, or η² with its π neighbour). `False`: such a contact may also be read as no bond when the ligand's geometry leaves its donor no lone pair (useful on transition-state-like geometries, where a π carbon sits close to the metal) |
 
 **How it decides.** Distances (and Mayer bond orders for the metal contacts) give the topology —
 which atoms are bonded, which contacts are haptic, which fragments are boron cages. Then **one

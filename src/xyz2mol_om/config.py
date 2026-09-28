@@ -199,6 +199,10 @@ JOINTCUT = float(os.environ.get("JOINTCUT", "0.05"))
 #   label leaves out); the distance is set at 0.9 of the cutoff (owner decision).
 JOINTCUTW = float(os.environ.get("JOINTCUTW", "0.30"))
 JOINTCUTD = float(os.environ.get("JOINTCUTD", "0.90"))
+# `JOINTFIRM` — whether that guard applies (the default for `predict(firm_contacts=...)`). Off, a
+#   firm contact whose donor has no pair to give is offered the cut like a weak one, and its η²
+#   partner needs the metal over the bond (below 90°). Default on.
+JOINTFIRM = os.environ.get("JOINTFIRM", "1") == "1"
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,
