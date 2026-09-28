@@ -159,6 +159,20 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
 
 QLIG = range(-8, 5)          # ligand charges a fragment may take
 LIGSYM_TOL = 0.03            # Å — two same-graph ligands count as the same when every bond agrees
+SP_LINEAR = 150.0            # degrees — an atom with two pi bonds (C=C=C, a triple) is sp and straight;
+#                              a two-neighbour atom bent below this takes at most one
+EXPANDED = frozenset({"P", "As", "Sb", "S", "Se", "Te"})   # a double bond to or at one of these is
+#                              also its charge-separated single bond (P(+)–C(-), P(+)–O(-), S(+)–O(-))
+
+
+def _bent(xyz, G, x):
+    """Is the two-neighbour atom `x` bent below `SP_LINEAR`?"""
+    a, b = list(G[x])
+    u, v = np.asarray(xyz[a], float) - np.asarray(xyz[x], float), np.asarray(xyz[b], float) - np.asarray(xyz[x], float)
+    nu, nv = np.linalg.norm(u), np.linalg.norm(v)
+    if nu == 0 or nv == 0:
+        return False
+    return float(np.degrees(np.arccos(np.clip(u @ v / nu / nv, -1, 1)))) < SP_LINEAR
 
 
 def wade_charges(n_b, n_c, extra_h):
@@ -432,6 +446,8 @@ class _Build:
                 kmax = min(sum(w for _c, w in ex), max(CAP.get(el[x], 4) - deg, 0))
                 if fc_bounds and el[x] in PERIOD2:
                     kmax = min(kmax, max(4 - deg, 0))
+                if deg == 2 and topo.xyz is not None and _bent(topo.xyz, G, x):
+                    kmax = min(kmax, 1)   # a bent atom holds one pi bond, not C=C=C or a triple
                 levels = []
                 for k in range(kmax + 1):
                     q0 = qfun(x, deg + k)
@@ -871,6 +887,23 @@ def _btag(el, topo, cand):
     return bridge_tags(el, topo.G, ml, cls, _hap_set(topo, cand.h))
 
 
+def _pair_by_charge_separation(el, G, cand, x, qfun):
+    """Does `x` have a pair to give once its double bonds to or at an `EXPANDED` atom are read as
+    their charge-separated single bonds (ylide carbon P(+)–C(-), phosphinito P–O(-), sulfinate)?"""
+    from .joint import PERIOD2
+
+    dbl = [y for y in G[x] if cand.orders.get((min(x, y), max(x, y)), 1) >= 2
+           and (el[y] in EXPANDED or el[x] in EXPANDED)]
+    if not dbl:
+        return False
+    deg = G.degree(x)
+    b = sum(cand.orders.get((min(x, y), max(x, y)), 1) for y in G[x])
+    b -= sum(cand.orders[(min(x, y), max(x, y))] - 1 for y in dbl)
+    if el[x] in PERIOD2 and b > 3:
+        return False
+    return _lone_pairs(el, x, deg, (b - deg, qfun(x, b), False, False)) >= 1
+
+
 def _validate(el, topo, cand, qfun):
     """V1 — every sigma donor (h = 0 group atoms included, 3c2e bridges not) can still bond: at
     least one lone pair, and a period-2 atom at most 3 in bond-order sum. Returns failing atoms."""
@@ -1008,7 +1041,9 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     if not det.infeasible and len(det.M.cost) <= JOINT_MAX:
         sol0 = det.M.solve()
         if sol0 is not None:
-            cuttable = frozenset(_validate(el, topo, det.decode(*sol0), qfun))
+            c0 = det.decode(*sol0)
+            cuttable = frozenset(x for x in _validate(el, topo, c0, qfun)
+                                 if not _pair_by_charge_separation(el, topo.G, c0, x, qfun))
 
     def attempt(relax, qt):
         b = _Build(topo, el, sc, qfun, lam, relax, qt, n_unpaired, metals, cuttable=cuttable)
