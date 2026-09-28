@@ -28,3 +28,7 @@ run.out
 # It now lives in `dev/tests/` (2026-09-15), which `/dev/` above already covers; its last
 # tracked state here is commit 75f7b57. This entry keeps a re-created root suite out.
 /tests/
+
+# agent working rules — the body lives in the private `dev/CLAUDE.md`; this root file only
+# imports it and is not part of the published package.
+/CLAUDE.md
