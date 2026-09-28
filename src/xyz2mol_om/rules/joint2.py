@@ -39,6 +39,7 @@ class Topology:
     far_dropped: list = field(default_factory=list)     # far M···X contacts left out (`far_contacts`)
     xyz: object = None                                  # coordinates (geometry-gated rules)
     c1g: tuple | None = None                            # T4 fallback ratios (M–L, M–M) for unfitted pairs
+    wbo: dict | None = None                             # Mayer bond indices {(metal, atom): w}, when given
 
 
 def _pi_capable(el, G, x):
@@ -118,7 +119,7 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
     #   holdout 67 of them, 63 not bonds in the CSD, and keeping them never helped
     far = far_contacts(xyz, G, ml_pred)
     ml_pred = [p for p in ml_pred if p not in far]
-    topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond, c1g=c1g)
+    topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond, c1g=c1g, wbo=wbo or None)
     topo.far_dropped = sorted(far)
     topo.xyz = xyz
     cage = set()
@@ -1052,15 +1053,33 @@ def _cutoff(topo, ea, eb):
     return _dbond_fallback(ea, eb, topo.c1g, eb in topo.cen)
 
 
-def _eta2_partners(topo, el, sc, cuttable):
-    """[(metal, x, y)] — a contact `x` the detector finds with no pair to give (it would be cut)
-    and not in a haptic group, whose pi neighbour `y` lies on the metal's side: the metal over the
+def _firm(topo, el, x):
+    """Is a contact of `x` firm by T4's own evidence — Mayer at or above JOINTCUTW, or nearer than
+    JOINTCUTD × the T4 cutoff? Such a contact keeps T4's call: it is not offered the cut."""
+    from ..config import JOINTCUTD, JOINTCUTW
+
+    for m, xx in topo.ml_pred:
+        if xx != x:
+            continue
+        w = (topo.wbo or {}).get((m, x))
+        if w is not None and w >= JOINTCUTW:
+            return True
+        cut = _cutoff(topo, el[m], el[x])
+        if topo.xyz is not None and cut is not None and \
+                float(np.linalg.norm(topo.xyz[m] - topo.xyz[x])) < JOINTCUTD * cut:
+            return True
+    return False
+
+
+def _eta2_partners(topo, el, sc, flagged):
+    """[(metal, x, y)] — a contact `x` the detector finds with no pair to give (cut, or kept as
+    firm) and not in a haptic group, whose pi neighbour `y` lies on the metal's side: the metal over the
     x–y bond (M–x–y below ETA2_PARTNER) and `y` within PARTNER_REACH of the T4 cutoff. T4 missed
     `y` (a slipped eta2 just past the cutoff, or held back by the Mayer veto); the pair is offered
     to the solve as an eta2 unit instead of a cut. The nearest-angle neighbour when there are two."""
     from .joint import order_scores
 
-    if topo.xyz is None or not cuttable:
+    if topo.xyz is None or not flagged:
         return []
     X = topo.xyz
     G = topo.G
@@ -1068,7 +1087,7 @@ def _eta2_partners(topo, el, sc, cuttable):
     pairs = set(topo.ml_pred)
     out = []
     for m, x in topo.ml_pred:
-        if x not in cuttable or x in grouped or x not in G:
+        if x not in flagged or x in grouped or x not in G:
             continue
         best = None
         for y in G[x]:
@@ -1108,17 +1127,20 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     #   atoms); a contacted atom left with no pair to give is a contact the ligand's own geometry
     #   does not support as a donation. Only those get the choice to be read as no bond in the
     #   solve below (the others stay bonds).
-    cuttable = frozenset()
+    cuttable = flagged = frozenset()
     det = _Build(topo, el, sc, qfun, lam, set(), q_total, n_unpaired, metals, v1=False, free_read=True)
     if not det.infeasible and len(det.M.cost) <= JOINT_MAX:
         sol0 = det.M.solve()
         if sol0 is not None:
             c0 = det.decode(*sol0)
-            cuttable = frozenset(x for x in _validate(el, topo, c0, qfun)
-                                 if not _pair_by_charge_separation(el, topo.G, c0, x, qfun))
-    # ★ a would-be cut whose pi neighbour sits over the metal: that neighbour joins as an eta2
-    #   partner (a unit like any T4 pair). It is cuttable too — with the unit off it is only a contact
-    partners = _eta2_partners(topo, el, sc, cuttable)
+            flagged = frozenset(x for x in _validate(el, topo, c0, qfun)
+                                if not _pair_by_charge_separation(el, topo.G, c0, x, qfun))
+            # a contact firm by T4's own evidence (distance, Mayer) keeps T4's call: not cut
+            cuttable = frozenset(x for x in flagged if not _firm(topo, el, x))
+    # ★ a contact with no pair to give (cut or firm) whose pi neighbour sits over the metal: that
+    #   neighbour joins as an eta2 partner (a unit like any T4 pair). It is cuttable too — with the
+    #   unit off it is only a contact
+    partners = _eta2_partners(topo, el, sc, flagged)
     if partners:
         from dataclasses import replace
         topo = replace(topo, ml_pred=topo.ml_pred + [(m, y) for m, _x, y in partners],
