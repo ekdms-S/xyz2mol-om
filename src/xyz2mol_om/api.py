@@ -352,7 +352,7 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
         sc_j = joint2.bond_scores_joint(el, xyz, G, sc4)
         _sc_conj = bond_scores(el, xyz, G, sc4)
 
-        topo = joint2.topology(el, xyz, wbo, G=G, ml_raw=ml_raw, dbond=dbond, cen=cen)
+        topo = joint2.topology(el, xyz, wbo, G=G, ml_raw=ml_raw, dbond=dbond, cen=cen, c1g=c1g)
         _mls = ml_order_scores(el, topo.ml_pred, wbo) if wbo else None
         joint = joint2.solve(topo, el, sc_j, q_total=total_charge, n_unpaired=n_unpaired,
                              ml_scores=_mls, sc_conj=_sc_conj)
@@ -362,8 +362,9 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   `CAPINESS` penalty is folded into `w`. Only the π-suppression report reads it.
     w_raw = {}
     if joint_ok:
-        # a contact the solve read as no bond (`joint.cut`) is not an M–L bond of the output
-        ml_pred, hap = [p for p in topo.ml_pred if p not in joint.cut], set(joint.hap)
+        # the contacts the solve ran on (T4 and the eta2 partners it added); one it read as no bond
+        #   (`joint.cut`) is not an M–L bond of the output
+        ml_pred, hap = [p for p in joint.ml_pred if p not in joint.cut], set(joint.hap)
         cls = {e: (3 if e in joint.conj else o - 1) for e, o in joint.orders.items()}
         mlout = {k: o - 1 for k, o in joint.ml_orders.items()}
         btag = bridge_tags(el, G, ml_pred, {e: o - 1 for e, o in joint.orders.items()}, hap)
@@ -949,5 +950,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                         "ranking": joint.ranking, "v1_skipped": list(joint.v1_skipped),
                         "far_dropped": [list(p) for p in topo.far_dropped] if joint_ok else [],
                         "cut": sorted(list(p) for p in joint.cut) if joint_ok else [],
+                        "eta2_partner": sorted(list(p) for p in joint.partners) if joint_ok else [],
                         "v1_failed": list(joint.best.failed) if joint.best else []}
     return out

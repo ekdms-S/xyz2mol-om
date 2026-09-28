@@ -38,6 +38,7 @@ class Topology:
     rings: list = field(default_factory=list)           # [(atoms, "cat" | "an", count)] Hückel carbocycles
     far_dropped: list = field(default_factory=list)     # far M···X contacts left out (`far_contacts`)
     xyz: object = None                                  # coordinates (geometry-gated rules)
+    c1g: tuple | None = None                            # T4 fallback ratios (M–L, M–M) for unfitted pairs
 
 
 def _pi_capable(el, G, x):
@@ -100,14 +101,14 @@ def _drop_no_pair(el, xyz, G, ml):
     return keep
 
 
-def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None):
+def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None, c1g=None):
     """Step 1 of JOINT v2 — topology only (see the module docstring)."""
     from ..api import build_topology
     from .pipeline import drop_agostic, drop_agostic_carbon, drop_bound_halide, drop_saturated
 
     xyz = np.asarray(xyz, dtype=float)
     if G is None:
-        G, ml_raw, dbond, _c1g, cen = build_topology(el, xyz, wbo, dint)
+        G, ml_raw, dbond, c1g, cen = build_topology(el, xyz, wbo, dint)
     ml_pred = drop_bound_halide(
         el, G, drop_saturated(el, G, drop_agostic_carbon(
             el, xyz, G, drop_agostic(el, G, ml_raw))), wbo)
@@ -117,7 +118,7 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
     #   holdout 67 of them, 63 not bonds in the CSD, and keeping them never helped
     far = far_contacts(xyz, G, ml_pred)
     ml_pred = [p for p in ml_pred if p not in far]
-    topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond)
+    topo = Topology(G=G, ml_pred=ml_pred, cen=set(cen), dbond=dbond, c1g=c1g)
     topo.far_dropped = sorted(far)
     topo.xyz = xyz
     cage = set()
@@ -127,7 +128,8 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
         if any(el[x] == "B" for x in comp) and any(
                 el[x] != "H" and G.degree(x) > CAP.get(el[x], 4) for x in comp):
             topo.clusters.add(min(comp))
-            cage |= set(comp)
+            # the vertices and their H only: a Cp ring bonded to a cage carbon is still a pi ring
+            cage |= cage_atoms(el, G, comp, ml_pred)
     # haptic groups: the atoms one metal touches that can be unsaturated, split into connected runs
     by_m = {}
     for m, x in ml_pred:
@@ -162,6 +164,8 @@ LIGSYM_TOL = 0.03            # Å — two same-graph ligands count as the same w
 SP_LINEAR = 150.0            # degrees — an atom with two pi bonds (C=C=C, a triple) is sp and straight;
 #                              a two-neighbour atom bent below this takes at most one (atoms of a
 #                              haptic unit are exempt: back-bonding bends a coordinated alkyne)
+ETA2_PARTNER = 90.0          # degrees — M–X–Y below this puts the metal over the X–Y pi bond
+PARTNER_REACH = 1.25         # × the T4 cutoff — how far that partner may sit (ORBIT's optional band)
 EXPANDED = frozenset({"P", "As", "Sb", "S", "Se", "Te"})   # a double bond to or at one of these is
 #                              also its charge-separated single bond (P(+)–C(-), P(+)–O(-), S(+)–O(-))
 
@@ -187,27 +191,41 @@ def wade_charges(n_b, n_c, extra_h):
     return {"closo": e - (2 * n + 2), "nido": e - (2 * n + 4), "arachno": e - (2 * n + 6)}
 
 
-def _vertices(el, G, comp):
-    """Cage vertices: B, and any other non-H atom with two or more B neighbours (the C of a
-    carborane, the Te of a telluraborane). A carbon on one boron (B–CH3, B–aryl) is exo."""
-    return {x for x in comp if el[x] == "B"
-            or (el[x] != "H" and sum(el[y] == "B" for y in G[x]) >= 2)}
+def _vertices(el, G, comp, ml=()):
+    """Cage vertices: B, and any other non-H atom bonded to a boron and into the cage by two or
+    more vertices (the C of a carborane, the Te of a telluraborane). A metal bonded to two or more
+    vertices is a vertex of the cage too (the Co of a metallacarborane), so a face carbon next to it
+    with one B and one cage C is a vertex. An atom with no boron neighbour is exo — a skeleton atom
+    takes a borane vertex's place and bonds to a boron; a Cp or an allyl chain on the cage carbons
+    that binds the metal vertex does not (VEFMIC). So is a carbon on one vertex (B–CH3, B–aryl).
+    `ml` — the M–L contacts (without them only B neighbours count)."""
+    v = {x for x in comp if el[x] == "B"}
+    metals_of = {}
+    for m, x in ml:
+        metals_of.setdefault(x, set()).add(m)
+    while True:
+        mv = {m for m in {m for m, _x in ml} if sum(1 for mm, x in ml if mm == m and x in v) >= 2}
+        add = {x for x in comp if x not in v and el[x] != "H" and any(el[y] == "B" for y in G[x])
+               and sum(1 for y in G[x] if y in v) + len(metals_of.get(x, set()) & mv) >= 2}
+        if not add:
+            return v
+        v |= add
 
 
-def cage_atoms(el, G, comp):
+def cage_atoms(el, G, comp, ml=()):
     """The cage of a cluster fragment: its vertices and the H on them (terminal or bridging).
     Everything else in the fragment (a thiolate S, a phosphine) is an ordinary ligand atom."""
-    cage = _vertices(el, G, comp)
+    cage = _vertices(el, G, comp, ml)
     return cage | {h for h in comp if el[h] == "H" and any(y in cage for y in G[h])}
 
 
-def _cluster_charges(el, G, comp):
+def _cluster_charges(el, G, comp, ml=()):
     """Wade charge candidates of a cluster fragment and the type its topology says: a closed
     deltahedron has 3n - 6 cage edges (closo); an open face takes a few away (nido, 3n - 9 ..
     3n - 7); fewer is arachno. The others stay as candidates at a cost (a missed B–B bond)."""
     from ..config import VAL
 
-    cage = _vertices(el, G, comp)
+    cage = _vertices(el, G, comp, ml)
     extra_h = 0
     for x in comp:
         if el[x] == "H" and sum(1 for y in G[x] if y in cage) >= 2:
@@ -332,6 +350,8 @@ class JointV2:
     v1_skipped: list = field(default_factory=list)   # contacted atoms no state could keep a pair on
     cage: set = field(default_factory=set)            # cluster cage atoms (Wade charge, none per atom)
     cut: set = field(default_factory=set)             # T4 sigma contacts the chosen answer reads as no bond
+    ml_pred: list = field(default_factory=list)       # the contacts the solve ran on (T4 + eta2 partners)
+    partners: list = field(default_factory=list)      # (metal, atom) contacts added as eta2 partners
 
     # the chosen candidate's pieces, for callers
     @property
@@ -399,14 +419,14 @@ class _Build:
             fixed = set()
             if key in topo.clusters:
                 # the cage takes its Wade charge; atoms outside it are solved as usual
-                cand, pref = _cluster_charges(el, G, set(comp))
+                cand, pref = _cluster_charges(el, G, set(comp), topo.ml_pred)
                 one = {}
                 for kind, qv in cand.items():
                     one[kind] = M.var(cost=0.0 if pref in (None, kind) else 2.0 * lam)
                     q_row[one[kind]] = q_row.get(one[kind], 0.0) + qv
                 M.row(dict.fromkeys(one.values(), 1), 1, 1)
                 self.ccol[key] = (one, cand)
-                fixed = cage_atoms(el, G, comp)
+                fixed = cage_atoms(el, G, comp, topo.ml_pred)
                 self.cage |= fixed
             edges = sorted((min(a, b), max(a, b)) for a, b in G.subgraph(comp).edges
                            if a not in fixed and b not in fixed)
@@ -468,6 +488,9 @@ class _Build:
                     # read as no bond at a small cost, so a contact both readings score the same
                     #   keeps T4's call
                     cutc = self.cutcol[x] = M.var(cost=JOINTCUT * lam)
+                    if x in grp_of:
+                        # a unit that is on (eta-n) needs no pair from its atoms: none of them is cut
+                        M.row({cutc: 1, self.hcol[grp_of[x]]: 1}, -float("inf"), 1)
                 cols, free_only = [], []
                 for k, q, cat, rad in levels:
                     free_ok = not fc_bounds or (not ex and not rad) or _free_ok(q)
@@ -917,7 +940,7 @@ def _validate(el, topo, cand, qfun):
     three_c = {x for x, t in _btag(el, topo, cand).items() if t == "3c2e"}
     bad = []
     cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
-            for x in cage_atoms(el, G, c)}
+            for x in cage_atoms(el, G, c, topo.ml_pred)}
     for x in sorted({x for _m, x in topo.ml_pred} - hap - three_c - cage - cand.cut):
         if el[x] == "B":   # no lone pair to give (boryl, borane): V1 does not apply
             continue
@@ -942,7 +965,7 @@ def _ml_orders(el, topo, cand, qfun, ml_scores):
             by_x.setdefault(x, []).append(m)
     ml_scores = ml_scores or {}
     cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
-            for x in cage_atoms(el, G, c)}
+            for x in cage_atoms(el, G, c, topo.ml_pred)}
     out, cons = {}, None
     for x, ms in by_x.items():
         # a cage atom carries no charge of its own (Wade charge is per fragment)
@@ -971,7 +994,7 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
     G, orders = topo.G, cand.orders
     fixed = {x for x, (_k, _q, cat, rad) in cand.state.items() if cat or rad}
     cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
-            for x in cage_atoms(el, G, c)}
+            for x in cage_atoms(el, G, c, topo.ml_pred)}
 
     def sd(e):
         return orders.get(e) in (1, 2) and el[e[0]] != "H" and el[e[1]] != "H" \
@@ -1019,6 +1042,52 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
     return conj
 
 
+def _cutoff(topo, ea, eb):
+    """The T4 distance cutoff of an element pair (fitted, else the radius-sum fallback)."""
+    if (ea, eb) in topo.dbond:
+        return topo.dbond[(ea, eb)][0]
+    if topo.c1g is None:
+        return None
+    from ..api import _dbond_fallback
+    return _dbond_fallback(ea, eb, topo.c1g, eb in topo.cen)
+
+
+def _eta2_partners(topo, el, sc, cuttable):
+    """[(metal, x, y)] — a contact `x` the detector finds with no pair to give (it would be cut)
+    and not in a haptic group, whose pi neighbour `y` lies on the metal's side: the metal over the
+    x–y bond (M–x–y below ETA2_PARTNER) and `y` within PARTNER_REACH of the T4 cutoff. T4 missed
+    `y` (a slipped eta2 just past the cutoff, or held back by the Mayer veto); the pair is offered
+    to the solve as an eta2 unit instead of a cut. The nearest-angle neighbour when there are two."""
+    from .joint import order_scores
+
+    if topo.xyz is None or not cuttable:
+        return []
+    X = topo.xyz
+    G = topo.G
+    grouped = {x for _m, atoms, _b in topo.groups for x in atoms}
+    pairs = set(topo.ml_pred)
+    out = []
+    for m, x in topo.ml_pred:
+        if x not in cuttable or x in grouped or x not in G:
+            continue
+        best = None
+        for y in G[x]:
+            if el[y] == "H" or (m, y) in pairs or y in grouped or not _pi_capable(el, G, y):
+                continue
+            s = order_scores(sc.get((min(x, y), max(x, y)), {}))
+            cut = _cutoff(topo, el[m], el[y])
+            if (s[2] is None and s[3] is None) or cut is None:
+                continue
+            u, v = X[m] - X[x], X[y] - X[x]
+            a = float(np.degrees(np.arccos(np.clip(u @ v / np.linalg.norm(u) / np.linalg.norm(v), -1, 1))))
+            if a < ETA2_PARTNER and float(np.linalg.norm(X[m] - X[y])) < PARTNER_REACH * cut \
+                    and (best is None or a < best[0]):
+                best = (a, y)
+        if best:
+            out.append((m, x, best[1]))
+    return out
+
+
 def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None, K=None,
           lam=None, sc_conj=None):
     """The v2 joint solve. See the module docstring and `dev/docs/plans/2026-09-27-joint-v2.md`."""
@@ -1047,6 +1116,15 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
             c0 = det.decode(*sol0)
             cuttable = frozenset(x for x in _validate(el, topo, c0, qfun)
                                  if not _pair_by_charge_separation(el, topo.G, c0, x, qfun))
+    # ★ a would-be cut whose pi neighbour sits over the metal: that neighbour joins as an eta2
+    #   partner (a unit like any T4 pair). It is cuttable too — with the unit off it is only a contact
+    partners = _eta2_partners(topo, el, sc, cuttable)
+    if partners:
+        from dataclasses import replace
+        topo = replace(topo, ml_pred=topo.ml_pred + [(m, y) for m, _x, y in partners],
+                       groups=topo.groups + [(m, tuple(sorted((x, y))), [(min(x, y), max(x, y))])
+                                             for m, x, y in partners])
+        cuttable = cuttable | {y for _m, _x, y in partners}
 
     def attempt(relax, qt):
         b = _Build(topo, el, sc, qfun, lam, relax, qt, n_unpaired, metals, cuttable=cuttable)
@@ -1076,6 +1154,8 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     status = "relaxed_fc" if relax else "optimal"
 
     res = JointV2(status=status, q_status=q_status)
+    res.ml_pred = list(topo.ml_pred)
+    res.partners = [(m, y) for m, _x, y in partners]
     res.v1_skipped = list(build.v1_skipped)
     res.cage = set(build.cage)
     cands, sol = [], first
