@@ -322,14 +322,13 @@ JOINTLOWQ = float(os.environ.get("JOINTLOWQ", "0.3"))
 JOINTCUT = float(os.environ.get("JOINTCUT", "0.05"))
 
 # `JOINTCUTW` · `JOINTCUTD` — a contact is offered the cut only while T4's own evidence for it is
-#   weak: Mayer below JOINTCUTW and distance at or above JOINTCUTD × the T4 cutoff. Either firm
-#   (Mayer >= 0.30, or nearer than 0.88 × cutoff) keeps T4's call — the ligand having no pair to
-#   give does not overturn it. Both are the edge of the not-bonded contacts among those JOINT cut
-#   on train (label-suspect structures out): 13 of 14 not-bonded cuts had Mayer <= 0.26 and
-#   distance >= 0.88 (the 14th, UNEBIA La–N 2.06 Å, is a bond the label leaves out); 29 of the 39
-#   bonded cuts are firm by one of them.
+#   weak: Mayer below JOINTCUTW and distance at or above JOINTCUTD × (r_M + r_X) (covalent radii,
+#   `RCOV`). Either firm keeps T4's call — the ligand having no pair to give does not overturn it.
+#   Mayer 0.30 is the edge of the not-bonded contacts among those JOINT cut on train (13 of 14 at
+#   <= 0.26); the distance is the usual covalent-radius rule of thumb at its short end (1.1), not a
+#   value fitted to those contacts — on train it also keeps 9 of the 14 not-bonded ones as bonds.
 JOINTCUTW = float(os.environ.get("JOINTCUTW", "0.30"))
-JOINTCUTD = float(os.environ.get("JOINTCUTD", "0.88"))
+JOINTCUTD = float(os.environ.get("JOINTCUTD", "1.10"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,

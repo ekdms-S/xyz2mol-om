@@ -1055,8 +1055,8 @@ def _cutoff(topo, ea, eb):
 
 def _firm(topo, el, x):
     """Is a contact of `x` firm by T4's own evidence — Mayer at or above JOINTCUTW, or nearer than
-    JOINTCUTD × the T4 cutoff? Such a contact keeps T4's call: it is not offered the cut."""
-    from ..config import JOINTCUTD, JOINTCUTW
+    JOINTCUTD × (r_M + r_X)? Such a contact keeps T4's call: it is not offered the cut."""
+    from ..config import JOINTCUTD, JOINTCUTW, RCOV
 
     for m, xx in topo.ml_pred:
         if xx != x:
@@ -1064,9 +1064,8 @@ def _firm(topo, el, x):
         w = (topo.wbo or {}).get((m, x))
         if w is not None and w >= JOINTCUTW:
             return True
-        cut = _cutoff(topo, el[m], el[x])
-        if topo.xyz is not None and cut is not None and \
-                float(np.linalg.norm(topo.xyz[m] - topo.xyz[x])) < JOINTCUTD * cut:
+        if topo.xyz is not None and float(np.linalg.norm(topo.xyz[m] - topo.xyz[x])) < \
+                JOINTCUTD * (RCOV.get(el[m], 1.6) + RCOV.get(el[x], 1.6)):
             return True
     return False
 
