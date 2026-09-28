@@ -1,5 +1,5 @@
-"""The joint solve (`JOINT=1`) — the ligand-internal bond information of the whole input in one
-MILP (`docs/PIPELINE.md`, "Opt-in: the joint solve").
+"""The joint solve — the ligand-internal bond information of the whole input in one MILP
+(`docs/PIPELINE.md`).
 
     1. topology      T1 · T4 · clusters · haptic units · Hückel carbocycles      (`topology`)
     2. one MILP      bond orders · bond-order-sum state per atom · haptic h per unit · OS ·
@@ -389,7 +389,7 @@ class _Build:
         solve, the ligand as its own geometry has it; `cuttable` — contacted atoms that may be read as no bond (a "cut" column:
         bonded, the atom is a donor held to V1 and free of the charge range and penalty; cut, it is
         an ordinary atom)."""
-        from ..config import (FULL, JOINTADJ, JOINTCUT, JOINTLIGSYM, JOINTCHAINW, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM,
+        from ..config import (JOINTADJ, JOINTCUT, JOINTLIGSYM, JOINTCHAINW, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM,
                               VAL, _GROUP, os_range)
         from .joint import _EN, _FSHELL, PERIOD2, _Model, _radical_delta, order_scores, os_prior_cost
 
@@ -495,7 +495,7 @@ class _Build:
                     if x in grp_of:
                         # a unit that is on (eta-n) needs no pair from its atoms: none of them is cut
                         M.row({cutc: 1, self.hcol[grp_of[x]]: 1}, -float("inf"), 1)
-                cols, free_only = [], []
+                cols = []
                 for k, q, cat, rad in levels:
                     free_ok = not fc_bounds or (not ex and not rad) or _free_ok(q)
                     ok = role == "coord" or free_ok

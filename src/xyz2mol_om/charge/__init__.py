@@ -1,16 +1,6 @@
-"""Formal charge, fragment charge and the Kekule conversion.
+"""Formal charge — the per-atom charge rule, the fragment charge, and the pi-suppression flag."""
 
-`formal` holds the per-atom charge rule, the fragment charge, and `kekulize` (the ⑥ output
-converter); `eht` is the extended-Huckel fragment charge that ⑤ uses as a target.
-"""
+from .formal import b_3c_of, pi_suppressed, q_atom, three_c_legs, three_c_unpaired_edges
 
-from .eht import eht_frag_charges
-from .formal import (abs_charge_sum, atom_bond_sums, b_3c_of, frag_charge, frag_charge_or_eht,
-                     is_cluster_frag, kekulize, octet_fix_period2, pi_suppressed, q_atom,
-                     shift_pi_to_cancel, sigma_ml_blocking_cancel, three_c_legs,
-                     three_c_unpaired_edges)
-
-__all__ = ["q_atom", "frag_charge", "frag_charge_or_eht", "kekulize", "octet_fix_period2", "atom_bond_sums",
-           "is_cluster_frag", "eht_frag_charges", "pi_suppressed",
-           "sigma_ml_blocking_cancel", "abs_charge_sum",
-           "three_c_legs", "three_c_unpaired_edges", "b_3c_of"]
+__all__ = ["q_atom", "pi_suppressed", "three_c_legs", "three_c_unpaired_edges",
+           "b_3c_of"]

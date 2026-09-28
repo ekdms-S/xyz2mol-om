@@ -9,13 +9,13 @@ What is used (decision rules and formulas) and the performance figures are in `d
 """
 
 from .api import all_fragments, all_metals, predict
-from .charge import eht_frag_charges, frag_charge, kekulize, pi_suppressed, q_atom
+from .charge import pi_suppressed, q_atom
 from .config import METALS, METALS_HARD, RCOV
 from .geometry import load_dint, read_xyz
 from .output import (assemble_complex, draw, from_jsonable, ligand_smiles, load_json,
                      projection_axes, save_json, to_jsonable, verify_roundtrip)
 from .rules import (deg_cell, fit_scores4, load_b_ml_mayer, load_scores4, ml_order_scores,
-                    predict_T3_EHT, predict_T8, scores4_meta)
+                    scores4_meta)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -34,19 +34,14 @@ __all__ = [
     # 2D figure from the real geometry (needs matplotlib, an optional dependency)
     "draw",
     "projection_axes",
-    "predict_T3_EHT",
     "load_scores4",
     "scores4_meta",
     "fit_scores4",
     "deg_cell",
     "load_dint",
     "load_b_ml_mayer",
-    "predict_T8",
     "ml_order_scores",
-    "eht_frag_charges",
     "q_atom",
-    "frag_charge",
-    "kekulize",
     "pi_suppressed",
     "ligand_smiles",
     "verify_roundtrip",

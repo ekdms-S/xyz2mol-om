@@ -59,7 +59,7 @@ _SC4_CACHE = None
 
 
 def load_scores4(path=None):
-    """Read the **fit artifact** shipped with the package in the form `predict_T3_EHT` expects.
+    """Read the **fit artifact** shipped with the package in the form `bond_scores` expects.
 
     Returns `{(X, Y): (med, scl, lp, {}, {}, lp_cell)}` — the same 6-tuple as `fit_scores4()`.
     The fit conditions are in the file's `_meta` (train 26,075 · original CSD `bond_type` ·
