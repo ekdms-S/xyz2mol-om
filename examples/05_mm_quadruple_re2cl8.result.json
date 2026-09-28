@@ -276,5 +276,23 @@
    ]
   }
  ],
- "total_charge": -2
+ "total_charge": -2,
+ "joint": {
+  "status": "optimal",
+  "objective": 0.447814337454344,
+  "q_status": "q_ok",
+  "alt_gap": 1.1664162812123349,
+  "alt_os": {
+   "0": 2,
+   "5": 4
+  },
+  "n_candidates": 5,
+  "n_rejected": 0,
+  "ranking": "mayer",
+  "v1_skipped": [],
+  "far_dropped": [],
+  "cut": [],
+  "eta2_partner": [],
+  "v1_failed": []
+ }
 }

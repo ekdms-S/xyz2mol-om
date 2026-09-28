@@ -228,5 +228,20 @@
    ]
   }
  ],
- "total_charge": -1
+ "total_charge": -1,
+ "joint": {
+  "status": "optimal",
+  "objective": -29.73334078711985,
+  "q_status": "q_ok",
+  "alt_gap": null,
+  "alt_os": {},
+  "n_candidates": 1,
+  "n_rejected": 0,
+  "ranking": "milp",
+  "v1_skipped": [],
+  "far_dropped": [],
+  "cut": [],
+  "eta2_partner": [],
+  "v1_failed": []
+ }
 }

@@ -63,11 +63,10 @@
       "1,4": 1,
       "1,5": 1
      },
-     "smiles": "[H][B+:1]([H])([H-:2])[H-:3]",
+     "smiles": "[H][B+]([H])([H-:1])[H-:2]",
      "smiles_ok": true,
      "smiles_note": "",
      "coordinating": [
-      1,
       2,
       3
      ],
@@ -82,11 +81,6 @@
       ]
      ],
      "ml_bonds": {
-      "0,1": {
-       "type": "sigma",
-       "order": 1,
-       "bridge": null
-      },
       "0,2": {
        "type": "bridge",
        "order": 1,
@@ -179,20 +173,20 @@
      "index": 2
     }
    ],
-   "smiles": "[H][C-]([H])([H])->[Ga+3]12(<-[H-][B+]->1([H])([H])[H-]->2)<-[C-]([H])([H])[H]",
+   "smiles": "[H][B+]1([H])[H-]->[Ga+3](<-[H-]1)(<-[C-]([H])([H])[H])<-[C-]([H])([H])[H]",
    "smiles_ok": true,
    "smiles_note": "",
    "atom_order": [
-    7,
+    4,
+    1,
+    5,
+    2,
+    0,
+    3,
     6,
+    7,
     8,
     9,
-    0,
-    2,
-    1,
-    4,
-    5,
-    3,
     10,
     11,
     12,
@@ -200,5 +194,20 @@
    ]
   }
  ],
- "total_charge": 0
+ "total_charge": 0,
+ "joint": {
+  "status": "optimal",
+  "objective": 0.0,
+  "q_status": "q_ok",
+  "alt_gap": null,
+  "alt_os": {},
+  "n_candidates": 1,
+  "n_rejected": 0,
+  "ranking": "milp",
+  "v1_skipped": [],
+  "far_dropped": [],
+  "cut": [],
+  "eta2_partner": [],
+  "v1_failed": []
+ }
 }
