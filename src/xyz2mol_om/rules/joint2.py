@@ -160,7 +160,8 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
 QLIG = range(-8, 5)          # ligand charges a fragment may take
 LIGSYM_TOL = 0.03            # Å — two same-graph ligands count as the same when every bond agrees
 SP_LINEAR = 150.0            # degrees — an atom with two pi bonds (C=C=C, a triple) is sp and straight;
-#                              a two-neighbour atom bent below this takes at most one
+#                              a two-neighbour atom bent below this takes at most one (atoms of a
+#                              haptic unit are exempt: back-bonding bends a coordinated alkyne)
 EXPANDED = frozenset({"P", "As", "Sb", "S", "Se", "Te"})   # a double bond to or at one of these is
 #                              also its charge-separated single bond (P(+)–C(-), P(+)–O(-), S(+)–O(-))
 
@@ -446,8 +447,10 @@ class _Build:
                 kmax = min(sum(w for _c, w in ex), max(CAP.get(el[x], 4) - deg, 0))
                 if fc_bounds and el[x] in PERIOD2:
                     kmax = min(kmax, max(4 - deg, 0))
-                if deg == 2 and topo.xyz is not None and _bent(topo.xyz, G, x):
-                    kmax = min(kmax, 1)   # a bent atom holds one pi bond, not C=C=C or a triple
+                # a bent atom holds one pi bond, not C=C=C or a triple — unless it is pi-bound to a
+                #   metal (an eta2 alkyne or allene bends back by back-bonding)
+                if deg == 2 and x not in grp_of and topo.xyz is not None and _bent(topo.xyz, G, x):
+                    kmax = min(kmax, 1)
                 levels = []
                 for k in range(kmax + 1):
                     q0 = qfun(x, deg + k)
