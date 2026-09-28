@@ -10,11 +10,10 @@ readme = "README.md"
 license = "MIT"
 authors = [{ name = "Daeun Shin", email = "abcd0105@snu.ac.kr" }]
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.23", "networkx>=3.0", "rdkit>=2023.3"]
+dependencies = ["numpy>=1.23", "networkx>=3.0", "rdkit>=2023.3", "scipy>=1.9"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.4"]
-joint = ["scipy>=1.9"]  # the opt-in joint bond-order solve (`JOINT=1`)
 
 [tool.setuptools.packages.find]
 where = ["src"]

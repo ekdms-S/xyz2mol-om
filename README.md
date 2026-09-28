@@ -9,14 +9,14 @@ It is built to handle organometallics as well, hence the `-om` in the name.
 |---|---|---|
 | `numpy` | ≥ 1.23 | coordinates, distances |
 | `networkx` | ≥ 3.0 | graphs, rings, connected components |
-| `rdkit` | ≥ 2023.3 | SMILES · EHT fragment charge (`rdEHTTools`) |
+| `rdkit` | ≥ 2023.3 | SMILES |
+| `scipy` | ≥ 1.9 | the integer program (HiGHS, `scipy.optimize.milp`) |
 | (optional) `matplotlib` | ≥ 3.5 | `draw()` — the 2D figure. Not needed for `predict` |
-| (optional) `scipy` | ≥ 1.9 | the joint solve (`JOINT=1`, below). `pip install -e ".[joint]"` |
 
-Python ≥ 3.10. Validated on Python 3.13.5 · rdkit 2025.09.6 · numpy 2.1.3 · networkx 3.4.2.
+Python ≥ 3.10. Validated on Python 3.13.5 · rdkit 2025.09.6 · numpy 2.1.3 · networkx 3.4.2 · scipy 1.15.3.
 
 ```bash
-conda install -c conda-forge rdkit numpy networkx    # or pip install rdkit numpy networkx
+conda install -c conda-forge rdkit numpy networkx scipy    # or pip install rdkit numpy networkx scipy
 ```
 
 ## Usage
@@ -37,33 +37,34 @@ r = predict(elements, coords, total_charge=-1, wbo=wbo)
 | `coords` | `(n, 3)` coordinates (Å) |
 | `total_charge` | total charge of the complex. Without it, oxidation states and the complex SMILES are not produced |
 | `wbo` | `{(metal idx, atom idx): Mayer bond order}` — output of xtb GFN2 `--sp --wbo` |
-| `n_unpaired` | unpaired electrons, `0` (default) or `1`. Pass `multiplicity − 1`; see [Limits](#-limits) |
+| `n_unpaired` | number of unpaired electrons (default `0`). Pass `multiplicity − 1` |
 
-**Two solvers.** By default the ligand bond orders are decided in stages (conjugation → distance
-likelihood → valence budget → fragment electron count → Kekulé → repairs). With the environment
-variable **`JOINT=1`** (and `scipy`), every ligand bond order, atom charge, haptic reading, metal
-oxidation state and boron-cluster charge is decided together in one integer program under a charge
-balance `Σ q_L + Σ OS = total_charge`, then a few distinct answers are compared. On the holdout set it scores
-at least as high on every task in [Performance](#performance) except `Conj` (−0.002). It is not better everywhere — on
-transition-state-like geometries with many short metal contacts it can do worse (see Limits). Both are described rule by rule in
+**How it decides.** Distances (and Mayer bond orders for the metal contacts) give the topology —
+which atoms are bonded, which contacts are haptic, which fragments are boron cages. Then **one
+integer program** decides every ligand bond order, atom charge, haptic reading, metal oxidation
+state, cage charge and unpaired electron together, under the charge balance
+`Σ q_L + Σ OS = total_charge`: bond lengths score the orders, charged atoms cost, and a σ donor must
+keep a lone pair. A few distinct answers are compared before one is returned. Every rule is in
 [docs/PIPELINE.md](docs/PIPELINE.md).
 
-```bash
-JOINT=1 PYTHONPATH=<repo>/src python your_script.py
-```
+If the program has no answer (or exceeds its size limit), `predict` raises `RuntimeError` naming
+the status.
 
-⚠️ **You may run with `wbo=None`.** The M–L decision falls back to distances alone; **internal**
-bond orders are essentially unchanged, but everything that touches the metal degrades
-(holdout 6,793):
+⚠️ **You may run with `wbo=None`.** The metal contacts then come from distances alone, and the M–L
+orders from the donor charge without Mayer's ranking. **Internal** bond orders, ligand charges and
+oxidation states are essentially unchanged, but which contacts are bonds, and which are haptic,
+degrade (holdout 6,396):
 
-| | default, with `wbo` | without | `JOINT=1`, with `wbo` | without |
-|---|---|---|---|---|
-| T4 M–L bond existence | .9917 | .9877 | .9922 | .9897 |
-| T8 M–L `Double` | .7556 | .7060 | .7636 | .7780 |
-| T5 haptic | .9799 | .9606 | .9808 | .9593 |
-| T6 η^k | .9866 | .9728 | .9899 | .9778 |
-| T3 internal `Double` | .7666 | .7658 | .7917 | .7854 |
-| **valence-violating structures** | **0%** | **0%** | **0%** | **0%** |
+| | with `wbo` | without |
+|---|---|---|
+| T4 M–L bond existence | .9923 | .9898 |
+| T8 M–L `Double` | .7641 | .7733 |
+| T5 haptic | .9825 | .9607 |
+| T6 η^k | .9911 | .9784 |
+| T3 internal `Double` | .7945 | .7883 |
+| T10 `Σq_L` | .9396 | .9386 |
+| T10 `OS` | .9859 | .9863 |
+| **valence-violating structures** | **0%** | **0%** |
 
 ⚠️ When you do pass `wbo`, fill **every** `(metal, atom)` pair. A missing pair is read as
 "veto passed", not "unknown" — xtb's `wbo` file omits near-zero pairs, so build
@@ -80,24 +81,25 @@ its own metals, fragments, charge and SMILES.
 
 ```python
 r["total_charge"] == -1          # what you passed in, unchanged
-r["radical"]                     # {n_unpaired, atom, site, sign, note} — see ⚠️ Limits
+r["radical"]                     # {n_unpaired, atom, atoms, site, sign, note} — where the unpaired
+                                 #   electrons went: "organic" (ligand atoms), "metal", "mixed"
 r["charge_balance"]              # {shortfall, ok, sites, note} — metal-free input only: `ok` is
                                  #   False when the emitted charges do not sum to total_charge
-r["joint"]                       # only with JOINT=1: {status, alt_os, alt_gap, …} — how the joint
-                                 #   solve went, and the best answer with other oxidation states
-                                 #   and how much worse it scores (docs/PIPELINE.md)
+r["joint"]                       # {status, q_status, alt_os, alt_gap, cut, eta2_partner, …} — how
+                                 #   the program went, and the best answer with other oxidation
+                                 #   states and how much worse it scores (docs/PIPELINE.md)
 
 r["molecules"] == [
   {"index": 0,
    "atoms": [0, 1, …],           # input atom indices
    "charge": -1,                 # this molecule's charge
-   "charge_is_exact": True,      # False (and charge None) on a metal-bearing molecule without
-                                 #   total_charge, or when several metal-bearing molecules share it
+   "charge_is_exact": True,      # False when several metal-bearing molecules share total_charge,
+                                 #   or on a metal-bearing molecule without total_charge (charge None)
 
    "metals": [
      {"index": 0, "element": "Mo", "oxidation": 6,
-      "oxidation_is_exact": True,      # False = split across several metal-bearing molecules
-                                       #   · None when oxidation is None
+      "oxidation_is_exact": True,      # False = the split across several metal-bearing molecules
+                                       #   is not fixed by the input · None when oxidation is None
       "mm_bonds": {}}],
 
    "fragments": [                # connected components of the internal bonds
@@ -113,7 +115,7 @@ r["molecules"] == [
       "eta": {},                 # {metal: k} — counted **per ligand**, so a bridged
                                  #   (ansa) metallocene is one η¹⁰, not η⁵:η⁵
       "charge": -3,              # this fragment's charge
-      "residual_charge": None,   # charge the skeleton cannot express
+      "residual_charge": None,   # always None (the answer is integer); kept for the layout
       "pi_suppressed": []},      # bonds written `Single` between two anionic atoms where
                                  #   the distance likelihood wanted `Double` — a **flag**,
                                  #   see ⚠️ Limits
@@ -129,9 +131,9 @@ A **fragment** is a connected component of the internal bonds. Most are ligands 
 what they coordinate — but a molecule with no metal has exactly one fragment that coordinates
 nothing, and that is how a free organic molecule appears.
 
-`ml_bonds` holds exactly the M–L bonds the pipeline decided on, so it **always agrees with the
-molecule's SMILES**. Contacts T4 rejects (docs/PIPELINE.md, DAG 4) and σ M–L bonds dropped by the
-post-⑥ repair are not in it and are not reported anywhere.
+`ml_bonds` holds exactly the M–L bonds of the answer, so it **always agrees with the molecule's
+SMILES**. Contacts the topology rejects, and contacts the program reads as no bond (listed in
+`r["joint"]["cut"]`), are not in it.
 
 To walk the whole result without nesting loops:
 
@@ -173,13 +175,11 @@ Molecules are the connected components over **all** bonds — internal, M–L an
 touching none of them (a free counter-ion, a departed fragment) is a molecule of its own, and each
 molecule gets its own SMILES.
 
-🔴 The oxidation state `(charge − Σ q_L) / n_metals` is solved **inside** each molecule.
-
 | the input holds | what you get |
 |---|---|
 | one molecule | one entry in `molecules`, exact |
 | one metal-bearing molecule + any number of metal-free ones | **exact** — a metal-free molecule's charge is its formal-charge sum, and the rest belongs to the metal-bearing one. This is the IRC-endpoint case |
-| two or more metal-bearing molecules | the remainder is split **evenly** over all their metals, each marked `oxidation_is_exact: False`, the molecule `charge` left `None`, and a warning in `smiles_note`. It is right only when all those metals share one oxidation state, so check the flag — or pass one molecule at a time |
+| two or more metal-bearing molecules | each metal gets the program's oxidation state and each molecule its charge, but nothing in the input fixes how `total_charge` divides between them: every such value is marked `oxidation_is_exact` / `charge_is_exact` `False`, with a note in `smiles_note`. Pass one molecule at a time when you know their charges |
 
 ### SMILES format
 
@@ -286,13 +286,13 @@ but the distance *between* molecules is not to scale.
 
 ```
 xyz2mol_om/
-├── api.py        predict() — the only orchestrator: it calls the stages below in order
-├── config.py     every constant, threshold and switch
-├── data/         the fitted tables (per-element-pair distances, thresholds, likelihood)
+├── api.py        predict() — topology, the program, and the result record
+├── config.py     every constant and threshold
+├── data/         the fitted tables (per-element-pair distances, thresholds, likelihood, OS prior)
 ├── geometry/     coordinates in, connectivity out — no chemistry
-├── rules/        the decision rules: conjugation · likelihood · valence solvers · M–L order · pipeline
-│                 · the joint solve (`joint.py` · `joint2.py`)
-├── charge/       formal charge, fragment charge, Kekulé conversion, extended-Hückel charge
+├── rules/        the distance likelihood · the M–L order model · the contact filters and bridge
+│                 tags · the integer program (`joint.py` · `joint2.py`)
+├── charge/       the per-atom formal charge
 └── output/       SMILES · RDKit mol · JSON · figure
 ```
 
@@ -302,100 +302,53 @@ read_xyz, draw, save_json`. The subpackages are there for reading the code, and 
 
 ## Performance
 
-holdout **6,793 structures** · reference labels: CSD `bond_type`, tmQMg-L
-`q_ligand`, and the roman numeral in the CSD `chemical_name` for the oxidation state.
+CSD holdout **6,396 structures** · reference labels: CSD `bond_type`, tmQMg-L `q_ligand`, and the
+roman numeral in the CSD `chemical_name` for the oxidation state. Structures whose references
+contradict each other are left out (397 — e.g. a carbene carbon that carries an H in the
+coordinates, or bond labels that give a different oxidation state than the name).
 
 ⚠️ Fit and evaluation both use CSD experimental structures **relaxed with GFN2-xTB**.
 Coordinates from another source (raw CSD, DFT, a force field) are off-distribution.
 
-| Task | Metric | default | `JOINT=1` | Pool | Baseline |
-|---|---|---|---|---|---|
-| T1 ligand internal bond existence | F1 | **0.9999** | **0.9999** | 380,315 bonds | all bonded .7306 |
-| T2 conjugation call | F1 | **0.9617** | 0.9601 | 87,602 bonds | — |
-| T3 internal order `Single`/`Double`/`Triple`/`Conj` | F1 | .9901 / .7666 / .9777 / **.9617** | **.9906 / .7917 / .9820** / .9601 | 380,211 bonds | all `Single` .9097 / 0 / 0 |
-| T4 M–L·M–M bond existence | F1 | 0.9917 | **0.9922** | 54,498 bonds | all bonded .5276 |
-| T5 haptic call | F1 | 0.9799 | **0.9808** | 15,331 M–L bonds | all haptic .6766 |
-| T6 η^k (exact match per ligand) | accuracy | 0.9866 | **0.9899** | ≈4,240 ligands | all `k=0` .8704 |
-| T8 M–L order `Single`/`Double`/`Triple` | F1 | .9935 / .7556 / .7254 | .9935 / **.7636 / .7273** | 37,638 bonds | — |
-| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | 0.8657 | **0.8692** | 1,154 structures | reference-order 0.8528 |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | 0.8978 | **0.9010** | 2,779 · 2,787 structures | reference-order 0.8698 |
+| Task | Metric | Value | Pool |
+|---|---|---|---|
+| T1 ligand internal bond existence | F1 | 0.9999 | 354,906 bonds |
+| T3 internal order `Single` / `Double` / `Triple` / `Conj` | F1 | 0.9908 / 0.7945 / 0.9835 / 0.9614 | 258,236 / 7,912 / 6,024 / 82,662 bonds |
+| T4 M–L · M–M bond existence | F1 | 0.9923 | 51,748 bonds |
+| T5 haptic call | F1 | 0.9825 | 14,584 M–L bonds |
+| T6 η^k (exact match per ligand) | accuracy | 0.9911 | 4,037 ligands |
+| T8 M–L order `Single` / `Double` / `Triple` | F1 | 0.9939 / 0.7641 / 0.7160 | 34,368 / 1,093 / 155 bonds |
+| T10 ligand charge `Σq_L` (exact match per structure) | accuracy | 0.9396 | 1,043 structures |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | 0.9859 | 2,486 structures |
 
-The pool differs per task because the references do: `bond_type` covers every structure,
-tmQMg-L charges cover 23% of structures and a roman numeral in the CSD name 41%; the `Σq_L` and
-`OS` pools are the structures that can be scored against them (the `OS` pool is slightly larger
-under `JOINT=1`, which also gives an oxidation state where the default path's even split does not
-divide). The baseline column is the
-**trivial** prediction for that task, except the two `reference-order` entries — see below.
+The pool differs per task because the references do: `bond_type` covers every structure, the
+`Σq_L` pool is the structures whose metal-bound ligands tmQMg-L covers completely, and the `OS`
+pool those whose name gives a single oxidation state.
 
-`reference-order` is the same charge rule fed the **reference** bond orders; its pool differs
-(1,155 / 2,635 structures), so do not read it against the column to its left.
-
-### Against other tools
-
-Same pool, same references, same metrics, and **a tool's failure is scored as a wrong answer**
-rather than dropped. `xyz2mol_tm` is given 60 s per structure, beyond which the structure counts
-as a failure.
-
-| | ours (default) | ours (`JOINT=1`) | `xyz2mol` | `xyz2mol_tm` | OpenBabel |
-|---|---|---|---|---|---|
-| **structures it produced an answer for** | **6,793** | **6,793** | 6,309 | 5,676 | **6,793** |
-| T1 internal bond existence | **.9999** | **.9999** | .9751 | .8896 | .9983 |
-| T4 M–L·M–M bond existence | .9917 | **.9922** | — | .9168 | .7754 |
-| T3 `Single` | .9901 | **.9906** | .9717 | .9812 | .9442 |
-| T3 `Double` | .7666 | **.7917** | .4219 | .5693 | .3505 |
-| T3 `Triple` | .9777 | **.9820** | .9663 | .9770 | .1217 |
-| T3 `Conj` | **.9617** | .9601 | .9128 | .9323 | .7913 |
-| T8 M–L `Single` | **.9935** | **.9935** | — | — | .9767 |
-| T8 M–L `Double` | .7556 | **.7636** | — | — | .0468 |
-| T8 M–L `Triple` | .7254 | **.7273** | — | — | .0106 |
-| T5 haptic | .9799 | **.9808** | — | — | — |
-| T10 `Σq_L` (1,154 structures) | .8657 | **.8692** | .3934 | .8120 | .1820 |
-| T10 `OS` | .8978 | **.9010** | — | — | — |
-
-`—`: the tool does not produce that output.
+**`Double` in context.** The CSD labels a `Double` either inside a conjugated system (7,310 bonds)
+or on its own (602). A conjugated `Double` is right when it comes out `Conj` or as a Kekulé `2`:
+0.9703. An isolated `Double` scores F1 0.7461 — most of the remainder are bonds whose length points
+at another drawing of the same group than the label's (a bridging CO, whose `C–O` sits at triple
+length, is written `C≡O`; an N-bound thiocyanate `N≡C–S⁻`, not `N=C=S`).
 
 ### Valence violations — chemical validity of the output
 
 A structure violates when a non-metal X has `b_int(X) + n_σ(X) > CAP(X)`: `b_int` is the Kekulé
 bond-order sum, `n_σ(X)` = number of non-haptic M–L bonds of X. `B` and 3c2e bridging atoms are
-excluded. CSD reference labels violate on 0.4% of structures.
-
-**Violation rate against other tools** — same definition (3c2e atoms are excluded from our rows
-only); a tool that emits aromatic bonds is counted at its own 1.5.
-
-| Pool | | ours (default · `JOINT=1`) | `xyz2mol` | `xyz2mol_tm` | OpenBabel |
-|---|---|---|---|---|---|
-| holdout 6,793 | `b_int` only | **0%** | 8.91% | 7.35% | 3.96% |
-| | `b_int`+`n_σ` | **0%** | 8.91% | 37.63% | 3.96% |
-| 5,295 solved by all three other tools | `b_int` only | **0%** | 9.12% | 8.91% | 3.74% |
-| | `b_int`+`n_σ` | **0%** | 9.12% | 44.91% | 3.74% |
-| 5,676 solved by `xyz2mol_tm` | `b_int` only | **0%** | 8.77% | 8.79% | 3.54% |
-| | `b_int`+`n_σ` | **0%** | 8.77% | 45.03% | 3.54% |
-
-⚠️ Compare tools on the `b_int`-only row: the others emit no M–L order (`xyz2mol_tm`), no M–L bond
-(`xyz2mol`) or miss many (OpenBabel).
+excluded. **No holdout structure violates**; the CSD reference labels themselves violate on 0.4%
+of structures.
 
 ## ⚠️ Limits
 
-- **One unpaired electron, and only with `n_unpaired=1`** (default path; `JOINT=1` takes any
-  count and places the electrons on ligand atoms or the metal inside the solve). A larger `n_unpaired` raises. Without
-  it a radical comes out as the nearest closed-shell answer **with no error** — beside a metal the
-  misplaced charge is cancelled by the metal's, so the total is right while the oxidation state is
-  not. With it, placement can still be refused (several candidate sites, or a charge shortfall that
-  does not match); `r["radical"]["note"]` says which, and `site`/`atom`/`sign` say where it went.
 - **The M–M order is a placeholder.** Whether two metals are bonded *is* predicted (`mm_bonds`,
   by the same rule as M–L) but the order in that dict is the constant `1` — do not read it as
   "single bond". The `[Re₂Cl₈]²⁻` of example 05 is a quadruple bond and still comes out `1`.
-- **Metals in one molecule share its remainder evenly** (default path) — mixed valence is not
-  resolved, and `oxidation` is `None` when the remainder does not divide. `JOINT=1` gives each metal
-  its own state, preferring equal states for the same element.
-- **A suppressed π bond puts the oxidation state 2 too high.** On the default path, when a weak M–X
-  contact is taken as a σ bond and uses up an atom's valence, the neighbouring π bond is written
-  `Single` and the fragment charge comes out 2 too negative. `JOINT=1` does not charge an M–L bond
-  to the valence, but a σ contact to **one** carbon of a π system must leave that carbon a lone
-  pair, which breaks the same π bond — frequent on geometries near a transition state. The clearest cases are repaired
-  ([docs/PIPELINE.md](docs/PIPELINE.md) §T3 post-⑥); a `Single` left between two anionic atoms
-  whose distance likelihood favours `Double` is flagged per fragment in `pi_suppressed`:
+- **A π-acceptor or chelating ligand may come out in the other of its two usual charge states**
+  (bipyridine as a dianion, a dithiolate as a neutral dithioketone) when the bond lengths sit
+  between them; the metal's oxidation state then moves by 2. `r["joint"]["alt_os"]` and
+  `alt_gap` show the best answer with other oxidation states and how close it scored.
+- **A π bond can still be written `Single` between two anionic atoms.** Such bonds are flagged
+  per fragment in `pi_suppressed`; each one means that fragment's charge is 2 too negative:
 
   ```python
   from xyz2mol_om import all_fragments
@@ -403,12 +356,14 @@ only); a tool that emits aromatic bonds is counted at its own 1.5.
       ...   # this structure's ligand charges and metal oxidation state are suspect
   ```
 
+- **A metal carbonyl is always `C≡O`**, bridging or terminal.
+- **An `n_unpaired` the electron count cannot hold** (an even-electron input with one unpaired
+  electron) is met by dropping the total charge: `r["joint"]["q_status"] == "q_relaxed"`, and on a
+  metal-free input `r["charge_balance"]["ok"]` is `False`. When no charge can hold it, `predict`
+  raises.
 - **3c2e and clusters are outside the two-centre formalism** — a bridging H with two internal bonds
-  (`B–H–B`) fails the SMILES round-trip check, and a carborane cage's fragment charge uses the EHT
-  value (default path) or the Wade–Mingos electron count (`JOINT=1`).
-- **`JOINT=1` needs `scipy` and takes about twice as long** (0.15 s against 0.07 s per structure on
-  average). Without scipy, or when the program is too large or has
-  no solution, the default path's answer is returned and `r["joint"]["status"]` says so.
+  (`B–H–B`) fails the SMILES round-trip check, and a boron cage's charge is its Wade–Mingos
+  electron count, carried by the fragment rather than by its atoms.
 
 Every decision rule, with its thresholds, is in [docs/PIPELINE.md](docs/PIPELINE.md).
 
