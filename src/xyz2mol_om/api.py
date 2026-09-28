@@ -78,7 +78,7 @@ salt with its counter-ion — and everything below is solved inside one molecule
                         without it (`H₃N→BH₂•`, boron read as neutral). See `## Limits`.
     r["total_charge"] = the input total charge (unchanged)
     r["joint"]        = {"status", "objective", "q_status", "alt_gap", "alt_os", "n_candidates",
-                        "n_rejected", "ranking", "v1_skipped", "v1_failed", "far_dropped"} — only
+                        "n_rejected", "ranking", "v1_skipped", "v1_failed", "far_dropped", "cut"} — only
                         with `JOINT=1`: how the joint solve went, whether the total charge could be
                         applied, and the best answer with a **different** set of oxidation states
                         (`alt_os`) and its score minus the chosen one's (`alt_gap`; small = a real
@@ -362,7 +362,8 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
     #   `CAPINESS` penalty is folded into `w`. Only the π-suppression report reads it.
     w_raw = {}
     if joint_ok:
-        ml_pred, hap = topo.ml_pred, set(joint.hap)
+        # a contact the solve read as no bond (`joint.cut`) is not an M–L bond of the output
+        ml_pred, hap = [p for p in topo.ml_pred if p not in joint.cut], set(joint.hap)
         cls = {e: (3 if e in joint.conj else o - 1) for e, o in joint.orders.items()}
         mlout = {k: o - 1 for k, o in joint.ml_orders.items()}
         btag = bridge_tags(el, G, ml_pred, {e: o - 1 for e, o in joint.orders.items()}, hap)
@@ -947,5 +948,6 @@ def predict(elements, coords, total_charge=None, wbo=None, scores4=None, dint=No
                         "n_candidates": len(joint.candidates), "n_rejected": joint.n_rejected,
                         "ranking": joint.ranking, "v1_skipped": list(joint.v1_skipped),
                         "far_dropped": [list(p) for p in topo.far_dropped] if joint_ok else [],
+                        "cut": sorted(list(p) for p in joint.cut) if joint_ok else [],
                         "v1_failed": list(joint.best.failed) if joint.best else []}
     return out

@@ -297,6 +297,7 @@ class Candidate:
     ml_orders: dict = field(default_factory=dict)
     mayer: float | None = None
     metal_unpaired: dict = field(default_factory=dict)
+    cut: frozenset = frozenset()  # contacted atoms read as no bond (their sigma contacts are cut)
 
 
 @dataclass
@@ -315,6 +316,7 @@ class JointV2:
     metal_unpaired: dict = field(default_factory=dict)
     v1_skipped: list = field(default_factory=list)   # contacted atoms no state could keep a pair on
     cage: set = field(default_factory=set)            # cluster cage atoms (Wade charge, none per atom)
+    cut: set = field(default_factory=set)             # T4 sigma contacts the chosen answer reads as no bond
 
     # the chosen candidate's pieces, for callers
     @property
@@ -339,16 +341,22 @@ class JointV2:
 class _Build:
     """One MILP over the whole input, with handles to decode a solution."""
 
-    def __init__(self, topo, el, sc, qfun, lam, relax, q_total, n_unpaired, metals, only=None):
+    def __init__(self, topo, el, sc, qfun, lam, relax, q_total, n_unpaired, metals, only=None,
+                 v1=True, cuttable=frozenset(), free_read=False):
         """`relax` — fragments (min atom index) solved without the FC range; `only` — build just
-        these fragments (the per-fragment feasibility probe)."""
-        from ..config import (FULL, JOINTADJ, JOINTLIGSYM, JOINTCHAINW, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM, VAL,
-                              _GROUP, os_range)
+        these fragments (the per-fragment feasibility probe); `v1=False` — no V1 rows and
+        `free_read` — every atom read as a free atom (charge penalty, no FC range): the detector
+        solve, the ligand as its own geometry has it; `cuttable` — contacted atoms that may be read as no bond (a "cut" column:
+        bonded, the atom is a donor held to V1 and free of the charge range and penalty; cut, it is
+        an ordinary atom)."""
+        from ..config import (FULL, JOINTADJ, JOINTCUT, JOINTLIGSYM, JOINTCHAINW, JOINTCAT, JOINTOSW, JOINTRAD, JOINTSYM,
+                              VAL, _GROUP, os_range)
         from .joint import _EN, _FSHELL, PERIOD2, _Model, _radical_delta, order_scores, os_prior_cost
 
         self.topo, self.el = topo, el
         self.v1_skipped = []
         self.cage = set()
+        self.cutcol = {}
         G = topo.G
         M = self.M = _Model()
         contacted = {x for _m, x in topo.ml_pred}
@@ -372,7 +380,7 @@ class _Build:
             key = comp[0]
             if only is not None and key not in only:
                 continue
-            fc_bounds = key not in relax
+            fc_bounds = key not in relax and not free_read
             fixed = set()
             if key in topo.clusters:
                 # the cage takes its Wade charge; atoms outside it are solved as usual
@@ -415,7 +423,7 @@ class _Build:
                 deg = G.degree(x)
                 ex = [(self.ycol[(e, o)], o - 1) for e in inc.get(x, ()) for o in (2, 3)
                       if (e, o) in self.ycol]
-                role = "coord" if (x in grp_of or x in contacted) else "free"
+                role = "coord" if (x in grp_of or x in contacted) and not free_read else "free"
                 rad_ok = bool(n_unpaired) and el[x] != "H"
                 if not ex and not rad_ok:
                     self.const_q[x] = qfun(x, deg)
@@ -436,9 +444,15 @@ class _Build:
                         levels.append((k, q, False, rad))
                 if x in ring_c and el[x] == "C" and (x in grp_of or x not in contacted):
                     levels.append((0, 1.0, True, False))
-                cols = []
+                cutc = None
+                if x in cuttable and x in contacted and el[x] not in ("H", "B"):
+                    # read as no bond at a small cost, so a contact both readings score the same
+                    #   keeps T4's call
+                    cutc = self.cutcol[x] = M.var(cost=JOINTCUT * lam)
+                cols, free_only = [], []
                 for k, q, cat, rad in levels:
-                    ok = role == "coord" or not fc_bounds or (not ex and not rad) or _free_ok(q)
+                    free_ok = not fc_bounds or (not ex and not rad) or _free_ok(q)
+                    ok = role == "coord" or free_ok
                     if not ok:
                         continue
                     base = _free_cost(q, lam) if role == "free" else 0.0
@@ -451,6 +465,12 @@ class _Build:
                         base += lam * JOINTCAT
                     c = M.var(cost=base)
                     cols.append((c, k, q, cat, rad))
+                    if cutc is not None:
+                        if not free_ok:   # out of the free range: only as a donor
+                            M.row({c: 1, cutc: 1}, -float("inf"), 1)
+                        if abs(q) > 1e-9:   # cut: the charge pays like any free atom's
+                            pen = M.var(cost=_free_cost(q, lam), lb=0.0, ub=1.0, integer=False)
+                            M.row({pen: 1, c: -1, cutc: -1}, -1, float("inf"))
                 if not cols:
                     self.infeasible = True
                     return
@@ -459,11 +479,19 @@ class _Build:
                 #   A bridging H is a 3c2e leg, not a lone-pair donor. If no level passes, the atom
                 #   is left to the check after the solve.
                 # boron has no lone pair to give: its M–B bond (boryl, borane) is not a donation
-                if x in contacted and el[x] not in ("H", "B"):
+                if v1 and x in contacted and el[x] not in ("H", "B"):
                     def _bad(k, q, cat, rad, _d=deg, _e=el[x]):
                         lp = (VAL.get(_e, 4) - q - (_d + k) - (1 if rad else 0)) // 2
                         return cat or lp < 1 or (_e in PERIOD2 and _d + k > 3)
                     bad = [c for c, k, q, cat, rad in cols if _bad(k, q, cat, rad)]
+                    if cutc is not None:
+                        # a level with no pair to give only when the contact is cut (or haptic)
+                        for c in bad:
+                            r = {c: 1, cutc: -1}
+                            if x in grp_of:
+                                r[self.hcol[grp_of[x]]] = -1
+                            M.row(r, -float("inf"), 0)
+                        bad = []
                     if bad and len(bad) == len(cols):
                         self.v1_skipped.append(x)   # no state passes: left to the check after
                     if bad and len(bad) < len(cols):
@@ -775,10 +803,12 @@ class _Build:
                     cq[key] = cand[kind]
                     qlig[key] = qlig.get(key, 0) + cand[kind]
                     sig.append(c)
+        cut = frozenset(a for a, c in self.cutcol.items() if x[c] > 0.5)
+        sig += [self.cutcol[a] for a in cut]
         signature = (tuple(sorted(sig)), tuple(sorted(h.items())))
         mu = {m: int(round(x[c])) for m, c in self.u_col.items() if round(x[c])}
         return Candidate(orders=orders, state=state, h=h, os=os_, cluster_q=cq, qlig=qlig,
-                         objective=obj, signature=signature, metal_unpaired=mu)
+                         objective=obj, signature=signature, metal_unpaired=mu, cut=cut)
 
     def forbid(self, cand):
         """No-good cut: not this signature again."""
@@ -837,7 +867,8 @@ def _btag(el, topo, cand):
     from .pipeline import bridge_tags
 
     cls = {e: o - 1 for e, o in cand.orders.items()}
-    return bridge_tags(el, topo.G, topo.ml_pred, cls, _hap_set(topo, cand.h))
+    ml = [p for p in topo.ml_pred if p[1] not in cand.cut]
+    return bridge_tags(el, topo.G, ml, cls, _hap_set(topo, cand.h))
 
 
 def _validate(el, topo, cand, qfun):
@@ -851,7 +882,7 @@ def _validate(el, topo, cand, qfun):
     bad = []
     cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
             for x in cage_atoms(el, G, c)}
-    for x in sorted({x for _m, x in topo.ml_pred} - hap - three_c - cage):
+    for x in sorted({x for _m, x in topo.ml_pred} - hap - three_c - cage - cand.cut):
         if el[x] == "B":   # no lone pair to give (boryl, borane): V1 does not apply
             continue
         deg = G.degree(x)
@@ -871,7 +902,7 @@ def _ml_orders(el, topo, cand, qfun, ml_scores):
     hap = _hap_set(topo, cand.h)
     by_x = {}
     for m, x in topo.ml_pred:
-        if (m, x) not in hap:
+        if (m, x) not in hap and x not in cand.cut:
             by_x.setdefault(x, []).append(m)
     ml_scores = ml_scores or {}
     cage = {x for c in nx.connected_components(G) if min(c) in topo.clusters
@@ -914,7 +945,7 @@ def _conj(el, topo, cand, sc, qfun, lam, eps):
         s = order_scores(sc.get(e, {}))[o]
         return -1e9 if s is None else s
 
-    coord = {x for _m, x in topo.ml_pred}
+    coord = {x for _m, x in topo.ml_pred} - cand.cut
 
     def qcost(x, b):
         return 0.0 if x in coord else _free_cost(qfun(x, b), lam)
@@ -967,8 +998,20 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     topo = _pi_chains(topo, el, sc)
     metals = {m: el[m] for m in sorted(topo.cen | {m for m, _x in topo.ml_pred})}
 
+    # ★ which contacts V1 changes the answer for: solve once without V1 and with every atom read
+    #   as a free atom (the donor charge exemption would let the solve park charges on contacted
+    #   atoms); a contacted atom left with no pair to give is a contact the ligand's own geometry
+    #   does not support as a donation. Only those get the choice to be read as no bond in the
+    #   solve below (the others stay bonds).
+    cuttable = frozenset()
+    det = _Build(topo, el, sc, qfun, lam, set(), q_total, n_unpaired, metals, v1=False, free_read=True)
+    if not det.infeasible and len(det.M.cost) <= JOINT_MAX:
+        sol0 = det.M.solve()
+        if sol0 is not None:
+            cuttable = frozenset(_validate(el, topo, det.decode(*sol0), qfun))
+
     def attempt(relax, qt):
-        b = _Build(topo, el, sc, qfun, lam, relax, qt, n_unpaired, metals)
+        b = _Build(topo, el, sc, qfun, lam, relax, qt, n_unpaired, metals, cuttable=cuttable)
         if b.infeasible:
             return b, None
         return b, (b.M.solve() if len(b.M.cost) <= JOINT_MAX else "too_large")
@@ -981,7 +1024,7 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
     if first is None:
         for comp in nx.connected_components(topo.G):
             key = min(comp)
-            probe = _Build(topo, el, sc, qfun, lam, set(), None, 0, {}, only={key})
+            probe = _Build(topo, el, sc, qfun, lam, set(), None, 0, {}, only={key}, cuttable=cuttable)
             if probe.infeasible or probe.M.solve() is None:
                 relax.add(key)
         if relax:
@@ -1032,6 +1075,7 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
         res.ranking = "mayer"
     res.best = best
     res.hap = _hap_set(topo, best.h)
+    res.cut = {(m, x) for m, x in topo.ml_pred if x in best.cut}
     others = [c for c in pool if c is not best and c.os != best.os]
     if others:
         alt = min(others, key=lambda c: c.objective)

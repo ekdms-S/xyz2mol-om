@@ -316,6 +316,10 @@ JOINTFAR = float(os.environ.get("JOINTFAR", "1.3"))
 #   tell apart; among them the smaller total |ligand charge| wins (the less charged state is the
 #   more stable one: bpy over bpy²⁻). 0 = off.
 JOINTLOWQ = float(os.environ.get("JOINTLOWQ", "0.3"))
+# `JOINTCUT` — cost (in units of `JOINTQ`) of reading a T4 sigma contact as no bond. Only a contact
+#   whose donor is left with no pair to give when the solve runs without V1 has that choice; the
+#   small cost keeps T4's call where both readings score the same. Float, default 0.05.
+JOINTCUT = float(os.environ.get("JOINTCUT", "0.05"))
 
 # Group numbers of the d-block centres, for the oxidation-state candidates of the joint solve.
 _GROUP = {"Sc": 3, "Y": 3, "Ti": 4, "Zr": 4, "Hf": 4, "V": 5, "Nb": 5, "Ta": 5, "Cr": 6, "Mo": 6,
