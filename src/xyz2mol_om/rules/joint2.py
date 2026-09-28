@@ -40,6 +40,7 @@ class Topology:
     xyz: object = None                                  # coordinates (geometry-gated rules)
     c1g: tuple | None = None                            # T4 fallback ratios (M–L, M–M) for unfitted pairs
     wbo: dict | None = None                             # Mayer bond indices {(metal, atom): w}, when given
+    optional: frozenset = frozenset()                   # group indices the solve may leave off (partners of firm contacts)
 
 
 def _pi_capable(el, G, x):
@@ -166,6 +167,7 @@ SP_LINEAR = 150.0            # degrees — an atom with two pi bonds (C=C=C, a t
 #                              a two-neighbour atom bent below this takes at most one (atoms of a
 #                              haptic unit are exempt: back-bonding bends a coordinated alkyne)
 ETA2_PARTNER = 90.0          # degrees — M–X–Y below this puts the metal over the X–Y pi bond
+#                              (the gate for a weak contact; a firm one is offered its partner at any angle)
 PARTNER_REACH = 1.25         # × the T4 cutoff — how far that partner may sit (ORBIT's optional band)
 EXPANDED = frozenset({"P", "As", "Sb", "S", "Se", "Te"})   # a double bond to or at one of these is
 #                              also its charge-separated single bond (P(+)–C(-), P(+)–O(-), S(+)–O(-))
@@ -657,7 +659,9 @@ class _Build:
             merged = len(gis) > 1
             # a single group of three or more is haptic by topology; eta2 pairs — alone or joined
             #   over two metals — are haptic only while a pi bond is left (all-single: sigma)
-            if (k >= 3 and not merged) or ((k == 2 or merged) and pi_left):
+            # (a partner unit offered beside a firm contact is not forced on: the solve decides)
+            if ((k >= 3 and not merged) or ((k == 2 or merged) and pi_left)) \
+                    and not set(gis) <= topo.optional:
                 M.row({h: 1}, 1, 1)
             if k < 3:
                 r = dict(mult)
@@ -1071,14 +1075,14 @@ def _firm(topo, el, x):
     return False
 
 
-def _eta2_partners(topo, el, sc, flagged):
-    """[(metal, x, y)] — a contact `x` the detector finds with no pair to give (cut, or kept as
-    firm) and not in a haptic group, whose pi neighbour `y` lies on the metal's side: the metal over the
-    x–y bond (M–x–y below ETA2_PARTNER) and `y` within PARTNER_REACH of the T4 cutoff. T4 missed
-    `y` (a slipped eta2 just past the cutoff, or held back by the Mayer veto); the pair is offered
-    to the solve as an eta2 unit instead of a cut. The nearest-angle neighbour when there are two."""
-    from .joint import order_scores
-
+def _eta2_partners(topo, el, sc, flagged, cuttable=frozenset()):
+    """[(metal, x, y)] — a contact `x` the detector finds with no pair to give and not in a haptic
+    group, whose neighbour `y` shares a bond whose length reads pi (its best class is not Single)
+    and sits within PARTNER_REACH of the T4 cutoff. T4 missed `y` (a slipped eta2 just past the
+    cutoff, or held back by the Mayer veto). A weak `x` (it may be cut) takes `y` only with the
+    metal over the x–y bond (M–x–y below ETA2_PARTNER); a firm `x` (it may not) at any angle, and
+    that unit is only offered — the solve weighs it against a sigma bond. The nearest-angle
+    neighbour when there are two."""
     if topo.xyz is None or not flagged:
         return []
     X = topo.xyz
@@ -1093,13 +1097,13 @@ def _eta2_partners(topo, el, sc, flagged):
         for y in G[x]:
             if el[y] == "H" or (m, y) in pairs or y in grouped or not _pi_capable(el, G, y):
                 continue
-            s = order_scores(sc.get((min(x, y), max(x, y)), {}))
+            se = sc.get((min(x, y), max(x, y)))
             cut = _cutoff(topo, el[m], el[y])
-            if (s[2] is None and s[3] is None) or cut is None:
+            if not se or max(se, key=se.get) == 0 or cut is None:
                 continue
             u, v = X[m] - X[x], X[y] - X[x]
             a = float(np.degrees(np.arccos(np.clip(u @ v / np.linalg.norm(u) / np.linalg.norm(v), -1, 1))))
-            if a < ETA2_PARTNER and float(np.linalg.norm(X[m] - X[y])) < PARTNER_REACH * cut \
+            if (a < ETA2_PARTNER or x not in cuttable) and float(np.linalg.norm(X[m] - X[y])) < PARTNER_REACH * cut \
                     and (best is None or a < best[0]):
                 best = (a, y)
         if best:
@@ -1137,15 +1141,19 @@ def solve(topo, el, sc, *, qfun=None, q_total=None, n_unpaired=0, ml_scores=None
                                 if not _pair_by_charge_separation(el, topo.G, c0, x, qfun))
             # a contact firm by T4's own evidence (distance, Mayer) keeps T4's call: not cut
             cuttable = frozenset(x for x in flagged if not _firm(topo, el, x))
-    # ★ a contact with no pair to give (cut or firm) whose pi neighbour sits over the metal: that
-    #   neighbour joins as an eta2 partner (a unit like any T4 pair). It is cuttable too — with the
-    #   unit off it is only a contact
-    partners = _eta2_partners(topo, el, sc, flagged)
+    # ★ a contact with no pair to give whose pi neighbour sits near the metal: that neighbour joins
+    #   as an eta2 partner. Beside a weak contact (over the metal) it is a unit like any T4 pair;
+    #   beside a firm one it is only offered (the solve weighs eta2 against a sigma bond). It is
+    #   cuttable too — with the unit off it is only a contact
+    partners = _eta2_partners(topo, el, sc, flagged, cuttable)
     if partners:
         from dataclasses import replace
+        n0 = len(topo.groups)
         topo = replace(topo, ml_pred=topo.ml_pred + [(m, y) for m, _x, y in partners],
                        groups=topo.groups + [(m, tuple(sorted((x, y))), [(min(x, y), max(x, y))])
-                                             for m, x, y in partners])
+                                             for m, x, y in partners],
+                       optional=frozenset(n0 + i for i, (_m, x, _y) in enumerate(partners)
+                                          if x not in cuttable))
         cuttable = cuttable | {y for _m, _x, y in partners}
 
     def attempt(relax, qt):
