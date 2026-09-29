@@ -18,9 +18,9 @@ orders · `v` number of valence electrons · `λ` = `JOINTQ`, the unit every pen
 | task (CSD holdout, 6,396 structures) | F1 / accuracy |
 |---|---|
 | T1 internal bond existence | .9999 |
-| T3 `Single` / `Double` / `Triple` / `Conj` | .9908 / .7945 / .9835 / .9614 |
+| T3 `Single` / `Double` / `Triple` / `Conj` | .9908 / .7946 / .9836 / .9614 |
 | T4 M–L · M–M existence | .9923 |
-| T5 haptic | .9825 |
+| T5 haptic | .9824 |
 | T6 η^k | .9911 |
 | T8 M–L `Single` / `Double` / `Triple` | .9939 / .7641 / .7160 |
 | T10 `Σq_L` · `OS` | .9396 · .9859 |

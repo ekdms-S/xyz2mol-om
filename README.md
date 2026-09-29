@@ -62,9 +62,9 @@ degrade (holdout 6,396):
 |---|---|---|
 | T4 M–L bond existence | .9923 | .9898 |
 | T8 M–L `Double` | .7641 | .7733 |
-| T5 haptic | .9825 | .9607 |
+| T5 haptic | .9824 | .9607 |
 | T6 η^k | .9911 | .9784 |
-| T3 internal `Double` | .7945 | .7883 |
+| T3 internal `Double` | .7946 | .7884 |
 | T10 `Σq_L` | .9396 | .9386 |
 | T10 `OS` | .9859 | .9863 |
 | **valence-violating structures** | **0%** | **0%** |
@@ -316,11 +316,11 @@ Coordinates from another source (raw CSD, DFT, a force field) are off-distributi
 | Task | Metric | Value | Pool |
 |---|---|---|---|
 | T1 ligand internal bond existence | F1 | 0.9999 | 354,906 bonds |
-| T3 internal order `Single` / `Double` / `Triple` / `Conj` | F1 | 0.9908 / 0.7945 / 0.9835 / 0.9614 | 258,236 / 7,912 / 6,024 / 82,662 bonds |
+| T3 internal order `Single` / `Double` / `Triple` / `Conj` | F1 | 0.9908 / 0.7946 / 0.9836 / 0.9614 | 258,236 / 7,912 / 6,024 / 82,662 bonds |
 | T4 M–L · M–M bond existence | F1 | 0.9923 | 51,748 bonds |
-| T5 haptic call | F1 | 0.9825 | 14,584 M–L bonds |
+| T5 haptic call | F1 | 0.9824 | 14,584 M–L bonds |
 | T6 η^k (exact match per ligand) | accuracy | 0.9911 | 4,037 ligands |
-| T8 M–L order `Single` / `Double` / `Triple` | F1 | 0.9939 / 0.7641 / 0.7160 | 34,368 / 1,093 / 155 bonds |
+| T8 M–L order `Single` / `Double` / `Triple` | F1 | 0.9939 / 0.7641 / 0.7160 | 34,367 / 1,093 / 155 bonds |
 | T10 ligand charge `Σq_L` (exact match per structure) | accuracy | 0.9396 | 1,043 structures |
 | T10 metal oxidation state `OS` (exact match per structure) | accuracy | 0.9859 | 2,486 structures |
 
