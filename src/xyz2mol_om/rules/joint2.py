@@ -106,7 +106,7 @@ def _drop_no_pair(el, xyz, G, ml):
 def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=None, c1g=None):
     """Step 1 of JOINT v2 — topology only (see the module docstring)."""
     from ..api import build_topology
-    from .pipeline import drop_agostic, drop_agostic_carbon, drop_bound_halide, drop_saturated
+    from .pipeline import boron_cages, drop_agostic, drop_agostic_carbon, drop_bound_halide, drop_saturated
 
     xyz = np.asarray(xyz, dtype=float)
     if G is None:
@@ -124,14 +124,10 @@ def topology(el, xyz, wbo=None, dint=None, G=None, ml_raw=None, dbond=None, cen=
     topo.far_dropped = sorted(far)
     topo.xyz = xyz
     cage = set()
-    for comp in nx.connected_components(G):
-        # a boron cage: a fragment with boron and a non-H atom past its CAP (a B–H–B bridge's H
-        #   has two neighbours but is a 3c2e bridge, not a cage — diborane, UTOZUZ)
-        if any(el[x] == "B" for x in comp) and any(
-                el[x] != "H" and G.degree(x) > CAP.get(el[x], 4) for x in comp):
-            topo.clusters.add(min(comp))
-            # the vertices and their H only: a Cp ring bonded to a cage carbon is still a pi ring
-            cage |= cage_atoms(el, G, comp, ml_pred)
+    for comp in boron_cages(el, G):
+        topo.clusters.add(min(comp))
+        # the vertices and their H only: a Cp ring bonded to a cage carbon is still a pi ring
+        cage |= cage_atoms(el, G, comp, ml_pred)
     # haptic groups: the atoms one metal touches that can be unsaturated, split into connected runs
     by_m = {}
     for m, x in ml_pred:

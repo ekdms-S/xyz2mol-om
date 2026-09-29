@@ -148,17 +148,36 @@ def drop_saturated(el, G, ml_raw):
 
     H is excluded — `CAP(H) = 1` and an H always has one internal neighbour, so the test would
     veto every M–H bond, μ-H and borohydride included. Agostic `C–H···M` is `drop_agostic`'s job.
-    B and Al are excluded, **and so is any atom bonded to one**, because cluster bonding
-    (carborane) is outside the two-centre formalism — the same exception the valence-violation
-    tally makes. A dicarbollide cage carbon has `deg 5 > CAP 4`, which says nothing about the
-    metal.
+    **Any atom bonded to a B or Al is excluded**, and so is a B or Al in a boron cage, because
+    cluster bonding (carborane, metallaborane) is outside the two-centre formalism — the same
+    exception the valence-violation tally makes. A dicarbollide cage carbon has `deg 5 > CAP 4`,
+    which says nothing about the metal.
+
+    🔴 A boron with **no** B/Al neighbour and outside a cage is a two-centre atom and is held to its
+    CAP like any other: with four internal neighbours (a borate, the B of a pyrazolylborate) it has
+    no pair to give and no empty orbital to take one, so its M–B contact is not a bond. CSD: 4 of the
+    5 such holdout contacts and 6 of 6 train ones are not bonds; the metallaborane borons (a B
+    neighbour) are bonds in 53 of 55 and keep theirs.
     """
     if not SATVETO:
         return ml_raw
+    cage = {x for comp in boron_cages(el, G) for x in comp}
+
+    def exempt(x):
+        if el[x] == "H" or any(el[y] in MLIKE_EXTRA for y in G[x]):
+            return True
+        return el[x] in MLIKE_EXTRA and x in cage
+
     return [(m, x) for m, x in ml_raw
-            if el[x] == "H" or el[x] in MLIKE_EXTRA
-            or any(el[y] in MLIKE_EXTRA for y in G[x])
-            or G.degree(x) < CAP.get(el[x], 99)]
+            if exempt(x) or G.degree(x) < CAP.get(el[x], 99)]
+
+
+def boron_cages(el, G):
+    """The fragments (atom sets) that are boron cages: boron and a non-H atom past its CAP. A
+    B–H–B bridge's H has two neighbours but is a 3c2e bridge, not a cage (diborane, UTOZUZ)."""
+    return [comp for comp in nx.connected_components(G)
+            if any(el[x] == "B" for x in comp)
+            and any(el[x] != "H" and G.degree(x) > CAP.get(el[x], 4) for x in comp)]
 
 
 def drop_bound_halide(el, G, ml_raw, wbo):
