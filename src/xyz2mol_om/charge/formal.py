@@ -70,8 +70,9 @@ def q_atom(e, b, deg=None, nb=(), n_ml=0, b_3c=0.0):
 def three_c_legs(el, G, btag):
     """`{X: [(X, y), ...]}` — the **ligand-internal legs** of each 3c2e bridge, by bridging atom.
 
-    T7 writes `n_center(X) = n_ML(X) + |{internal neighbours in MLIKE_EXTRA}|`
-    (`docs/PIPELINE.md` 5″), and those two terms *are* the legs of the three-centre bond. So a
+    T7 writes `n_center(X) = n_ML(X) + |{internal neighbours in MLIKE_EXTRA}|` (for H · C · Si only
+    when their σ bonds fill them — `rules.pipeline.bridge_tags`) (`docs/PIPELINE.md` 5″), and those
+    two terms *are* the legs of the three-centre bond. So a
     leg is either an M–L bond — already reported in `ml_bonds[...]["bridge"]` — or an internal
     bond to a `B`/`Al` neighbour, which is what this returns.
 

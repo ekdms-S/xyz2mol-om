@@ -232,7 +232,8 @@ def bridge_tags(el, G, ml_pred, cls, hap=()):
     rule
 
         n_center(X) = (number of M–L bonds of X) + (number of internal neighbors of X whose
-                                                   element is B or Al)
+                                                   element is B or Al — for H · C · Si only when
+                                                   deg(X) >= VALENCE_3C[el], its σ bonds full)
         b_use(X)    = (internal bond orders of X, pass-1 Kekule count) + (number of M–L bonds of X)
 
         bridge(X) ⟺ n_center(X) >= 2
@@ -245,6 +246,7 @@ def bridge_tags(el, G, ml_pred, cls, hap=()):
         μ-H       M–H–M         n_center 2 · b_use 2 (internal 0 + M–L 2)   →  **3c2e**
         μ-CO      M–CO–M        n_center 2 · b_use 5 (C≡O 3 + M–L 2) > 4    →  **3c2e**
         B–H···M   borohydride   n_center 2 (M 1 + neighbor B 1) · b_use 2   →  **3c2e**
+        α-boryl C=C on one metal  n_center 1 (deg 3 < 4: the C–B is ordinary)  →  no tag
         μ-Cl      M–Cl–M        n_center 2 · b_use 2 · Cl is not in the table → **dative** (3c4e)
         terminal Cl  M–Cl       n_center 1                                  →  no tag
 
@@ -270,10 +272,22 @@ def bridge_tags(el, G, ml_pred, cls, hap=()):
         #   here so a *non-metal* can be seen bridging two borons with no metal in sight
         #   (`B–H–B`). For an `x` that is itself `B`/`Al` the neighbouring B is a substituent, not
         #   a third centre (a diboranyl `M–B(Mes)=B(Mes)Br` has an ordinary `B=B`).
-        #   ⚠️ The term is **not** limited to `el[x] == "H"`: boryl-substituted Cp carbons and
-        #      cage carbons keep their tag, and the valence tally relies on it (they are outside
-        #      the two-centre formalism).
+        #   ⚠️ The term is **not** limited to `el[x] == "H"`: cage carbons (two or more borons)
+        #      keep their tag, and the valence tally relies on it (they are outside the two-centre
+        #      formalism).
         n_like = 0 if el[x] in MLIKE_EXTRA else sum(1 for y in G[x] if el[y] in MLIKE_EXTRA)
+        # 🔴 **For H · C · Si, a B/Al neighbour is a centre only when X's σ bonds already fill its
+        #   budget** (`deg(X) >= VALENCE_3C[el]`). Then a metal on X can only share one of those σ
+        #   pairs — a 3c2e bridge: the H of B–H···M, a cage carbon, a CH₂ between B and M (the
+        #   contacts `drop_saturated` keeps for their boron). A C or Si with room in its σ framework
+        #   has its other valence in π bonds, and a metal on it takes one of those: its boron is a
+        #   substituent. Counting that boron made an α-boryl carbon on one metal a 3c2e bridge
+        #   whenever its internal orders filled it — and a 3c2e atom is exempt from V1, so the
+        #   detector never offered its contact the cut while the solve still held it to V1
+        #   (Gold-DIGR 10.1039_D1QO01411K: an allene broken to C(−) and Cu(III)).
+        v3 = VALENCE_3C.get(el[x])
+        if n_like and v3 is not None and G.degree(x) < v3:
+            n_like = 0
         n_center = nm + n_like
         if n_center < 2:
             continue

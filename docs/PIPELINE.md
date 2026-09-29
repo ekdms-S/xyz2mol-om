@@ -218,7 +218,9 @@ ranking      candidates within JOINTLOWQ = 0.3 of the best score: the smaller Σ
 - **[T7] bridge tags** — on the chosen orders:
 
   ```
-  n_center(X) = n_ML(X) + (internal neighbours of X that are B · Al; 0 if X is B · Al)
+  n_center(X) = n_ML(X) + (internal neighbours of X that are B · Al; 0 if X is B · Al; for
+                          H · C · Si only when deg(X) ≥ VALENCE_3C[el] — σ bonds full, so the metal
+                          can only share one of them)
   b_use(X)    = b(X) + non-haptic n_ML(X)
   bridge(X) ⟺ n_center ≥ 2
   3c2e(X)   ⟺ bridge AND el ∈ {H, C, Si, B} AND b_use > VALENCE_3C[el] (H 1 · C · Si 4 · B 3)
@@ -226,6 +228,8 @@ ranking      candidates within JOINTLOWQ = 0.3 of the best score: the smaller Σ
 
   μ-H 0+2 > 1 · μ-CH₃ 3+2 > 4 · μ-CO (C≡O) 3+2 > 4 · B–H···M · B–H–B  →  3c2e
   μ-CR₂ 2+2 = 4 · μ-Cl (Cl has no entry)                                →  dative
+  α-boryl C=C on one metal: deg 3 < 4, the C–B is a substituent        →  no tag
+  CH₂ between B and M · cage C: deg ≥ 4, the B counts · 4+1 > 4          →  3c2e
   ```
 
   Output: `ml_bonds[(m,x)]["bridge"]` = None | "3c2e" | "dative"; `["type"]` is haptic > bridge >
