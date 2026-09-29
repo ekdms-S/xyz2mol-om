@@ -15,15 +15,15 @@ orders · `v` number of valence electrons · `λ` = `JOINTQ`, the unit every pen
 
 ## Performance
 
-| task (CSD holdout, 6,396 structures) | F1 / accuracy |
+| task (CSD holdout, 5,995 transition-metal complexes) | F1 / accuracy |
 |---|---|
-| T1 internal bond existence | .9999 |
-| T3 `Single` / `Double` / `Triple` / `Conj` | .9908 / .7946 / .9836 / .9614 |
-| T4 M–L · M–M existence | .9923 |
-| T5 haptic | .9824 |
+| T1 internal bond existence | .99997 |
+| T3 `Single` / `Double` / `Triple` / `Conj` | .9910 / .8044 / .9840 / .9622 |
+| T4 M–L · M–M existence | .9928 |
+| T5 haptic | .9832 |
 | T6 η^k | .9911 |
-| T8 M–L `Single` / `Double` / `Triple` | .9939 / .7641 / .7160 |
-| T10 `Σq_L` · `OS` | .9396 · .9859 |
+| T8 M–L `Single` / `Double` / `Triple` | .9939 / .7645 / .7160 |
+| T10 `Σq_L` · `OS` | .9396 · .9863 |
 | valence-violating structures | 0 |
 
 References, pools and definitions: README `## Performance`.
@@ -86,7 +86,8 @@ dropped from the M–L contacts
                      not metal-like  (μ-H and B–H···M are kept)
   agostic carbon     X = C carrying an H nearer M with d(M,H) < AGOC = 2.0 Å, unless M would keep
                      no bond to that fragment
-  saturated atom     deg(X) ≥ CAP(X), X ∉ {H, B, Al} and no internal neighbour of X is B or Al
+  saturated atom     deg(X) ≥ CAP(X), X ≠ H, no internal neighbour of X is B or Al, and X is not a
+                     B or Al in a boron cage (a borate B with four neighbours takes no M–B bond)
   bound halogen      X ∈ {F, Cl, Br, I} with an internal neighbour and w(M,X) < HALW = 0.30
   bridged boron      M···B when an H on that boron is itself a contact of M and nearer to it
   no pair to give    X has no lone pair on its T1 bonds (§Charge) and d(M,X) > r_cov(M) + r_cov(X);
@@ -297,7 +298,7 @@ violation(X) ⟺ b_kek(X) + n_σ(X) > CAP(X)       X a non-metal
   3c2e-tagged atoms and B are excluded
 ```
 
-The CSD reference labels themselves violate on about 0.4% of structures.
+The CSD reference labels themselves violate on 0.12% of structures.
 
 ---
 

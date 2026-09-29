@@ -15,7 +15,7 @@ It is built to handle organometallics as well, hence the `-om` in the name.
 
 Python ≥ 3.10. The performance numbers below were measured on Python 3.11.15 · rdkit 2025.09.5 ·
 numpy 2.4.6 · networkx 3.6.1 · scipy 1.17.1. With scipy 1.15.3 the program finds no solution for 3
-of the 6,396 holdout structures (`predict` raises).
+of the 5,995 holdout structures (`predict` raises).
 
 ```bash
 conda install -c conda-forge rdkit numpy networkx scipy    # or pip install rdkit numpy networkx scipy
@@ -56,17 +56,17 @@ the status.
 ⚠️ **You may run with `wbo=None`.** The metal contacts then come from distances alone, and the M–L
 orders from the donor charge without Mayer's ranking. **Internal** bond orders, ligand charges and
 oxidation states are essentially unchanged, but which contacts are bonds, and which are haptic,
-degrade (holdout 6,396):
+degrade (holdout 5,995):
 
 | | with `wbo` | without |
 |---|---|---|
-| T4 M–L bond existence | .9923 | .9898 |
-| T8 M–L `Double` | .7641 | .7733 |
-| T5 haptic | .9824 | .9607 |
+| T4 M–L bond existence | .9928 | .9902 |
+| T8 M–L `Double` | .7645 | .7737 |
+| T5 haptic | .9832 | .9612 |
 | T6 η^k | .9911 | .9784 |
-| T3 internal `Double` | .7946 | .7884 |
+| T3 internal `Double` | .8044 | .7980 |
 | T10 `Σq_L` | .9396 | .9386 |
-| T10 `OS` | .9859 | .9863 |
+| T10 `OS` | .9863 | .9867 |
 | **valence-violating structures** | **0%** | **0%** |
 
 ⚠️ When you do pass `wbo`, fill **every** `(metal, atom)` pair. A missing pair is read as
@@ -305,32 +305,33 @@ read_xyz, draw, save_json`. The subpackages are there for reading the code, and 
 
 ## Performance
 
-CSD holdout **6,396 structures** · reference labels: CSD `bond_type`, tmQMg-L `q_ligand`, and the
-roman numeral in the CSD `chemical_name` for the oxidation state. Structures whose references
-contradict each other are left out (397 — e.g. a carbene carbon that carries an H in the
-coordinates, or bond labels that give a different oxidation state than the name).
+CSD holdout **5,995 transition-metal complexes** · reference labels: CSD `bond_type`, tmQMg-L
+`q_ligand`, and the roman numeral in the CSD `chemical_name` for the oxidation state. Left out:
+structures whose references contradict each other (396 — e.g. a carbene carbon that carries an H in
+the coordinates, or bond labels that give a different oxidation state than the name), and structures
+whose GFN2-xTB relaxation made or broke a ligand bond the crystal structure does not have.
 
 ⚠️ Fit and evaluation both use CSD experimental structures **relaxed with GFN2-xTB**.
 Coordinates from another source (raw CSD, DFT, a force field) are off-distribution.
 
 | Task | Metric | Value | Pool |
 |---|---|---|---|
-| T1 ligand internal bond existence | F1 | 0.9999 | 354,906 bonds |
-| T3 internal order `Single` / `Double` / `Triple` / `Conj` | F1 | 0.9908 / 0.7946 / 0.9836 / 0.9614 | 258,236 / 7,912 / 6,024 / 82,662 bonds |
-| T4 M–L · M–M bond existence | F1 | 0.9923 | 51,748 bonds |
-| T5 haptic call | F1 | 0.9824 | 14,584 M–L bonds |
+| T1 ligand internal bond existence | F1 | 0.99997 | 333,190 bonds |
+| T3 internal order `Single` / `Double` / `Triple` / `Conj` | F1 | 0.9910 / 0.8044 / 0.9840 / 0.9622 | 241,179 / 7,478 / 5,975 / 78,536 bonds |
+| T4 M–L · M–M bond existence | F1 | 0.9928 | 51,295 bonds |
+| T5 haptic call | F1 | 0.9832 | 14,391 M–L bonds |
 | T6 η^k (exact match per ligand) | accuracy | 0.9911 | 4,037 ligands |
-| T8 M–L order `Single` / `Double` / `Triple` | F1 | 0.9939 / 0.7641 / 0.7160 | 34,367 / 1,093 / 155 bonds |
+| T8 M–L order `Single` / `Double` / `Triple` | F1 | 0.9939 / 0.7645 / 0.7160 | 34,188 / 1,092 / 155 bonds |
 | T10 ligand charge `Σq_L` (exact match per structure) | accuracy | 0.9396 | 1,043 structures |
-| T10 metal oxidation state `OS` (exact match per structure) | accuracy | 0.9859 | 2,486 structures |
+| T10 metal oxidation state `OS` (exact match per structure) | accuracy | 0.9863 | 2,485 structures |
 
 The pool differs per task because the references do: `bond_type` covers every structure, the
 `Σq_L` pool is the structures whose metal-bound ligands tmQMg-L covers completely, and the `OS`
 pool those whose name gives a single oxidation state.
 
-**`Double` in context.** The CSD labels a `Double` either inside a conjugated system (7,310 bonds)
-or on its own (602). A conjugated `Double` is right when it comes out `Conj` or as a Kekulé `2`:
-0.9703. An isolated `Double` scores F1 0.7461 — most of the remainder are bonds whose length points
+**`Double` in context.** The CSD labels a `Double` either inside a conjugated system (6,896 bonds)
+or on its own (582). A conjugated `Double` is right when it comes out `Conj` or as a Kekulé `2`:
+0.9785. An isolated `Double` scores F1 0.7511 — most of the remainder are bonds whose length points
 at another drawing of the same group than the label's (a bridging CO, whose `C–O` sits at triple
 length, is written `C≡O`; an N-bound thiocyanate `N≡C–S⁻`, not `N=C=S`).
 
@@ -338,7 +339,7 @@ length, is written `C≡O`; an N-bound thiocyanate `N≡C–S⁻`, not `N=C=S`).
 
 A structure violates when a non-metal X has `b_int(X) + n_σ(X) > CAP(X)`: `b_int` is the Kekulé
 bond-order sum, `n_σ(X)` = number of non-haptic M–L bonds of X. `B` and 3c2e bridging atoms are
-excluded. **No holdout structure violates**; the CSD reference labels themselves violate on 0.4%
+excluded. **No holdout structure violates**; the CSD reference labels themselves violate on 0.12%
 of structures.
 
 ## ⚠️ Limits
